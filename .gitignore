@@ -13,3 +13,5 @@ cmake-build-*/
 *.swo
 *~
 
+# Third-party dependencies
+vendor/

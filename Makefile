@@ -11,7 +11,128 @@ QEMU    := qemu-system-x86_64
 GDB     := gdb
 XORRISO := xorriso
 
-.PHONY: check-toolchain clean
+BUILD_DIR := build
+
+KERNEL_SRC := kernel/kernel.c
+KERNEL_OBJ := $(BUILD_DIR)/kernel.o
+KERNEL_ELF := $(BUILD_DIR)/kernel.elf
+LINKER_SCRIPT := kernel/linker.ld
+
+LIMINE_DIR := vendor/limine
+LIMINE_EFI := $(LIMINE_DIR)/BOOTX64.EFI
+LIMINE_UEFI_CD := $(LIMINE_DIR)/limine-uefi-cd.bin
+LIMINE_VERSION_FILE := $(LIMINE_DIR)/VERSION
+LIMINE_FETCH_SCRIPT := scripts/fetch-limine.sh
+
+ISO_ROOT := $(BUILD_DIR)/iso-root
+ISO_IMAGE := $(BUILD_DIR)/myos.iso
+
+ISO_KERNEL := $(ISO_ROOT)/boot/kernel.elf
+ISO_LIMINE_CONF := $(ISO_ROOT)/limine.conf
+ISO_BOOTX64 := $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
+ISO_LIMINE_UEFI_CD := $(ISO_ROOT)/limine-uefi-cd.bin
+
+QEMU_FIRMWARE := $(shell brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd
+
+TARGET := x86_64-unknown-none-elf
+
+CFLAGS := \
+	--target=$(TARGET) \
+	-ffreestanding \
+	-fno-stack-protector \
+	-fno-common \
+	-mno-red-zone \
+	-mcmodel=kernel \
+	-Wall \
+	-Wextra \
+	-Werror \
+	-Wpedantic
+
+LDFLAGS := \
+	-T $(LINKER_SCRIPT)
+
+.PHONY: limine
+
+limine: $(LIMINE_EFI) $(LIMINE_UEFI_CD)
+
+$(LIMINE_EFI) $(LIMINE_UEFI_CD): $(LIMINE_FETCH_SCRIPT)
+	./$(LIMINE_FETCH_SCRIPT)
+
+.PHONY: all check-toolchain clean
+
+all: $(KERNEL_ELF)
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(KERNEL_ELF): $(KERNEL_OBJ) $(LINKER_SCRIPT)
+	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJ)
+
+.PHONY: iso
+
+iso: $(ISO_IMAGE)
+
+$(ISO_ROOT):
+	mkdir -p $(ISO_ROOT)/boot
+	mkdir -p $(ISO_ROOT)/EFI/BOOT
+
+$(ISO_KERNEL): $(KERNEL_ELF) | $(ISO_ROOT)
+	cp $(KERNEL_ELF) $(ISO_KERNEL)
+
+$(ISO_LIMINE_CONF): limine.conf | $(ISO_ROOT)
+	cp limine.conf $(ISO_LIMINE_CONF)
+
+$(ISO_BOOTX64): $(LIMINE_EFI) | $(ISO_ROOT)
+	cp $(LIMINE_EFI) $(ISO_BOOTX64)
+
+$(ISO_LIMINE_UEFI_CD): $(LIMINE_UEFI_CD) | $(ISO_ROOT)
+	cp $(LIMINE_UEFI_CD) $(ISO_LIMINE_UEFI_CD)
+
+$(ISO_IMAGE): \
+	$(ISO_KERNEL) \
+	$(ISO_LIMINE_CONF) \
+	$(ISO_BOOTX64) \
+	$(ISO_LIMINE_UEFI_CD)
+	$(XORRISO) \
+		-as mkisofs \
+		-R -r -J \
+		-b limine-uefi-cd.bin \
+		-no-emul-boot \
+		-o $(ISO_IMAGE) \
+		$(ISO_ROOT)
+
+.PHONY: run
+
+run: $(ISO_IMAGE)
+	$(QEMU) \
+		-machine q35 \
+		-cpu qemu64 \
+		-m 256M \
+		-smp 1 \
+		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
+		-cdrom $(ISO_IMAGE) \
+		-boot d \
+		-no-reboot \
+		-no-shutdown
+
+.PHONY: debug
+
+debug: $(ISO_IMAGE)
+	$(QEMU) \
+		-machine q35 \
+		-cpu qemu64 \
+		-m 256M \
+		-smp 1 \
+		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
+		-cdrom $(ISO_IMAGE) \
+		-boot d \
+		-no-reboot \
+		-no-shutdown \
+		-S \
+		-gdb tcp::1234
 
 check-toolchain:
 	@echo "=== Checking MyOS toolchain ==="
