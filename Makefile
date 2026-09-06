@@ -1,5 +1,12 @@
+.DEFAULT_GOAL := all
+
+# -----------------------------------------------------------------------------
+# Toolchain
+# -----------------------------------------------------------------------------
+
 LLVM_PREFIX := $(shell brew --prefix llvm@21 2>/dev/null)
 LLD_PREFIX  := $(shell brew --prefix lld@21 2>/dev/null)
+QEMU_PREFIX := $(shell brew --prefix qemu 2>/dev/null)
 
 CLANG        := $(LLVM_PREFIX)/bin/clang
 LD_LLD       := $(LLD_PREFIX)/bin/ld.lld
@@ -10,29 +17,6 @@ LLVM_NM      := $(LLVM_PREFIX)/bin/llvm-nm
 QEMU    := qemu-system-x86_64
 GDB     := gdb
 XORRISO := xorriso
-
-BUILD_DIR := build
-
-KERNEL_SRC := kernel/kernel.c
-KERNEL_OBJ := $(BUILD_DIR)/kernel.o
-KERNEL_ELF := $(BUILD_DIR)/kernel.elf
-LINKER_SCRIPT := kernel/linker.ld
-
-LIMINE_DIR := vendor/limine
-LIMINE_EFI := $(LIMINE_DIR)/BOOTX64.EFI
-LIMINE_UEFI_CD := $(LIMINE_DIR)/limine-uefi-cd.bin
-LIMINE_VERSION_FILE := $(LIMINE_DIR)/VERSION
-LIMINE_FETCH_SCRIPT := scripts/fetch-limine.sh
-
-ISO_ROOT := $(BUILD_DIR)/iso-root
-ISO_IMAGE := $(BUILD_DIR)/myos.iso
-
-ISO_KERNEL := $(ISO_ROOT)/boot/kernel.elf
-ISO_LIMINE_CONF := $(ISO_ROOT)/limine.conf
-ISO_BOOTX64 := $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
-ISO_LIMINE_UEFI_CD := $(ISO_ROOT)/limine-uefi-cd.bin
-
-QEMU_FIRMWARE := $(shell brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd
 
 TARGET := x86_64-unknown-none-elf
 
@@ -48,8 +32,51 @@ CFLAGS := \
 	-Werror \
 	-Wpedantic
 
+# -----------------------------------------------------------------------------
+# Build paths
+# -----------------------------------------------------------------------------
+
+BUILD_DIR := build
+
+# -----------------------------------------------------------------------------
+# Kernel
+# -----------------------------------------------------------------------------
+
+KERNEL_ELF := $(BUILD_DIR)/kernel.elf
+
+KERNEL_OBJS := \
+	$(BUILD_DIR)/kernel.o \
+	$(BUILD_DIR)/serial.o
+
+LINKER_SCRIPT := kernel/linker.ld
+
 LDFLAGS := \
 	-T $(LINKER_SCRIPT)
+
+.PHONY: all
+
+all: $(KERNEL_ELF)
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/kernel.o: kernel/kernel.c | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/serial.o: kernel/arch/x86_64/serial.c | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
+	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJS)
+
+# -----------------------------------------------------------------------------
+# Limine
+# -----------------------------------------------------------------------------
+
+LIMINE_DIR          := vendor/limine
+LIMINE_EFI          := $(LIMINE_DIR)/BOOTX64.EFI
+LIMINE_UEFI_CD      := $(LIMINE_DIR)/limine-uefi-cd.bin
+LIMINE_FETCH_SCRIPT := scripts/fetch-limine.sh
 
 .PHONY: limine
 
@@ -58,18 +85,16 @@ limine: $(LIMINE_EFI) $(LIMINE_UEFI_CD)
 $(LIMINE_EFI) $(LIMINE_UEFI_CD): $(LIMINE_FETCH_SCRIPT)
 	./$(LIMINE_FETCH_SCRIPT)
 
-.PHONY: all check-toolchain clean
+# -----------------------------------------------------------------------------
+# ISO image
+# -----------------------------------------------------------------------------
 
-all: $(KERNEL_ELF)
-
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
-
-$(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(KERNEL_ELF): $(KERNEL_OBJ) $(LINKER_SCRIPT)
-	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJ)
+ISO_ROOT          := $(BUILD_DIR)/iso-root
+ISO_IMAGE         := $(BUILD_DIR)/myos.iso
+ISO_KERNEL        := $(ISO_ROOT)/boot/kernel.elf
+ISO_LIMINE_CONF   := $(ISO_ROOT)/limine.conf
+ISO_BOOTX64       := $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
+ISO_LIMINE_UEFI_CD := $(ISO_ROOT)/limine-uefi-cd.bin
 
 .PHONY: iso
 
@@ -104,7 +129,13 @@ $(ISO_IMAGE): \
 		-o $(ISO_IMAGE) \
 		$(ISO_ROOT)
 
-.PHONY: run
+# -----------------------------------------------------------------------------
+# QEMU
+# -----------------------------------------------------------------------------
+
+QEMU_FIRMWARE := $(QEMU_PREFIX)/share/qemu/edk2-x86_64-code.fd
+
+.PHONY: run debug
 
 run: $(ISO_IMAGE)
 	$(QEMU) \
@@ -116,9 +147,8 @@ run: $(ISO_IMAGE)
 		-cdrom $(ISO_IMAGE) \
 		-boot d \
 		-no-reboot \
-		-no-shutdown
-
-.PHONY: debug
+		-no-shutdown \
+		-serial stdio
 
 debug: $(ISO_IMAGE)
 	$(QEMU) \
@@ -133,6 +163,12 @@ debug: $(ISO_IMAGE)
 		-no-shutdown \
 		-S \
 		-gdb tcp::1234
+
+# -----------------------------------------------------------------------------
+# Toolchain validation
+# -----------------------------------------------------------------------------
+
+.PHONY: check-toolchain
 
 check-toolchain:
 	@echo "=== Checking MyOS toolchain ==="
@@ -173,5 +209,11 @@ check-toolchain:
 	@echo
 	@echo "Toolchain OK."
 
+# -----------------------------------------------------------------------------
+# Cleanup
+# -----------------------------------------------------------------------------
+
+.PHONY: clean
+
 clean:
-	rm -rf build
+	rm -rf $(BUILD_DIR)
