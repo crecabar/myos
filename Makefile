@@ -62,6 +62,7 @@ KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 
 KERNEL_OBJS := \
 	$(BUILD_DIR)/kernel.o \
+	$(BUILD_DIR)/boot.o \
 	$(BUILD_DIR)/serial.o \
 	$(BUILD_DIR)/framebuffer.o \
 	$(BUILD_DIR)/font8x8.o \
@@ -69,8 +70,13 @@ KERNEL_OBJS := \
 	$(BUILD_DIR)/interrupts.o \
 	$(BUILD_DIR)/idt.o \
 	$(BUILD_DIR)/diagnostics.o \
+	$(BUILD_DIR)/runtime.o \
 	$(BUILD_DIR)/format.o \
-	$(BUILD_DIR)/paging.o
+	$(BUILD_DIR)/paging.o \
+	$(BUILD_DIR)/panic.o \
+	$(BUILD_DIR)/display.o \
+	$(BUILD_DIR)/arch.o \
+	$(BUILD_DIR)/memory.o
 
 LINKER_SCRIPT := kernel/linker.ld
 
@@ -86,10 +92,15 @@ $(BUILD_DIR):
 
 $(BUILD_DIR)/kernel.o: \
 	kernel/kernel.c \
+	kernel/arch/x86_64/arch.h \
+	kernel/arch/x86_64/paging.h \
 	kernel/arch/x86_64/serial.h \
-	kernel/drivers/framebuffer.h \
+	kernel/boot/boot.h \
 	kernel/console/console.h \
-	$(LIMINE_HEADER) | $(BUILD_DIR)
+	kernel/core/panic.h \
+	kernel/drivers/framebuffer.h \
+	kernel/memory/memory.h \
+	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/serial.o: \
@@ -135,6 +146,13 @@ $(BUILD_DIR)/diagnostics.o: \
 	kernel/arch/x86_64/serial.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/runtime.o: \
+	kernel/diagnostics/runtime.c \
+	kernel/diagnostics/runtime.h \
+	kernel/core/panic.h \
+	kernel/arch/x86_64/paging.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/format.o: \
 	kernel/format/format.c \
 	kernel/format/format.h | $(BUILD_DIR)
@@ -145,6 +163,38 @@ $(BUILD_DIR)/paging.o: \
 	kernel/arch/x86_64/paging.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/panic.o: \
+	kernel/core/panic.c \
+	kernel/core/panic.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/boot.o: \
+	kernel/boot/limine.c \
+	kernel/boot/boot.h \
+	kernel/core/panic.h \
+	$(LIMINE_HEADER) | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/display.o: \
+	kernel/init/display.c \
+	kernel/init/display.h \
+	kernel/console/console.h \
+	kernel/drivers/framebuffer.h \
+	kernel/diagnostics/diagnostics.h \
+	kernel/core/panic.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/arch.o: \
+	kernel/arch/x86_64/arch.c \
+	kernel/arch/x86_64/arch.h \
+	kernel/arch/x86_64/idt.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/memory.o: \
+	kernel/memory/memory.c \
+	kernel/memory/memory.h \
+	kernel/core/panic.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
 	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJS)

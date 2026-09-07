@@ -9,7 +9,7 @@
 #include <limine.h>
 
 struct console {
-    struct limine_framebuffer *framebuffer;
+    struct framebuffer *framebuffer;
 
     uint64_t origin_x;
     uint64_t origin_y;
@@ -23,7 +23,7 @@ struct console {
 
 void console_init(
     struct console *console,
-    struct limine_framebuffer *framebuffer,
+    struct framebuffer *framebuffer,
     uint64_t x,
     uint64_t y,
     uint32_t foreground,

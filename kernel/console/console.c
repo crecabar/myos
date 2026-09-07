@@ -20,7 +20,7 @@ static void console_format_putc(char character,void *context);
 
 void console_init(
     struct console *console,
-    struct limine_framebuffer *framebuffer,
+    struct framebuffer *framebuffer,
     uint64_t x,
     uint64_t y,
     uint32_t foreground,
@@ -210,7 +210,7 @@ static void console_scroll(struct console *console)
     uint64_t line_height =
         FONT_HEIGHT * console->scale + console->scale;
 
-    struct limine_framebuffer *framebuffer =
+    struct framebuffer *framebuffer =
         console->framebuffer;
 
     uint8_t *base =

@@ -6,6 +6,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define PAGE_ADDRESS_MASK_4K  0x000ffffffffff000ULL
+#define PAGE_ADDRESS_MASK_2M  0x000fffffffe00000ULL
+#define PAGE_ADDRESS_MASK_1G  0x000fffffc0000000ULL
+
 #define PAGE_ENTRY_PRESENT  (1ULL << 0)
 #define PAGE_ENTRY_WRITABLE (1ULL << 1)
 #define PAGE_ENTRY_USER     (1ULL << 2)
@@ -41,7 +45,6 @@ uint16_t paging_page_offset(uint64_t virtual_address);
 
 bool paging_translate(
     uint64_t virtual_address,
-    uint64_t hhdm_offset,
     struct paging_translation *translation
 );
 

@@ -6,7 +6,7 @@
 #include "framebuffer.h"
 
 void framebuffer_put_pixel(
-    struct limine_framebuffer *framebuffer,
+    struct framebuffer *framebuffer,
     uint64_t x,
     uint64_t y,
     uint32_t color)
@@ -22,7 +22,7 @@ void framebuffer_put_pixel(
 }
 
 void framebuffer_fill_rect(
-    struct limine_framebuffer *framebuffer,
+    struct framebuffer *framebuffer,
     uint64_t x,
     uint64_t y,
     uint64_t width,
@@ -42,7 +42,7 @@ void framebuffer_fill_rect(
 }
 
 uint32_t framebuffer_make_color(
-    struct limine_framebuffer *framebuffer,
+    const struct framebuffer *framebuffer,
     uint8_t red,
     uint8_t green,
     uint8_t blue)
@@ -54,12 +54,12 @@ uint32_t framebuffer_make_color(
 }
 
 void framebuffer_draw_glyph(
-    struct limine_framebuffer *framebuffer,
+    struct framebuffer *framebuffer,
     uint64_t x,
     uint64_t y,
-    const uint8_t glyph[8],
+    const uint8_t *glyph,
     uint32_t color,
-    uint64_t scale)
+    uint32_t scale)
 {
     for (uint64_t row = 0; row < 8; ++row) {
         for (uint64_t column = 0; column < 8; ++column) {
