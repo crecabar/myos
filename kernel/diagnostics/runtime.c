@@ -8,6 +8,8 @@
 
 #include <stdint.h>
 
+#include "../memory/memory.h"
+
 extern char __kernel_start[];
 extern char __kernel_end[];
 
@@ -106,4 +108,8 @@ void runtime_diagnostics_dump(void)
         translation.pd_entry,
         translation.pt_entry
     );
+
+    memory_dump_map();
+
+    memory_dump_usable_frames();
 }

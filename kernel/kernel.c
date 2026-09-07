@@ -30,7 +30,11 @@ _Noreturn void kernel_main(void)
      */
     struct boot_info boot_info;
     boot_init(&boot_info);
-    memory_init(boot_info.direct_map_offset);
+    memory_init(
+        boot_info.direct_map_offset,
+        boot_info.memory_regions,
+        boot_info.memory_region_count
+        );
 
     diagnostics_write("Framebuffer ready\n");
 
