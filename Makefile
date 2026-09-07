@@ -18,6 +18,19 @@ QEMU    := qemu-system-x86_64
 GDB     := gdb
 XORRISO := xorriso
 
+# -----------------------------------------------------------------------------
+# Third-party dependencies
+# -----------------------------------------------------------------------------
+
+LIMINE_DIR          := vendor/limine
+LIMINE_EFI          := $(LIMINE_DIR)/BOOTX64.EFI
+LIMINE_UEFI_CD      := $(LIMINE_DIR)/limine-uefi-cd.bin
+LIMINE_FETCH_SCRIPT := scripts/fetch-limine.sh
+
+LIMINE_PROTOCOL_DIR          := vendor/limine-protocol
+LIMINE_HEADER                := $(LIMINE_PROTOCOL_DIR)/limine.h
+LIMINE_PROTOCOL_FETCH_SCRIPT := scripts/fetch-limine-protocol.sh
+
 TARGET := x86_64-unknown-none-elf
 
 CFLAGS := \
@@ -27,6 +40,9 @@ CFLAGS := \
 	-fno-common \
 	-mno-red-zone \
 	-mcmodel=kernel \
+	-O0 \
+	-g \
+	-I$(LIMINE_PROTOCOL_DIR) \
 	-Wall \
 	-Wextra \
 	-Werror \
@@ -46,7 +62,14 @@ KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 
 KERNEL_OBJS := \
 	$(BUILD_DIR)/kernel.o \
-	$(BUILD_DIR)/serial.o
+	$(BUILD_DIR)/serial.o \
+	$(BUILD_DIR)/framebuffer.o \
+	$(BUILD_DIR)/font8x8.o \
+	$(BUILD_DIR)/console.o \
+	$(BUILD_DIR)/interrupts.o \
+	$(BUILD_DIR)/idt.o \
+	$(BUILD_DIR)/diagnostics.o \
+	$(BUILD_DIR)/format.o
 
 LINKER_SCRIPT := kernel/linker.ld
 
@@ -60,10 +83,60 @@ all: $(KERNEL_ELF)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/kernel.o: kernel/kernel.c | $(BUILD_DIR)
+$(BUILD_DIR)/kernel.o: \
+	kernel/kernel.c \
+	kernel/arch/x86_64/serial.h \
+	kernel/drivers/framebuffer.h \
+	kernel/console/console.h \
+	$(LIMINE_HEADER) | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/serial.o: kernel/arch/x86_64/serial.c | $(BUILD_DIR)
+$(BUILD_DIR)/serial.o: \
+	kernel/arch/x86_64/serial.c \
+	kernel/arch/x86_64/serial.h \
+	kernel/arch/x86_64/io.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/framebuffer.o: \
+	kernel/drivers/framebuffer.c \
+	kernel/drivers/framebuffer.h \
+	kernel/font/font8x8.h \
+	$(LIMINE_HEADER) | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/font8x8.o: \
+	kernel/font/font8x8.c \
+	kernel/font/font8x8.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/console.o: \
+	kernel/console/console.c \
+	kernel/console/console.h \
+	kernel/drivers/framebuffer.h \
+	kernel/font/font8x8.h \
+	$(LIMINE_HEADER) | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/interrupts.o: \
+	kernel/arch/x86_64/interrupts.S | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/idt.o: \
+	kernel/arch/x86_64/idt.c \
+	kernel/arch/x86_64/idt.h \
+	kernel/arch/x86_64/serial.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/diagnostics.o: \
+	kernel/diagnostics/diagnostics.c \
+	kernel/diagnostics/diagnostics.h \
+	kernel/console/console.h \
+	kernel/arch/x86_64/serial.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/format.o: \
+	kernel/format/format.c \
+	kernel/format/format.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
@@ -73,17 +146,19 @@ $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
 # Limine
 # -----------------------------------------------------------------------------
 
-LIMINE_DIR          := vendor/limine
-LIMINE_EFI          := $(LIMINE_DIR)/BOOTX64.EFI
-LIMINE_UEFI_CD      := $(LIMINE_DIR)/limine-uefi-cd.bin
-LIMINE_FETCH_SCRIPT := scripts/fetch-limine.sh
-
 .PHONY: limine
 
 limine: $(LIMINE_EFI) $(LIMINE_UEFI_CD)
 
 $(LIMINE_EFI) $(LIMINE_UEFI_CD): $(LIMINE_FETCH_SCRIPT)
 	./$(LIMINE_FETCH_SCRIPT)
+
+.PHONY: limine-protocol
+
+limine-protocol: $(LIMINE_HEADER)
+
+$(LIMINE_HEADER): $(LIMINE_PROTOCOL_FETCH_SCRIPT)
+	./$(LIMINE_PROTOCOL_FETCH_SCRIPT)
 
 # -----------------------------------------------------------------------------
 # ISO image

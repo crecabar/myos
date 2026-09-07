@@ -26,17 +26,13 @@ void serial_init(void)
 
 void serial_write_char(char character)
 {
-    if (character == '\n') {
-        while (!serial_can_transmit()) {
-        }
-
-        outb(COM1_PORT, '\r');
-    }
-
     while (!serial_can_transmit()) {
     }
 
-    outb(COM1_PORT, (uint8_t) character);
+    outb(
+        COM1_PORT,
+        (uint8_t) character
+    );
 }
 
 void serial_write_string(const char *string)
