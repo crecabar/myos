@@ -5,19 +5,43 @@
 .global isr_divide_error
 .type isr_divide_error, @function
 
-.extern divide_error_handler
+.extern exception_handler
 
 isr_divide_error:
     /*
-     * CPU already pushed:
+     * #DE does not push an error code.
      *
+     * Normalize the frame:
+     *   vector = 0
+     *   error_code = 0
+     */
+    pushq $0
+    pushq $0
+
+    jmp isr_common
+
+.global isr_page_fault
+.type isr_page_fault, @function
+
+isr_page_fault:
+    /*
+     * #PF already pushes an error code.
+     *
+     * CPU stack on entry:
+     *
+     *   error_code
      *   RIP
      *   CS
      *   RFLAGS
      *
-     * Save general-purpose registers.
+     * We only need to prepend the vector.
      */
+    pushq $14
+    jmp isr_common
 
+.size isr_page_fault, . - isr_page_fault
+
+isr_common:
     pushq %rax
     pushq %rbx
     pushq %rcx
@@ -43,12 +67,11 @@ isr_divide_error:
     cld
 
     /*
-     * Handler is fatal for now, so we do not need to restore
-     * the original stack afterwards.
+     * Fatal handler for now: no iretq path yet.
      */
     andq $-16, %rsp
 
-    call divide_error_handler
+    call exception_handler
 
 1:
     hlt

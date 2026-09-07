@@ -8,7 +8,16 @@
 
 #define IDT_ENTRIES 256
 
+enum x86_exception_vector {
+    X86_EXCEPTION_DIVIDE_ERROR = 0,
+    X86_EXCEPTION_PAGE_FAULT = 14,
+};
+
 extern void isr_divide_error(void);
+extern void isr_page_fault(void);
+
+static uint64_t read_cr2(void);
+static void page_fault_dump(const struct interrupt_context *context);
 
 struct idt_entry {
     uint16_t offset_low;
@@ -87,6 +96,13 @@ void idt_init(void)
         0x8E
     );
 
+    idt_set_gate(
+        14,
+        (uint64_t) isr_page_fault,
+        code_selector,
+        0x8E
+    );
+
     struct idt_descriptor descriptor = {
         .limit = (uint16_t) (sizeof(idt) - 1),
         .base = (uint64_t) idt,
@@ -99,14 +115,47 @@ void idt_init(void)
     );
 }
 
-_Noreturn void divide_error_handler(
-    const struct interrupt_context *context)
+static uint64_t read_cr2(void)
 {
-    diagnostics_write(
-        "\nEXCEPTION: divide error (#DE, vector 0)\n"
+    uint64_t value;
+
+    __asm__ volatile (
+        "mov %%cr2, %0"
+        : "=r"(value)
     );
 
+    return value;
+}
+
+static void page_fault_dump(
+    const struct interrupt_context *context)
+{
+    uint64_t error = context->error_code;
+
     diagnostics_printf(
+        "Page fault details:\n"
+        "  Address=%x\n"
+        "  Present=%s\n"
+        "  Access=%s\n"
+        "  Mode=%s\n"
+        "  Reserved=%s\n"
+        "  Instruction=%s\n",
+        read_cr2(),
+        (error & (1ULL << 0)) ? "yes" : "no",
+        (error & (1ULL << 1)) ? "write" : "read",
+        (error & (1ULL << 2)) ? "user" : "supervisor",
+        (error & (1ULL << 3)) ? "violation" : "no",
+        (error & (1ULL << 4)) ? "yes" : "no"
+    );
+}
+
+_Noreturn void exception_handler(
+    const struct interrupt_context *context)
+{
+    diagnostics_printf(
+        "\n*** CPU EXCEPTION ***\n"
+        "Vector=%u\n"
+        "Error=%x\n"
         "RIP=%x\n"
         "RAX=%x\n"
         "RBX=%x\n"
@@ -114,6 +163,8 @@ _Noreturn void divide_error_handler(
         "RDX=%x\n"
         "CS=%x\n"
         "RFLAGS=%x\n",
+        context->vector,
+        context->error_code,
         context->rip,
         context->rax,
         context->rbx,
@@ -122,6 +173,10 @@ _Noreturn void divide_error_handler(
         context->cs,
         context->rflags
     );
+
+    if (context->vector == X86_EXCEPTION_PAGE_FAULT) {
+        page_fault_dump(context);
+    }
 
     for (;;) {
         __asm__ volatile ("hlt");

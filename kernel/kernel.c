@@ -8,6 +8,7 @@
 
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/idt.h"
+#include "arch/x86_64/paging.h"
 #include "drivers/framebuffer.h"
 #include "console/console.h"
 #include "diagnostics/diagnostics.h"
@@ -26,6 +27,13 @@ static volatile uint64_t limine_base_revision[] =
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_framebuffer_request framebuffer_request = {
     .id = LIMINE_FRAMEBUFFER_REQUEST_ID,
+    .revision = 0,
+    .response = NULL,
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_hhdm_request hhdm_request = {
+    .id = LIMINE_HHDM_REQUEST_ID,
     .revision = 0,
     .response = NULL,
 };
@@ -97,6 +105,14 @@ _Noreturn void kernel_main(void)
         );
     }
 
+    if (hhdm_request.response == NULL) {
+        kernel_panic(
+            "HHDM unavailable"
+        );
+    }
+
+    uint64_t hhdm_offset = hhdm_request.response->offset;
+
     struct limine_framebuffer_response *response =
         framebuffer_request.response;
 
@@ -134,17 +150,10 @@ _Noreturn void kernel_main(void)
     /*
      * Phase 3: Initialize graphical diagnostics.
      */
-    uint32_t red =
-        framebuffer_make_color(framebuffer, 255, 0, 0);
-
-    uint32_t green =
-        framebuffer_make_color(framebuffer, 0, 255, 0);
-
-    uint32_t blue =
-        framebuffer_make_color(framebuffer, 0, 0, 255);
-
-    uint32_t white =
-        framebuffer_make_color(framebuffer, 255, 255, 255);
+    uint32_t red = framebuffer_make_color(framebuffer, 255, 0, 0);
+    uint32_t green = framebuffer_make_color(framebuffer, 0, 255, 0);
+    uint32_t blue = framebuffer_make_color(framebuffer, 0, 0, 255);
+    uint32_t white = framebuffer_make_color(framebuffer, 255, 255, 255);
 
     framebuffer_fill_rect(
         framebuffer,
@@ -201,9 +210,7 @@ _Noreturn void kernel_main(void)
      * Phase 5: Runtime diagnostics / temporary tests.
      */
     uintptr_t kernel_start = (uintptr_t) __kernel_start;
-
     uintptr_t kernel_end = (uintptr_t) __kernel_end;
-
     uint64_t kernel_size = (uint64_t) (kernel_end - kernel_start);
 
     diagnostics_printf(
@@ -227,18 +234,28 @@ _Noreturn void kernel_main(void)
         (uint64_t) cs
     );
 
-    diagnostics_write(
-        "Triggering divide error...\n"
-    );
+    struct paging_translation translation;
+    uint64_t virtual_address = (uint64_t) kernel_start;
 
-    __asm__ volatile (
-        "xor %%rdx, %%rdx\n"
-        "mov $1, %%rax\n"
-        "xor %%rcx, %%rcx\n"
-        "divq %%rcx\n"
-        :
-        :
-        : "rax", "rcx", "rdx"
+    if (!paging_translate(virtual_address, hhdm_offset, &translation)) {
+        diagnostics_write("Unable to translate kernel address\n");
+        kernel_halt();
+    }
+
+    diagnostics_printf(
+        "Paging translation:\n"
+        "  VA=%x\n"
+        "  PA=%x\n"
+        "  PML4E=%x\n"
+        "  PDPTE=%x\n"
+        "  PDE=%x\n"
+        "  PTE=%x\n",
+        virtual_address,
+        translation.physical_address,
+        translation.pml4_entry,
+        translation.pdpt_entry,
+        translation.pd_entry,
+        translation.pt_entry
     );
 
     kernel_halt();

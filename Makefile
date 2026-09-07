@@ -69,7 +69,8 @@ KERNEL_OBJS := \
 	$(BUILD_DIR)/interrupts.o \
 	$(BUILD_DIR)/idt.o \
 	$(BUILD_DIR)/diagnostics.o \
-	$(BUILD_DIR)/format.o
+	$(BUILD_DIR)/format.o \
+	$(BUILD_DIR)/paging.o
 
 LINKER_SCRIPT := kernel/linker.ld
 
@@ -138,6 +139,12 @@ $(BUILD_DIR)/format.o: \
 	kernel/format/format.c \
 	kernel/format/format.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/paging.o: \
+	kernel/arch/x86_64/paging.c \
+	kernel/arch/x86_64/paging.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
 	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJS)
