@@ -27,8 +27,8 @@ struct memory_region {
 
 void memory_init(
     uint64_t offset,
-    const struct memory_region *regions,
-    size_t region_count
+    const struct memory_region *memory_regions,
+    size_t memory_region_count
 );
 
 void *memory_physical_to_virtual(uint64_t physical_address);
