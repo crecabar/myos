@@ -32,6 +32,11 @@ struct paging_translation {
     uint64_t pt_entry;
 };
 
+struct paging_address_space {
+    uint64_t pml4_physical;
+    uint64_t *pml4_virtual;
+};
+
 uint64_t paging_entry_address(uint64_t entry);
 
 uint64_t paging_read_cr3(void);
@@ -43,9 +48,40 @@ uint16_t paging_pt_index(uint64_t virtual_address);
 
 uint16_t paging_page_offset(uint64_t virtual_address);
 
-bool paging_translate(
+bool paging_translate(uint64_t virtual_address, struct paging_translation *translation);
+
+bool paging_translate_address_space(
+    const struct paging_address_space *address_space,
     uint64_t virtual_address,
     struct paging_translation *translation
 );
+
+bool paging_create_empty_table(uint64_t *physical_address, uint64_t **virtual_address);
+
+bool paging_address_space_create(struct paging_address_space *address_space);
+
+bool paging_address_space_destroy(struct paging_address_space *address_space);
+
+bool paging_address_space_create_with_kernel(
+    struct paging_address_space *address_space
+);
+
+bool paging_map_page(
+    struct paging_address_space *address_space,
+    uint64_t virtual_address,
+    uint64_t physical_address,
+    bool writable,
+    bool user
+);
+
+bool paging_unmap_page(
+    struct paging_address_space *address_space,
+    uint64_t virtual_address,
+    uint64_t *physical_address
+);
+
+uint64_t paging_make_table_entry(uint64_t table_physical_address, bool writable, bool user);
+
+uint64_t paging_make_page_entry(uint64_t page_physical_address, bool writable, bool user);
 
 #endif

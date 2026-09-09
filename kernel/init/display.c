@@ -34,8 +34,8 @@ void display_init(
     console_init(
         &display->console,
         framebuffer,
-        20,
-        20,
+        8,
+        4,
         white,
         2
     );

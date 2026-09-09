@@ -14,50 +14,36 @@
 
 _Noreturn void kernel_main(void)
 {
-    /*
-     * Phase 1: Early diagnostics.
-     *
-     * Serial is our only reliable output channel at this point.
-     */
     serial_init();
     diagnostics_init();
 
     diagnostics_write("\x1b[2J\x1b[H");
     diagnostics_write(MYOS_VERSION_STRING"\n\n");
 
-    /*
-     * Phase 2: Boot environment.
-     */
     struct boot_info boot_info;
     boot_init(&boot_info);
+
+    diagnostics_write("[boot] Environment initialized\n");
+
     memory_init(
         boot_info.direct_map_offset,
         boot_info.memory_regions,
         boot_info.memory_region_count
         );
 
-    diagnostics_write("Framebuffer ready\n");
+    memory_dump_summary();
 
-    /*
-     * Phase 3: Graphical diagnostics.
-     */
     struct kernel_display display;
     display_init(&display, &boot_info.framebuffer);
 
-    diagnostics_write(MYOS_VERSION_STRING "\n\n");
+    diagnostics_write("[display] Console initialized\n");
 
-    /*
-     * Phase 4: Initialize CPU architecture facilities.
-     *
-     * From here on, exceptions handled by our IDT can also
-     * report through the graphical console.
-     */
     arch_init();
-    diagnostics_write("Architecture initialized\n");
+    diagnostics_write("[arch] x86-64 initialized\n");
 
-    /*
-     * Phase 5: Runtime diagnostics.
-     */
+    diagnostics_write("[kernel] Initialization complete\n");
+
+    /* RUNTIME DIAGNOSTICS */
     runtime_diagnostics_dump();
 
     kernel_halt();

@@ -278,6 +278,9 @@ run: $(ISO_IMAGE)
 		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
 		-cdrom $(ISO_IMAGE) \
 		-boot d \
+		-vga none \
+        -device VGA,edid=on,xres=1920,yres=1200 \
+        -display cocoa,show-cursor=on \
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio
@@ -295,6 +298,29 @@ debug: $(ISO_IMAGE)
 		-no-shutdown \
 		-S \
 		-gdb tcp::1234
+
+# -----------------------------------------------------------------------------
+# Snapshot of current repository status
+# -----------------------------------------------------------------------------
+
+.PHONY: snapshot
+
+PROJECT_NAME := $(notdir $(CURDIR))
+SNAPSHOT_TIMESTAMP := $(shell date +%Y%m%d-%H%M%S)
+SNAPSHOT_FILE := ../$(PROJECT_NAME)-snapshot-$(SNAPSHOT_TIMESTAMP).tar.gz
+
+snapshot:
+	@echo "Creating project snapshot..."
+	@tar \
+		--exclude='$(PROJECT_NAME)/.git' \
+		--exclude='$(PROJECT_NAME)/build' \
+		--exclude='$(PROJECT_NAME)/vendor' \
+		-czf "$(SNAPSHOT_FILE)" \
+		-C .. "$(PROJECT_NAME)"
+	@echo
+	@echo "Snapshot created:"
+	@echo "  $(SNAPSHOT_FILE)"
+	@du -h "$(SNAPSHOT_FILE)"
 
 # -----------------------------------------------------------------------------
 # Toolchain validation

@@ -23,6 +23,8 @@ static uint64_t frame_bitmap_physical;
 static size_t frame_bitmap_size;
 static uint64_t managed_frame_count;
 
+static uint64_t next_free_frame_hint;
+
 /* Helpers and private functions */
 static uint64_t memory_highest_usable_address(void);
 static const char *memory_region_type_name(enum memory_region_type type);
@@ -80,23 +82,8 @@ void memory_init(
 
     uint64_t bitmap_end = frame_bitmap_physical + bitmap_frame_count * MEMORY_FRAME_SIZE;
     frame_bitmap_mark_range_used(frame_bitmap_physical, bitmap_end);
-    uint64_t free_frame_count = frame_bitmap_count_free();
 
-    diagnostics_printf(
-        "Physical frame bitmap sizing:\n"
-        "  managed frames=%u\n"
-        "  bitmap bytes=%u\n"
-        "  bitmap frames=%u\n"
-        "  bitmap PA=%x\n"
-        "  bitmap VA=%x\n"
-        "  free frames=%u\n",
-        managed_frame_count,
-        (uint64_t) frame_bitmap_size,
-        bitmap_frame_count,
-        frame_bitmap_physical,
-        (uint64_t) frame_bitmap,
-        free_frame_count
-    );
+    next_free_frame_hint = MEMORY_BITMAP_MIN_ADDRESS / MEMORY_FRAME_SIZE;
 
     memory_initialized = true;
 }
@@ -110,47 +97,74 @@ void *memory_physical_to_virtual(uint64_t physical_address)
     return direct_map_physical_address(physical_address);
 }
 
-static const char *memory_region_type_name(enum memory_region_type type)
+bool physical_alloc_frame(uint64_t *physical_address)
 {
-    switch (type) {
-        case MEMORY_REGION_USABLE:
-            return "usable";
-
-        case MEMORY_REGION_RESERVED:
-            return "reserved";
-
-        case MEMORY_REGION_ACPI_RECLAIMABLE:
-            return "acpi-reclaimable";
-
-        case MEMORY_REGION_ACPI_NVS:
-            return "acpi-nvs";
-
-        case MEMORY_REGION_BAD_MEMORY:
-            return "bad-memory";
-
-        case MEMORY_REGION_BOOTLOADER_RECLAIMABLE:
-            return "bootloader-reclaimable";
-
-        case MEMORY_REGION_KERNEL:
-            return "kernel";
-
-        case MEMORY_REGION_FRAMEBUFFER:
-            return "framebuffer";
+    if (!memory_initialized) {
+        kernel_panic("Memory subsystem not initialized");
     }
 
-    return "unknown";
+    if (physical_address == NULL) {
+        kernel_panic("physical_alloc_frame received NULL physical_address");
+    }
+
+    for (uint64_t frame = next_free_frame_hint; frame < managed_frame_count; ++frame) {
+        if (frame_bitmap_is_used(frame)) {
+            continue;
+        }
+
+        frame_bitmap_set(frame, true);
+        *physical_address = frame * MEMORY_FRAME_SIZE;
+        next_free_frame_hint = frame + 1;
+
+        if (next_free_frame_hint >= managed_frame_count) {
+            next_free_frame_hint = 0;
+        }
+
+        return true;
+    }
+
+    for (uint64_t frame = 0; frame < next_free_frame_hint; ++frame) {
+        if (frame_bitmap_is_used(frame)) {
+            continue;
+        }
+
+        frame_bitmap_set(frame, true);
+        *physical_address = frame * MEMORY_FRAME_SIZE;
+        next_free_frame_hint = frame + 1;
+
+        return true;
+    }
+
+    return false;
 }
 
-static uint64_t align_up(uint64_t value, uint64_t alignment)
+bool physical_free_frame(uint64_t physical_address)
 {
-    return (
-        value + alignment - 1
-    ) & ~(alignment - 1);
-}
+    if (!memory_initialized) {
+        kernel_panic("Memory subsystem not initialized");
+    }
 
-static uint64_t align_down(uint64_t value, uint64_t alignment)
-{
-    return value & ~(alignment - 1);
+    if ((physical_address % MEMORY_FRAME_SIZE) != 0) {
+        kernel_panic("Physical address is not frame-aligned");
+    }
+
+    uint64_t frame_number = physical_address / MEMORY_FRAME_SIZE;
+
+    if (frame_number >= managed_frame_count) {
+        kernel_panic("Physical frame exceeds bitmap capacity");
+    }
+
+    if (!frame_bitmap_is_used(frame_number)) {
+        kernel_panic("Physical frame already free");
+    }
+
+    frame_bitmap_set(frame_number, false);
+
+    if (frame_number < next_free_frame_hint) {
+        next_free_frame_hint = frame_number;
+    }
+
+    return true;
 }
 
 void memory_dump_map(void)
@@ -186,6 +200,25 @@ void memory_dump_map(void)
             memory_region_type_name(region->type)
         );
     }
+}
+
+void memory_dump_physical_allocator(void)
+{
+    if (!memory_initialized) {
+        kernel_panic("Memory subsystem not initialized");
+    }
+
+    uint64_t free_frames = frame_bitmap_count_free();
+
+    diagnostics_printf(
+        "Physical memory allocator:\n"
+        "  managed frames=%u\n"
+        "  free frames=%u\n"
+        "  used frames=%u\n",
+        managed_frame_count,
+        free_frames,
+        managed_frame_count - free_frames
+    );
 }
 
 void memory_dump_usable_frames(void)
@@ -257,6 +290,73 @@ void memory_dump_usable_frames(void)
         total_frames,
         total_frames * MEMORY_FRAME_SIZE
     );
+}
+
+void memory_dump_summary(void)
+{
+    if (!memory_initialized) {
+        kernel_panic("Memory subsystem not initialized");
+    }
+
+    uint64_t free_frames = frame_bitmap_count_free();
+
+    diagnostics_printf(
+        "[memory] %u free / %u managed frames\n",
+        free_frames,
+        managed_frame_count
+    );
+}
+
+uint64_t physical_free_frame_count(void)
+{
+    if (!memory_initialized) {
+        kernel_panic("Memory subsystem not initialized");
+    }
+
+    return frame_bitmap_count_free();
+}
+
+static const char *memory_region_type_name(enum memory_region_type type)
+{
+    switch (type) {
+        case MEMORY_REGION_USABLE:
+            return "usable";
+
+        case MEMORY_REGION_RESERVED:
+            return "reserved";
+
+        case MEMORY_REGION_ACPI_RECLAIMABLE:
+            return "acpi-reclaimable";
+
+        case MEMORY_REGION_ACPI_NVS:
+            return "acpi-nvs";
+
+        case MEMORY_REGION_BAD_MEMORY:
+            return "bad-memory";
+
+        case MEMORY_REGION_BOOTLOADER_RECLAIMABLE:
+            return "bootloader-reclaimable";
+
+        case MEMORY_REGION_KERNEL:
+            return "kernel";
+
+        case MEMORY_REGION_FRAMEBUFFER:
+            return "framebuffer";
+    }
+
+    return "unknown";
+}
+
+static uint64_t align_up(uint64_t value, uint64_t alignment)
+{
+    return (
+        value + alignment - 1
+    ) & ~(alignment - 1);
+}
+
+static uint64_t align_down(uint64_t value, uint64_t alignment)
+{
+    return value & ~(alignment - 1);
 }
 
 static uint64_t memory_highest_usable_address(void)

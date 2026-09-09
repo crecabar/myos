@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define MEMORY_FRAME_SIZE 4096ULL
 
@@ -33,8 +34,18 @@ void memory_init(
 
 void *memory_physical_to_virtual(uint64_t physical_address);
 
+bool physical_alloc_frame(uint64_t *physical_address);
+
+bool physical_free_frame(uint64_t physical_address);
+
 void memory_dump_map(void);
 
+void memory_dump_physical_allocator(void);
+
 void memory_dump_usable_frames(void);
+
+void memory_dump_summary(void);
+
+uint64_t physical_free_frame_count(void);
 
 #endif
