@@ -28,7 +28,7 @@ CPU count:    1
 Kernel model: small monolithic kernel
 ```
 
-Development currently takes place on an ARM64 macOS host, so the project is cross-compiled from the beginning.
+The kernel is built as a freestanding x86-64 target and does not depend on the development host architecture.
 
 ## Project philosophy
 
@@ -50,7 +50,7 @@ Simple implementations are preferred before sophisticated ones.
 
 Examples:
 
-- a bump allocator before a complex allocator;
+- a simple physical frame allocator before a general heap allocator;
 - round-robin scheduling before advanced priorities;
 - a simple filesystem before ext2;
 - a small custom shell before Bash;
@@ -59,34 +59,115 @@ Examples:
 
 ## Current status
 
-The project is currently in:
+MyOS has moved beyond initial bootstrapping and is currently building its memory-management foundation.
+
+The current boot sequence is able to initialize the boot environment, physical memory manager, framebuffer console, architecture support, and runtime diagnostics:
 
 ```text
-Milestone 0 — Toolchain and reproducible environment
+MyOS 0.1
+
+[boot] Environment initialized
+[memory] physical memory initialized
+[display] Console initialized
+[arch] x86-64 initialized
+[kernel] Initialization complete
 ```
 
-The current objective is to establish a reproducible development workflow capable of:
+Implemented foundations currently include:
+
+- UEFI boot through Limine;
+- higher-half ELF64 kernel entry;
+- serial diagnostics;
+- framebuffer console output;
+- centralized diagnostics and formatting;
+- kernel panic and halt support;
+- x86-64 IDT initialization;
+- exception diagnostics for divide errors and page faults;
+- CR3 and page-table introspection;
+- 4 KiB, 2 MiB, and 1 GiB page translation inspection;
+- boot memory-map normalization into MyOS-owned structures;
+- higher-half direct-map abstraction;
+- physical-frame bitmap management;
+- physical frame allocation and release;
+- MyOS-owned page-table allocation;
+- page-table entry construction;
+- page-address-space creation;
+- virtual-to-physical page mapping through a reusable paging API.
+
+MyOS currently allocates only regions marked usable by the bootloader. Regions marked `bootloader-reclaimable` remain reserved until the kernel can prove that no required Limine-owned structures are still referenced.
+
+The active address space is still the one prepared by Limine. MyOS can already construct complete independent x86-64 page-table hierarchies outside the active CR3 and map 4 KiB virtual pages into them, but it does not yet switch CR3 to a MyOS-owned address space.
+
+## Development milestones
+
+### Milestone 0 — Toolchain and reproducible environment ✅
+
+Completed:
+
+- compiler and linker setup;
+- ELF inspection tools;
+- GNU Make build system;
+- linker script;
+- Limine/UEFI boot integration;
+- bootable image generation;
+- QEMU execution;
+- GDB remote debugging.
+
+### Milestone 1 — First owned kernel code ✅
+
+Completed:
+
+- enter freestanding C kernel code;
+- establish early serial diagnostics;
+- produce observable kernel output;
+- halt safely under kernel control.
+
+The original milestone target was deliberately small:
 
 ```text
-source
-  |
-  v
-x86-64 freestanding object files
-  |
-  v
-kernel ELF
-  |
-  v
-bootable image
-  |
-  v
-QEMU
-  |
-  v
-GDB
+Hello from kernel
 ```
 
-No kernel functionality is implemented yet.
+The kernel has since progressed well beyond this point.
+
+### Milestone 2 — Architecture and diagnostics foundation ✅
+
+Completed:
+
+- framebuffer-backed console;
+- diagnostics fan-out to serial and framebuffer sinks;
+- reusable formatting layer;
+- architecture initialization boundary;
+- 256-entry x86-64 IDT;
+- normalized exception frames;
+- divide-error and page-fault diagnostics;
+- kernel panic path;
+- paging introspection and virtual-address translation diagnostics.
+
+### Milestone 3 — Physical and virtual memory management 🚧
+
+In progress.
+
+Completed so far:
+
+- normalize Limine memory-map regions into MyOS-owned types;
+- isolate direct-map translation from bootloader-specific APIs;
+- identify and count usable physical frames;
+- create a self-reserving physical-frame bitmap;
+- allocate and release 4 KiB physical frames;
+- allocate zeroed page-table frames;
+- construct x86-64 table and page entries;
+- create independent address spaces with their own PML4 root;
+- construct complete PML4 → PDPT → PD → PT → page hierarchies;
+- map a 4 KiB virtual page to an arbitrary physical frame with `paging_map_page()`.
+
+Next work in this milestone includes:
+
+- unmapping pages;
+- explicit page-permission handling and validation;
+- lifecycle management for page-table structures;
+- activating a MyOS-owned address space through CR3;
+- reclaiming bootloader-reclaimable memory when it is safe to do so.
 
 ## Toolchain
 
@@ -102,33 +183,27 @@ Detailed toolchain notes are available in:
 docs/toolchain.md
 ```
 
-## Near-term milestones
+## Longer-term direction
 
-The first two milestones are intentionally small.
-
-### Milestone 0
-
-Prepare:
-
-- compiler;
-- linker;
-- ELF inspection tools;
-- Makefile;
-- linker script;
-- Limine/UEFI boot integration;
-- bootable image generation;
-- QEMU execution;
-- GDB remote debugging.
-
-### Milestone 1
-
-Reach the first owned C code running as a kernel and produce an observable result:
+Once the memory-management foundation is stable, the project will continue toward:
 
 ```text
-Hello from kernel
+kernel-owned virtual memory
+        ↓
+process address spaces
+        ↓
+scheduler and context switching
+        ↓
+userspace transition
+        ↓
+system calls
+        ↓
+filesystem and libc
+        ↓
+small Unix-style userland
 ```
 
-Nothing beyond that belongs in the first kernel milestone.
+Each stage will continue to be developed in small, observable, and independently verifiable steps.
 
 ## License
 
