@@ -37,9 +37,15 @@ struct paging_address_space {
     uint64_t *pml4_virtual;
 };
 
+bool paging_init(void);
+
 uint64_t paging_entry_address(uint64_t entry);
 
+struct paging_address_space *paging_kernel_address_space(void);
+
 uint64_t paging_read_cr3(void);
+
+void paging_invalidate_page(uint64_t virtual_address);
 
 uint16_t paging_pml4_index(uint64_t virtual_address);
 uint16_t paging_pdpt_index(uint64_t virtual_address);
@@ -54,6 +60,10 @@ bool paging_translate_address_space(
     const struct paging_address_space *address_space,
     uint64_t virtual_address,
     struct paging_translation *translation
+);
+
+bool paging_address_space_activate(
+    const struct paging_address_space *address_space
 );
 
 bool paging_create_empty_table(uint64_t *physical_address, uint64_t **virtual_address);

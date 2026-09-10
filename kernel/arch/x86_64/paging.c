@@ -10,7 +10,12 @@
 #define PAGING_TABLE_ENTRY_COUNT 512
 #define PAGING_PML4_KERNEL_START 256
 
+static struct paging_address_space kernel_address_space;
+static bool paging_initialized;
+
 /* PRIVATE HELPERS */
+static void paging_write_cr3(uint64_t physical_address);
+
 static bool paging_get_or_create_table(
     uint64_t *parent_table,
     uint16_t index,
@@ -19,12 +24,44 @@ static bool paging_get_or_create_table(
 );
 static bool paging_table_is_empty(const uint64_t *table);
 
+static bool paging_address_space_private_half_is_empty(
+    const struct paging_address_space *address_space
+);
+
 static bool paging_translate_from_pml4(
-    uint64_t *pml4,
+    const uint64_t *pml4,
     uint64_t virtual_address,
     struct paging_translation *translation
 );
 /* END PRIVATE HELPERS */
+
+bool paging_init(void)
+{
+    if (paging_initialized) return false;
+
+    if (!paging_address_space_create_with_kernel(&kernel_address_space)) {
+        return false;
+    }
+
+    paging_write_cr3(kernel_address_space.pml4_physical);
+
+    uint64_t active_cr3 = paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
+
+    if (active_cr3 != kernel_address_space.pml4_physical) {
+        return false;
+    }
+
+    paging_initialized = true;
+
+    return true;
+}
+
+struct paging_address_space *paging_kernel_address_space(void)
+{
+    if (!paging_initialized) return NULL;
+
+    return &kernel_address_space;
+}
 
 uint64_t paging_entry_address(uint64_t entry)
 {
@@ -41,6 +78,16 @@ uint64_t paging_read_cr3(void)
     );
 
     return value;
+}
+
+void paging_invalidate_page(uint64_t virtual_address)
+{
+    __asm__ volatile (
+        "invlpg (%0)"
+        :
+        : "r"(virtual_address)
+        : "memory"
+    );
 }
 
 uint16_t paging_pml4_index(uint64_t virtual_address)
@@ -108,6 +155,18 @@ bool paging_translate_address_space(
     );
 }
 
+bool paging_address_space_activate(
+    const struct paging_address_space *address_space)
+{
+    if (address_space == NULL) return false;
+    if (address_space->pml4_virtual == NULL) return false;
+    if ((address_space->pml4_physical & 0xfffULL) != 0) return false;
+
+    paging_write_cr3(address_space->pml4_physical);
+
+    return true;
+}
+
 bool paging_create_empty_table(uint64_t *physical_address, uint64_t **virtual_address)
 {
     if (physical_address == NULL) {
@@ -158,7 +217,7 @@ bool paging_address_space_destroy(struct paging_address_space *address_space)
     if (address_space == NULL) return false;
     if (address_space->pml4_virtual == NULL) return false;
 
-    if (!paging_table_is_empty(address_space->pml4_virtual)) {
+    if (!paging_address_space_private_half_is_empty(address_space)) {
         return false;
     }
 
@@ -361,6 +420,16 @@ uint64_t paging_make_page_entry(uint64_t page_physical_address, bool writable, b
     return entry;
 }
 
+static void paging_write_cr3(uint64_t physical_address)
+{
+    __asm__ volatile (
+        "mov %0, %%cr3"
+        :
+        : "r"(physical_address)
+        : "memory"
+    );
+}
+
 static bool paging_get_or_create_table(
     uint64_t *parent_table,
     uint16_t index,
@@ -415,11 +484,36 @@ static bool paging_table_is_empty(const uint64_t *table)
     return true;
 }
 
+static bool paging_address_space_private_half_is_empty(
+    const struct paging_address_space *address_space)
+{
+    if (address_space == NULL) return false;
+    if (address_space->pml4_virtual == NULL) return false;
+
+    for (size_t index = 0; index < PAGING_PML4_KERNEL_START; ++index) {
+        if ((address_space->pml4_virtual[index] & PAGE_ENTRY_PRESENT) != 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool paging_translate_from_pml4(
-    uint64_t *pml4,
+    const uint64_t *pml4,
     uint64_t virtual_address,
-    struct paging_translation *translation
-) {
+    struct paging_translation *translation)
+{
+    if (pml4 == NULL) return false;
+    if (translation == NULL) return false;
+
+    translation->physical_address = 0;
+    translation->page_size = PAGING_PAGE_SIZE_4K;
+    translation->pml4_entry = 0;
+    translation->pdpt_entry = 0;
+    translation->pd_entry = 0;
+    translation->pt_entry = 0;
+
     uint64_t pml4_entry = pml4[paging_pml4_index(virtual_address)];
     translation->pml4_entry = pml4_entry;
 
@@ -428,7 +522,7 @@ static bool paging_translate_from_pml4(
     }
 
     uint64_t pdpt_physical = paging_entry_address(pml4_entry);
-    uint64_t *pdpt = memory_physical_to_virtual(pdpt_physical);
+    const uint64_t *pdpt = memory_physical_to_virtual(pdpt_physical);
     uint64_t pdpt_entry = pdpt[paging_pdpt_index(virtual_address)];
     translation->pdpt_entry = pdpt_entry;
 
@@ -439,6 +533,7 @@ static bool paging_translate_from_pml4(
     if ((pdpt_entry & PAGE_ENTRY_HUGE) != 0) {
         uint64_t page_physical = pdpt_entry & PAGE_ADDRESS_MASK_1G;
         uint64_t offset = virtual_address & ((1ULL << 30) - 1);
+
         translation->physical_address = page_physical + offset;
         translation->page_size = PAGING_PAGE_SIZE_1G;
 
@@ -446,7 +541,7 @@ static bool paging_translate_from_pml4(
     }
 
     uint64_t pd_physical = paging_entry_address(pdpt_entry);
-    uint64_t *pd = memory_physical_to_virtual(pd_physical);
+    const uint64_t *pd = memory_physical_to_virtual(pd_physical);
     uint64_t pd_entry = pd[paging_pd_index(virtual_address)];
     translation->pd_entry = pd_entry;
 
@@ -457,6 +552,7 @@ static bool paging_translate_from_pml4(
     if ((pd_entry & PAGE_ENTRY_HUGE) != 0) {
         uint64_t page_physical = pd_entry & PAGE_ADDRESS_MASK_2M;
         uint64_t offset = virtual_address & ((1ULL << 21) - 1);
+
         translation->physical_address = page_physical + offset;
         translation->page_size = PAGING_PAGE_SIZE_2M;
 
@@ -464,7 +560,7 @@ static bool paging_translate_from_pml4(
     }
 
     uint64_t pt_physical = paging_entry_address(pd_entry);
-    uint64_t *pt = memory_physical_to_virtual(pt_physical);
+    const uint64_t *pt = memory_physical_to_virtual(pt_physical);
     uint64_t pt_entry = pt[paging_pt_index(virtual_address)];
     translation->pt_entry = pt_entry;
 
@@ -474,6 +570,7 @@ static bool paging_translate_from_pml4(
 
     uint64_t page_physical = paging_entry_address(pt_entry);
     uint64_t offset = paging_page_offset(virtual_address);
+
     translation->physical_address = page_physical + offset;
     translation->page_size = PAGING_PAGE_SIZE_4K;
 

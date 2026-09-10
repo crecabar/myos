@@ -4,6 +4,7 @@
 
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/arch.h"
+#include "arch/x86_64/paging.h"
 #include "boot/boot.h"
 #include "core/panic.h"
 #include "diagnostics/diagnostics.h"
@@ -33,6 +34,12 @@ _Noreturn void kernel_main(void)
 
     memory_dump_summary();
 
+    if (!paging_init()) {
+        kernel_panic("Unable to initialize paging");
+    }
+
+    diagnostics_write("[paging] MyOS address space active\n");
+
     struct kernel_display display;
     display_init(&display, &boot_info.framebuffer);
 
@@ -44,7 +51,9 @@ _Noreturn void kernel_main(void)
     diagnostics_write("[kernel] Initialization complete\n");
 
     /* RUNTIME DIAGNOSTICS */
+    diagnostics_write("[kernel] Test and diagnostics\n");
     runtime_diagnostics_dump();
+    diagnostics_write("[kernel] Test and diagnostics ended\n");
 
     kernel_halt();
 }

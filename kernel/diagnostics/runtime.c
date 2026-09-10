@@ -15,12 +15,15 @@ extern char __kernel_end[];
 
 /* Helpers and private functions */
 static uint16_t read_cs(void);
+static uint64_t read_rsp(void);
 static void dump_page_size(enum paging_page_size page_size);
 static void runtime_dump_kernel_layout(void);
 static void runtime_dump_paging(void);
 static void runtime_test_page_table_chain(void);
 static void runtime_test_kernel_address_space(void);
-static uint64_t read_rsp(void);
+static void runtime_test_active_page_mapping(void);
+static void runtime_test_kernel_aware_address_space_destroy(void);
+static void runtime_test_process_like_address_space(void);
 /* END HELPERS */
 
 void runtime_diagnostics_dump(void)
@@ -39,6 +42,15 @@ void runtime_diagnostics_dump(void)
 
     diagnostics_write("\n--- Kernel address space experiment ---\n");
     runtime_test_kernel_address_space();
+
+    diagnostics_write("\n--- Test active page mapping ---\n");
+    runtime_test_active_page_mapping();
+
+    diagnostics_write("\n--- Address space ownership test ---\n");
+    runtime_test_kernel_aware_address_space_destroy();
+
+    diagnostics_write("\n--- Process-like address space test ---\n");
+    runtime_test_process_like_address_space();
 }
 
 static uint16_t read_cs(void)
@@ -398,5 +410,270 @@ static void runtime_test_kernel_address_space(void)
         inherited_stack_translation.physical_address,
         direct_map_virtual_address,
         inherited_direct_map_translation.physical_address
+    );
+}
+
+static void runtime_test_active_page_mapping(void)
+{
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (kernel_space == NULL) {
+        kernel_panic("Kernel address space unavailable");
+    }
+
+    uint64_t physical_address;
+
+    if (!physical_alloc_frame(&physical_address)) {
+        kernel_panic("Unable to allocate active mapping test frame");
+    }
+
+    uint64_t virtual_address = 0x0000000040000000ULL;
+
+    struct paging_translation translation;
+
+    if (paging_translate(virtual_address, &translation)) {
+        kernel_panic("Active mapping test VA is already mapped");
+    }
+
+    if (!paging_map_page(
+        (struct paging_address_space *) kernel_space,
+        virtual_address,
+        physical_address,
+        true,
+        false)) {
+        kernel_panic("Unable to map page into active address space");
+    }
+
+    paging_invalidate_page(virtual_address);
+
+    volatile uint64_t *mapped_value = (volatile uint64_t *) virtual_address;
+
+    *mapped_value = 0xAABBCCDDEEFF0011ULL;
+
+    if (*mapped_value != 0xAABBCCDDEEFF0011ULL) {
+        kernel_panic("Active virtual mapping returned wrong data");
+    }
+
+    uint64_t *direct_map_value = memory_physical_to_virtual(physical_address);
+
+    if (direct_map_value[0] != 0xAABBCCDDEEFF0011ULL) {
+        kernel_panic("Active mapping does not reference expected physical frame");
+    }
+
+    uint64_t unmapped_physical;
+    uint64_t observed_value = *mapped_value;
+
+    if (!paging_unmap_page(
+        kernel_space,
+        virtual_address,
+        &unmapped_physical
+    )) {
+        kernel_panic("Unable to unmap active test page");
+    }
+
+    paging_invalidate_page(virtual_address);
+
+    if (unmapped_physical != physical_address) {
+        kernel_panic("Active unmap returned wrong physical frame");
+    }
+
+    if (!physical_free_frame(unmapped_physical)) {
+        kernel_panic("Unable to free active mapping test frame");
+    }
+
+    diagnostics_printf(
+        "Active page mapping test:\n"
+        "  VA=%x\n"
+        "  PA=%x\n"
+        "  value=%x\n"
+        "  unmapped PA=%x\n"
+        "  mapping lifecycle complete\n",
+        virtual_address,
+        physical_address,
+        observed_value,
+        unmapped_physical
+    );
+}
+
+static void runtime_test_kernel_aware_address_space_destroy(void)
+{
+    uint64_t free_before = physical_free_frame_count();
+
+    struct paging_address_space address_space;
+
+    if (!paging_address_space_create_with_kernel(&address_space)) {
+        kernel_panic("Unable to create kernel-aware destroy test address space");
+    }
+
+    uint64_t free_after_create = physical_free_frame_count();
+
+    if (free_after_create != free_before - 1) {
+        kernel_panic("Kernel-aware address space allocated unexpected frame count");
+    }
+
+    uint64_t kernel_virtual_address = (uint64_t) __kernel_start;
+    uint16_t kernel_pml4_index = paging_pml4_index(kernel_virtual_address);
+
+    if ((address_space.pml4_virtual[kernel_pml4_index] & PAGE_ENTRY_PRESENT) == 0) {
+        kernel_panic("Kernel mapping missing before address space destroy");
+    }
+
+    if (!paging_address_space_destroy(&address_space)) {
+        kernel_panic("Unable to destroy kernel-aware address space");
+    }
+
+    uint64_t free_after_destroy = physical_free_frame_count();
+
+    if (free_after_destroy != free_before) {
+        kernel_panic("Kernel-aware address space root was not reclaimed");
+    }
+
+    diagnostics_printf(
+        "Kernel-aware address space destroy test:\n"
+        "  kernel PML4 index=%u\n"
+        "  free before=%u\n"
+        "  free after create=%u\n"
+        "  free after destroy=%u\n",
+        (uint64_t) kernel_pml4_index,
+        free_before,
+        free_after_create,
+        free_after_destroy
+    );
+}
+
+static void runtime_test_process_like_address_space(void) {
+    uint64_t free_before = physical_free_frame_count();
+
+    struct paging_address_space address_space;
+
+    if (!paging_address_space_create_with_kernel(&address_space)) {
+        kernel_panic("Unable to create process-like address space");
+    }
+
+    uint64_t data_physical;
+
+    if (!physical_alloc_frame(&data_physical)) {
+        kernel_panic("Unable to allocate process-like data frame");
+    }
+
+    uint64_t test_virtual_address = 0x0000000040203000ULL;
+
+    if (!paging_map_page(
+        &address_space,
+        test_virtual_address,
+        data_physical,
+        true,
+        true
+    )) {
+        kernel_panic("Unable to map process-like user page");
+    }
+
+    uint64_t free_after_mapping = physical_free_frame_count();
+
+    if (free_after_mapping != free_before - 5) {
+        kernel_panic("Process-like mapping allocated unexpected frame count");
+    }
+
+    struct paging_translation translation;
+
+    if (!paging_translate_address_space(
+        &address_space,
+        test_virtual_address,
+        &translation
+    )) {
+        kernel_panic("Unable to translate process-like user page");
+    }
+
+    if (translation.physical_address != data_physical) {
+        kernel_panic("Process-like mapping resolved wrong physical frame");
+    }
+
+    if ((translation.pml4_entry & PAGE_ENTRY_USER) == 0) {
+        kernel_panic("Process-like PML4 entry is not user accessible");
+    }
+
+    if ((translation.pdpt_entry & PAGE_ENTRY_USER) == 0) {
+        kernel_panic("Process-like PDPT entry is not user accessible");
+    }
+
+    if ((translation.pd_entry & PAGE_ENTRY_USER) == 0) {
+        kernel_panic("Process-like PD entry is not user accessible");
+    }
+
+    if ((translation.pt_entry & PAGE_ENTRY_USER) == 0) {
+        kernel_panic("Process-like PT entry is not user accessible");
+    }
+
+    if ((translation.pt_entry & PAGE_ENTRY_WRITABLE) == 0) {
+        kernel_panic("Process-like user page is not writable");
+    }
+
+    uint64_t unmapped_physical;
+
+    if (!paging_unmap_page(
+        &address_space,
+        test_virtual_address,
+        &unmapped_physical
+    )) {
+        kernel_panic("Unable to unmap process-like user page");
+    }
+
+    if (unmapped_physical != data_physical) {
+        kernel_panic("Process-like unmap returned wrong physical frame");
+    }
+
+    uint64_t free_after_unmap = physical_free_frame_count();
+
+    if (free_after_unmap != free_before - 2) {
+        kernel_panic("Process-like page tables were not reclaimed");
+    }
+
+    if (!physical_free_frame(unmapped_physical)) {
+        kernel_panic("Unable to release process-like data frame");
+    }
+
+    uint64_t free_after_data_free = physical_free_frame_count();
+
+    if (free_after_data_free != free_before - 1) {
+        kernel_panic("Process-like data frame was not reclaimed");
+    }
+
+    if (!paging_address_space_destroy(&address_space)) {
+        kernel_panic("Unable to destroy process-like address space");
+    }
+
+    uint64_t free_after_destroy = physical_free_frame_count();
+
+    if (free_after_destroy != free_before) {
+        kernel_panic("Process-like address space leaked physical frames");
+    }
+
+    diagnostics_printf(
+        "Process-like address space lifecycle test:\n"
+        "  user VA=%x\n"
+        "  data PA=%x\n"
+        "  resolved PA=%x\n"
+        "  PML4E=%x\n"
+        "  PDPTE=%x\n"
+        "  PDE=%x\n"
+        "  PTE=%x\n"
+        "  free before=%u\n"
+        "  free after mapping=%u\n"
+        "  free after unmap=%u\n"
+        "  free after data free=%u\n"
+        "  free after destroy=%u\n",
+        test_virtual_address,
+        data_physical,
+        translation.physical_address,
+        translation.pml4_entry,
+        translation.pdpt_entry,
+        translation.pd_entry,
+        translation.pt_entry,
+        free_before,
+        free_after_mapping,
+        free_after_unmap,
+        free_after_data_free,
+        free_after_destroy
     );
 }
