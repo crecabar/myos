@@ -18,12 +18,14 @@
 #define PAGE_ADDRESS_MASK_2M  0x000fffffffe00000ULL
 #define PAGE_ADDRESS_MASK_1G  0x000fffffc0000000ULL
 
-#define PAGE_ENTRY_PRESENT    (1ULL << 0)
-#define PAGE_ENTRY_WRITABLE   (1ULL << 1)
-#define PAGE_ENTRY_USER       (1ULL << 2)
-#define PAGE_ENTRY_ACCESSED   (1ULL << 5)
-#define PAGE_ENTRY_HUGE       (1ULL << 7)
-#define PAGE_ENTRY_NO_EXECUTE (1ULL << 63)
+#define PAGE_ENTRY_PRESENT       (1ULL << 0)
+#define PAGE_ENTRY_WRITABLE      (1ULL << 1)
+#define PAGE_ENTRY_USER          (1ULL << 2)
+#define PAGE_ENTRY_WRITE_THROUGH (1ULL << 3)
+#define PAGE_ENTRY_CACHE_DISABLE (1ULL << 4)
+#define PAGE_ENTRY_ACCESSED      (1ULL << 5)
+#define PAGE_ENTRY_HUGE          (1ULL << 7)
+#define PAGE_ENTRY_NO_EXECUTE    (1ULL << 63)
 
 enum paging_page_size {
     PAGING_PAGE_SIZE_4K,
@@ -146,6 +148,22 @@ bool paging_map_page(
     bool writable,
     bool user,
     bool executable
+);
+
+/**
+ * Maps one physical MMIO page into the kernel direct-map region.
+ *
+ * The mapping is supervisor-only, writable, and configured for uncached
+ * device access.
+ *
+ * @param physical_address 4 KiB-aligned physical MMIO page address.
+ * @param virtual_address Receives the kernel virtual address of the mapping.
+ *
+ * @return true when the MMIO page is available to the kernel; false otherwise.
+ */
+bool paging_map_mmio_page(
+    uint64_t physical_address,
+    volatile void **virtual_address
 );
 
 /**

@@ -29,6 +29,18 @@ static bool paging_get_or_create_table(
     uint64_t **child_table
 );
 
+static bool paging_map_page_flags(
+    struct paging_address_space *address_space,
+    uint64_t virtual_address,
+    uint64_t physical_address,
+    uint64_t flags
+);
+
+static uint64_t paging_make_page_entry_flags(
+    uint64_t physical_address,
+    uint64_t flags
+);
+
 static bool paging_table_is_empty(const uint64_t *table);
 
 static bool paging_address_space_private_half_is_empty(
@@ -273,11 +285,41 @@ bool paging_map_page(
     bool user,
     bool executable)
 {
+    uint64_t flags = 0;
+
+    if (writable) {
+        flags |= PAGE_ENTRY_WRITABLE;
+    }
+
+    if (user) {
+        flags |= PAGE_ENTRY_USER;
+    }
+
+    if (!executable) {
+        flags |= PAGE_ENTRY_NO_EXECUTE;
+    }
+
+    return paging_map_page_flags(
+        address_space,
+        virtual_address,
+        physical_address,
+        flags
+    );
+}
+
+static bool paging_map_page_flags(
+    struct paging_address_space *address_space,
+    uint64_t virtual_address,
+    uint64_t physical_address,
+    uint64_t flags)
+{
     if (address_space == NULL) return false;
     if (address_space->pml4_virtual == NULL) return false;
 
     if ((virtual_address & 0xfffULL) != 0) return false;
     if ((physical_address & 0xfffULL) != 0) return false;
+
+    bool user = (flags & PAGE_ENTRY_USER) != 0;
 
     uint16_t pml4_index = paging_pml4_index(virtual_address);
     uint16_t pdpt_index = paging_pdpt_index(virtual_address);
@@ -321,12 +363,48 @@ bool paging_map_page(
         return false;
     }
 
-    pt[pt_index] = paging_make_page_entry(
+    pt[pt_index] = paging_make_page_entry_flags(
         physical_address,
-        writable,
-        user,
-        executable
+        flags
     );
+
+    return true;
+}
+
+bool paging_map_mmio_page(
+    uint64_t physical_address,
+    volatile void **virtual_address)
+{
+    if (virtual_address == NULL) return false;
+
+    if ((physical_address & 0xFFFULL) != 0) {
+        return false;
+    }
+
+    uint64_t mapping_virtual =
+        (uint64_t) memory_physical_to_virtual(
+            physical_address
+        );
+
+    uint64_t flags =
+        PAGE_ENTRY_WRITABLE |
+        PAGE_ENTRY_WRITE_THROUGH |
+        PAGE_ENTRY_CACHE_DISABLE |
+        PAGE_ENTRY_NO_EXECUTE;
+
+    if (!paging_map_page_flags(
+        paging_kernel_address_space(),
+        mapping_virtual,
+        physical_address,
+        flags
+    )) {
+        return false;
+    }
+
+    paging_invalidate_page(mapping_virtual);
+
+    *virtual_address =
+        (volatile void *) mapping_virtual;
 
     return true;
 }
@@ -426,23 +504,24 @@ uint64_t paging_make_page_entry(
     bool user,
     bool executable)
 {
-    uint64_t entry = page_physical_address & PAGE_ADDRESS_MASK_4K;
-
-    entry |= PAGE_ENTRY_PRESENT;
+    uint64_t flags = 0;
 
     if (writable) {
-        entry |= PAGE_ENTRY_WRITABLE;
+        flags |= PAGE_ENTRY_WRITABLE;
     }
 
     if (user) {
-        entry |= PAGE_ENTRY_USER;
+        flags |= PAGE_ENTRY_USER;
     }
 
     if (!executable) {
-        entry |= PAGE_ENTRY_NO_EXECUTE;
+        flags |= PAGE_ENTRY_NO_EXECUTE;
     }
 
-    return entry;
+    return paging_make_page_entry_flags(
+        page_physical_address,
+        flags
+    );
 }
 
 static void paging_write_cr3(uint64_t physical_address)
@@ -494,6 +573,15 @@ static bool paging_get_or_create_table(
     *child_table = child_virtual;
 
     return true;
+}
+
+static uint64_t paging_make_page_entry_flags(
+    uint64_t physical_address,
+    uint64_t flags)
+{
+    return (physical_address & PAGE_ADDRESS_MASK_4K) |
+           PAGE_ENTRY_PRESENT |
+           flags;
 }
 
 static bool paging_table_is_empty(const uint64_t *table)

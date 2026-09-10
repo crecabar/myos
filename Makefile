@@ -87,7 +87,12 @@ KERNEL_OBJS := \
     $(BUILD_DIR)/usermode_asm.o \
     $(BUILD_DIR)/syscall.o \
     $(BUILD_DIR)/process.o \
-    $(BUILD_DIR)/scheduler.o
+    $(BUILD_DIR)/scheduler.o \
+    $(BUILD_DIR)/pic.o \
+    $(BUILD_DIR)/timer.o \
+    $(BUILD_DIR)/lapic.o \
+    $(BUILD_DIR)/ioapic.o \
+    $(BUILD_DIR)/interrupt_topology.o
 
 LINKER_SCRIPT := kernel/linker.ld
 
@@ -269,6 +274,34 @@ $(BUILD_DIR)/scheduler.o: \
 	kernel/process/layout.h \
 	kernel/arch/x86_64/paging.h \
 	kernel/arch/x86_64/usermode.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/pic.o: \
+	kernel/arch/x86_64/pic.c \
+	kernel/arch/x86_64/pic.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/timer.o: \
+	kernel/arch/x86_64/timer.c \
+	kernel/arch/x86_64/timer.h \
+	kernel/arch/x86_64/pic.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/lapic.o: \
+	kernel/arch/x86_64/lapic.c \
+	kernel/arch/x86_64/lapic.h \
+	kernel/memory/memory.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ioapic.o: \
+	kernel/arch/x86_64/ioapic.c \
+	kernel/arch/x86_64/ioapic.h \
+	kernel/memory/memory.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/interrupt_topology.o: \
+	kernel/arch/x86_64/interrupt_topology.c \
+	kernel/arch/x86_64/interrupt_topology.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)

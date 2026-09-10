@@ -4,6 +4,7 @@
 
 #include "idt.h"
 #include "interrupts.h"
+#include "timer.h"
 #include "../../core/panic.h"
 #include "../../syscall/syscall.h"
 #include "../../diagnostics/diagnostics.h"
@@ -20,6 +21,8 @@ enum x86_exception_vector {
 extern void isr_divide_error(void);
 extern void isr_page_fault(void);
 extern void isr_syscall(void);
+extern void isr_timer(void);
+extern void isr_spurious(void);
 
 static void idt_set_gate(uint8_t vector, uint64_t handler, uint16_t selector, uint8_t attributes);
 static uint64_t read_cr2(void);
@@ -106,6 +109,20 @@ void idt_init(void)
     idt_set_gate(
         14,
         (uint64_t) isr_page_fault,
+        code_selector,
+        0x8E
+    );
+
+    idt_set_gate(
+        TIMER_INTERRUPT_VECTOR,
+        (uint64_t) isr_timer,
+        code_selector,
+        0x8E
+    );
+
+    idt_set_gate(
+        0xFF,
+        (uint64_t) isr_spurious,
         code_selector,
         0x8E
     );

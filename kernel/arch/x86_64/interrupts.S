@@ -131,3 +131,98 @@ isr_syscall:
     iretq
 
 .size isr_syscall, .-isr_syscall
+
+.extern timer_handle_interrupt
+
+.global isr_timer
+.type isr_timer, @function
+
+isr_timer:
+    /*
+     * Hardware IRQs do not push an error code.
+     *
+     * Normalize the interrupt frame:
+     *   vector = 0x20
+     *   error_code = 0
+     */
+    pushq $0
+    pushq $0x20
+
+    /*
+     * Save every general-purpose register using exactly the same layout as
+     * struct interrupt_context.
+     */
+    pushq %rax
+    pushq %rbx
+    pushq %rcx
+    pushq %rdx
+    pushq %rsi
+    pushq %rdi
+    pushq %rbp
+
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+
+    /*
+     * RSP now points to struct interrupt_context.
+     */
+    movq %rsp, %rdi
+
+    /*
+     * Preserve the exact interrupt-frame address while giving C a correctly
+     * aligned stack.
+     *
+     * The interrupted value of R12 is already saved in the frame, so R12 can
+     * safely hold this temporary pointer.
+     */
+    movq %rsp, %r12
+    andq $-16, %rsp
+
+    cld
+
+    call timer_handle_interrupt
+
+    /*
+     * Return to the potentially modified interrupt frame.
+     */
+    movq %r12, %rsp
+
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+
+    popq %rbp
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
+
+    /*
+     * Discard vector and synthetic error code.
+     */
+    addq $16, %rsp
+
+    iretq
+
+.size isr_timer, .-isr_timer
+
+.global isr_spurious
+.type isr_spurious, @function
+
+isr_spurious:
+    iretq
+
+.size isr_spurious, .-isr_spurious

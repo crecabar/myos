@@ -32,6 +32,16 @@ void memory_init(
     size_t memory_region_count
 );
 
+/**
+ * Returns the direct-map virtual address corresponding to a physical address.
+ *
+ * This operation only performs address translation arithmetic and does not
+ * guarantee that the resulting virtual address is currently mapped.
+ *
+ * @param physical_address Physical address to translate.
+ *
+ * @return Corresponding direct-map virtual address.
+ */
 void *memory_physical_to_virtual(uint64_t physical_address);
 
 bool physical_alloc_frame(uint64_t *physical_address);

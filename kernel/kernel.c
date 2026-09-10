@@ -6,8 +6,8 @@
 #include "arch/x86_64/arch.h"
 #include "arch/x86_64/paging.h"
 #include "arch/x86_64/rtc.h"
-#include "arch/x86_64/gdt.h"
-#include "arch/x86_64/usermode.h"
+#include "arch/x86_64/timer.h"
+#include "arch/x86_64/pic.h"
 #include "process/layout.h"
 #include "process/memory.h"
 #include "process/process.h"
@@ -216,8 +216,36 @@ _Noreturn void kernel_main(void)
         process_2_layout.entry_point,
         process_2_layout.stack.stack_top
     );
+    /*=======================================================================*/
+
+    diagnostics_write("[timer] Waiting for 100 ticks\n");
+
+    uint64_t start_ticks = timer_ticks();
+    uint64_t last_reported_tick = 0;
+
+    while ((timer_ticks() - start_ticks) < 100) {
+        __asm__ volatile ("hlt");
+
+        uint64_t elapsed_ticks = timer_ticks() - start_ticks;
+
+        if (elapsed_ticks != 0 &&
+            (elapsed_ticks % 20) == 0 &&
+            elapsed_ticks != last_reported_tick) {
+            diagnostics_printf(
+                "[timer] tick %u\n",
+                elapsed_ticks
+            );
+
+            last_reported_tick = elapsed_ticks;
+        }
+    }
+
+    diagnostics_printf(
+        "[timer] %u ticks received\n",
+        timer_ticks() - start_ticks
+    );
 
     diagnostics_write("[kernel] Starting scheduler\n");
     scheduler_run();
-    /*=======================================================================*/
+
 }
