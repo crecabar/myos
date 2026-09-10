@@ -81,7 +81,13 @@ KERNEL_OBJS := \
 	$(BUILD_DIR)/process_stack.o \
 	$(BUILD_DIR)/process_layout.o \
 	$(BUILD_DIR)/gdt.o \
-    $(BUILD_DIR)/gdt_asm.o
+    $(BUILD_DIR)/gdt_asm.o \
+    $(BUILD_DIR)/rtc.o \
+    $(BUILD_DIR)/usermode.o \
+    $(BUILD_DIR)/usermode_asm.o \
+    $(BUILD_DIR)/syscall.o \
+    $(BUILD_DIR)/process.o \
+    $(BUILD_DIR)/scheduler.o
 
 LINKER_SCRIPT := kernel/linker.ld
 
@@ -227,6 +233,42 @@ $(BUILD_DIR)/gdt.o: \
 
 $(BUILD_DIR)/gdt_asm.o: \
 	kernel/arch/x86_64/gdt.S | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/rtc.o: \
+	kernel/arch/x86_64/rtc.c \
+	kernel/arch/x86_64/rtc.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/usermode.o: \
+	kernel/arch/x86_64/usermode.c \
+	kernel/arch/x86_64/usermode.h \
+	kernel/arch/x86_64/gdt.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/usermode_asm.o: \
+	kernel/arch/x86_64/usermode.S | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/syscall.o: \
+	kernel/syscall/syscall.c \
+	kernel/syscall/syscall.h \
+	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/process.o: \
+	kernel/process/process.c \
+	kernel/process/process.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/scheduler.o: \
+	kernel/scheduler/scheduler.c \
+	kernel/scheduler/scheduler.h \
+	kernel/process/process.h \
+	kernel/process/memory.h \
+	kernel/process/layout.h \
+	kernel/arch/x86_64/paging.h \
+	kernel/arch/x86_64/usermode.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)

@@ -5,6 +5,13 @@
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/arch.h"
 #include "arch/x86_64/paging.h"
+#include "arch/x86_64/rtc.h"
+#include "arch/x86_64/gdt.h"
+#include "arch/x86_64/usermode.h"
+#include "process/layout.h"
+#include "process/memory.h"
+#include "process/process.h"
+#include "scheduler/scheduler.h"
 #include "boot/boot.h"
 #include "core/panic.h"
 #include "diagnostics/diagnostics.h"
@@ -48,6 +55,9 @@ _Noreturn void kernel_main(void)
     arch_init();
     diagnostics_write("[arch] x86-64 initialized\n");
 
+    scheduler_init();
+    diagnostics_write("[scheduler] Initialized\n");
+
     diagnostics_write("[kernel] Initialization complete\n");
 
     /* RUNTIME DIAGNOSTICS */
@@ -55,5 +65,159 @@ _Noreturn void kernel_main(void)
     runtime_diagnostics_dump();
     diagnostics_write("[kernel] Test and diagnostics ended\n");
 
-    kernel_halt();
+    /* RTC */
+    struct rtc_time time;
+    if (rtc_read_time(&time)) {
+        diagnostics_printf(
+            "[clock] %u:%u:%u UTC\n",
+            (uint64_t) time.hours,
+            (uint64_t) time.minutes,
+            (uint64_t) time.seconds
+        );
+    } else {
+        diagnostics_write("[clock] RTC unavailable\n");
+    }
+
+    /*=======================================================================*/
+    /* Initial user processes */
+    struct process_memory process_1_memory;
+    struct process_layout process_1_layout;
+    struct process process_1;
+
+    struct process_memory process_2_memory;
+    struct process_layout process_2_layout;
+    struct process process_2;
+
+    if (!process_memory_create(&process_1_memory)) {
+        kernel_panic("Unable to create PID 1 address space");
+    }
+
+    if (!process_layout_create(&process_1_memory, &process_1_layout)) {
+        kernel_panic("Unable to create PID 1 layout");
+    }
+
+    /* User program 1 */
+    static const uint8_t process_1_program[] = {
+        /* putc('1') */
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
+        0x48, 0xC7, 0xC7, 0x31, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+
+        /* yield() */
+        0x48, 0xC7, 0xC0, 0x03, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+
+        /* putc('A') */
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
+        0x48, 0xC7, 0xC7, 0x41, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+
+        /* exit(0) */
+        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00,
+        0x48, 0xC7, 0xC7, 0x00, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+
+        /* unreachable */
+        0xEB, 0xFE,
+    };
+    if (!process_memory_write(
+        &process_1_memory,
+        process_1_layout.code_base,
+        process_1_program,
+        sizeof(process_1_program))
+    ) {
+        kernel_panic("Unable to load PID 1 program");
+    }
+
+    if (!process_init(
+        &process_1,
+        1,
+        &process_1_memory,
+        &process_1_layout
+    )) {
+        kernel_panic("Unable to initialize PID 1");
+    }
+
+    if (!process_memory_create(&process_2_memory)) {
+        kernel_panic("Unable to create PID 2 address space");
+    }
+
+    if (!process_layout_create(
+        &process_2_memory,
+        &process_2_layout
+    )) {
+        kernel_panic("Unable to create PID 2 layout");
+    }
+
+    /* User program 2 */
+    static const uint8_t process_2_program[] = {
+        /* putc('2') */
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
+        0x48, 0xC7, 0xC7, 0x32, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+
+        /* yield() */
+        0x48, 0xC7, 0xC0, 0x03, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+
+        /* putc('B') */
+        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
+        0x48, 0xC7, 0xC7, 0x42, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+
+        /* exit(0) */
+        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00,
+        0x48, 0xC7, 0xC7, 0x00, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+
+        /* unreachable */
+        0xEB, 0xFE,
+    };
+    if (!process_memory_write(
+        &process_2_memory,
+        process_2_layout.code_base,
+        process_2_program,
+        sizeof(process_2_program))
+    ) {
+        kernel_panic("Unable to load PID 2 program");
+    }
+
+    if (!process_init(
+        &process_2,
+        2,
+        &process_2_memory,
+        &process_2_layout
+    )) {
+        kernel_panic("Unable to initialize PID 2");
+    }
+
+    if (!scheduler_add(&process_1)) {
+        kernel_panic("Unable to schedule PID 1");
+    }
+
+    if (!scheduler_add(&process_2)) {
+        kernel_panic("Unable to schedule PID 2");
+    }
+
+    diagnostics_printf(
+        "\n--- Initial processes ---\n"
+        "PID 1:\n"
+        "  CR3=%x\n"
+        "  RIP=%x\n"
+        "  RSP=%x\n"
+        "PID 2:\n"
+        "  CR3=%x\n"
+        "  RIP=%x\n"
+        "  RSP=%x\n",
+        process_1_memory.address_space.pml4_physical,
+        process_1_layout.entry_point,
+        process_1_layout.stack.stack_top,
+        process_2_memory.address_space.pml4_physical,
+        process_2_layout.entry_point,
+        process_2_layout.stack.stack_top
+    );
+
+    diagnostics_write("[kernel] Starting scheduler\n");
+    scheduler_run();
+    /*=======================================================================*/
 }

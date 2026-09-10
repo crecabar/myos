@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+/**
+ *
+ */
+
 #ifndef MYOS_ARCH_X86_64_INTERRUPTS_H
 #define MYOS_ARCH_X86_64_INTERRUPTS_H
 
 #include <stdint.h>
 
+/**
+ *
+ */
 struct interrupt_context {
     uint64_t r15;
     uint64_t r14;
@@ -29,6 +36,14 @@ struct interrupt_context {
     uint64_t rip;
     uint64_t cs;
     uint64_t rflags;
+    uint64_t rsp;
+    uint64_t ss;
 };
+
+/**
+ *
+ * @param context
+ */
+void syscall_handler(struct interrupt_context *context);
 
 #endif

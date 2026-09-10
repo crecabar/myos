@@ -4,7 +4,11 @@
 
 #include "idt.h"
 #include "interrupts.h"
+#include "../../core/panic.h"
+#include "../../syscall/syscall.h"
 #include "../../diagnostics/diagnostics.h"
+#include "../../process/process.h"
+#include "../../scheduler/scheduler.h"
 
 #define IDT_ENTRIES 256
 
@@ -15,9 +19,12 @@ enum x86_exception_vector {
 
 extern void isr_divide_error(void);
 extern void isr_page_fault(void);
+extern void isr_syscall(void);
 
+static void idt_set_gate(uint8_t vector, uint64_t handler, uint16_t selector, uint8_t attributes);
 static uint64_t read_cr2(void);
 static void page_fault_dump(const struct interrupt_context *context);
+static bool exception_from_user_mode(const struct interrupt_context *context);
 
 struct idt_entry {
     uint16_t offset_low;
@@ -103,6 +110,13 @@ void idt_init(void)
         0x8E
     );
 
+    idt_set_gate(
+        0x80,
+        (uint64_t) isr_syscall,
+        code_selector,
+        0xEE
+    );
+
     struct idt_descriptor descriptor = {
         .limit = (uint16_t) (sizeof(idt) - 1),
         .base = (uint64_t) idt,
@@ -127,6 +141,11 @@ static uint64_t read_cr2(void)
     return value;
 }
 
+static bool exception_from_user_mode(const struct interrupt_context *context)
+{
+    return (context->cs & 0x3) == 3;
+}
+
 static void page_fault_dump(
     const struct interrupt_context *context)
 {
@@ -149,8 +168,7 @@ static void page_fault_dump(
     );
 }
 
-_Noreturn void exception_handler(
-    const struct interrupt_context *context)
+_Noreturn void exception_handler(const struct interrupt_context *context)
 {
     diagnostics_printf(
         "\n*** CPU EXCEPTION ***\n"
@@ -176,9 +194,42 @@ _Noreturn void exception_handler(
 
     if (context->vector == X86_EXCEPTION_PAGE_FAULT) {
         page_fault_dump(context);
+
+        if (exception_from_user_mode(context)) {
+            diagnostics_write(
+                "\n[process] Segmentation fault\n"
+            );
+
+            scheduler_terminate_current(
+                PROCESS_TERMINATION_SEGMENTATION_FAULT
+            );
+        }
     }
 
     for (;;) {
         __asm__ volatile ("hlt");
     }
+}
+
+void syscall_handler(struct interrupt_context *context)
+{
+    if (context->rax == SYSCALL_YIELD) {
+        scheduler_yield_current(context);
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_EXIT) {
+        scheduler_exit_current(
+            context,
+            context->rdi
+        );
+
+        return;
+    }
+
+    context->rax = syscall_dispatch(
+        context->rax,
+        context->rdi
+    );
 }
