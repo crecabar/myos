@@ -40,4 +40,12 @@ void timer_handle_interrupt(struct interrupt_context *context);
  */
 uint64_t timer_ticks(void);
 
+/**
+ * Returns the number of PIT interrupts received while the CPU was executing
+ * in user mode.
+ *
+ * @return Number of timer ticks that interrupted ring 3 execution.
+ */
+uint64_t timer_user_ticks(void);
+
 #endif

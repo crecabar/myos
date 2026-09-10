@@ -40,7 +40,7 @@ bool process_init(
 
     process->context.rip = layout->entry_point;
     process->context.rsp = layout->stack.stack_top;
-    process->context.rflags = 0x2;
+    process->context.rflags = 0x202; //0x002 = reserved, mandatory; 0x200 = IF, interrupt enable flag
 
     return true;
 }

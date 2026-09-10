@@ -84,4 +84,28 @@ _Noreturn void scheduler_run(void);
  */
 void scheduler_yield_current(struct interrupt_context *context);
 
+/**
+ * Preempts the currently running process.
+ *
+ * The interrupted user context is saved, the current process returns to the
+ * READY state, and the next READY process is selected using round-robin
+ * scheduling.
+ *
+ * The interrupt frame is rewritten so that returning from the timer interrupt
+ * resumes the selected process.
+ *
+ * @param context User-mode CPU context interrupted by the timer.
+ */
+void scheduler_preempt_current(struct interrupt_context *context);
+
+/**
+ * Accounts for one scheduler timer tick.
+ *
+ * User-mode execution is preempted when the current process exhausts its
+ * scheduling quantum.
+ *
+ * @param context CPU context interrupted by the timer.
+ */
+void scheduler_tick(struct interrupt_context *context);
+
 #endif

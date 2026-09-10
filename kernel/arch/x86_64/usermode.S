@@ -18,7 +18,7 @@ usermode_enter_asm:
     pushfq
     popq %rax
     orq $0x2, %rax
-    andq $~0x200, %rax
+    orq $0x200, %rax
     pushq %rax
 
     pushq %rdx

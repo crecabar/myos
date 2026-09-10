@@ -12,6 +12,9 @@
 #include <stddef.h>
 
 #define SCHEDULER_MAX_PROCESSES 8
+#define SCHEDULER_QUANTUM_TICKS 10
+
+static uint64_t current_quantum_ticks;
 
 static struct process *processes[SCHEDULER_MAX_PROCESSES];
 static size_t process_count;
@@ -46,6 +49,7 @@ void scheduler_init(void)
     process_count = 0;
     current_process = NULL;
     next_process_index = 0;
+    current_quantum_ticks = 0;
 }
 
 bool scheduler_add(struct process *process)
@@ -229,6 +233,61 @@ void scheduler_yield_current(struct interrupt_context *context)
     );
 }
 
+void scheduler_preempt_current(struct interrupt_context *context)
+{
+    if (context == NULL) {
+        kernel_panic("Scheduler received null interrupt context");
+    }
+
+    if (current_process == NULL) {
+        kernel_panic("Scheduler has no current process to preempt");
+    }
+
+    struct process *preempted_process = current_process;
+
+    scheduler_save_context(
+        preempted_process,
+        context
+    );
+
+    preempted_process->state = PROCESS_STATE_READY;
+
+    diagnostics_printf(
+        "[scheduler] PID %u preempted\n",
+        preempted_process->id
+    );
+
+    current_process = NULL;
+
+    struct process *next = scheduler_find_next_ready();
+
+    if (next == NULL) {
+        kernel_panic("Preemption left scheduler without runnable process");
+    }
+
+    scheduler_switch_from_interrupt(
+        context,
+        next
+    );
+}
+
+void scheduler_tick(struct interrupt_context *context)
+{
+    if (context == NULL) return;
+    if (current_process == NULL) return;
+    if (current_process->state != PROCESS_STATE_RUNNING) return;
+
+    ++current_quantum_ticks;
+
+    if (current_quantum_ticks < SCHEDULER_QUANTUM_TICKS) {
+        return;
+    }
+
+    current_quantum_ticks = 0;
+
+    scheduler_preempt_current(context);
+}
+
 static _Noreturn void scheduler_finish_current(
     enum process_termination_reason reason,
     uint64_t exit_status)
@@ -318,6 +377,8 @@ static void scheduler_switch_from_interrupt(
     }
 
     scheduler_load_context(context, next);
+
+    current_quantum_ticks = 0;
 
     current_process = next;
     next->state = PROCESS_STATE_RUNNING;
