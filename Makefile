@@ -76,7 +76,12 @@ KERNEL_OBJS := \
 	$(BUILD_DIR)/panic.o \
 	$(BUILD_DIR)/display.o \
 	$(BUILD_DIR)/arch.o \
-	$(BUILD_DIR)/memory.o
+	$(BUILD_DIR)/memory.o \
+	$(BUILD_DIR)/process_memory.o \
+	$(BUILD_DIR)/process_stack.o \
+	$(BUILD_DIR)/process_layout.o \
+	$(BUILD_DIR)/gdt.o \
+    $(BUILD_DIR)/gdt_asm.o
 
 LINKER_SCRIPT := kernel/linker.ld
 
@@ -194,6 +199,34 @@ $(BUILD_DIR)/memory.o: \
 	kernel/memory/memory.c \
 	kernel/memory/memory.h \
 	kernel/core/panic.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/process_memory.o: \
+	kernel/process/memory.c \
+	kernel/process/memory.h \
+	kernel/arch/x86_64/paging.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/process_stack.o: \
+	kernel/process/stack.c \
+	kernel/process/stack.h \
+	kernel/process/memory.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/process_layout.o: \
+	kernel/process/layout.c \
+	kernel/process/layout.h \
+	kernel/process/memory.h \
+	kernel/process/stack.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/gdt.o: \
+	kernel/arch/x86_64/gdt.c \
+	kernel/arch/x86_64/gdt.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/gdt_asm.o: \
+	kernel/arch/x86_64/gdt.S | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)

@@ -10,6 +10,12 @@
 #define PAGING_TABLE_ENTRY_COUNT 512
 #define PAGING_PML4_KERNEL_START 256
 
+#define IA32_EFER_MSR 0xC0000080U
+#define IA32_EFER_NXE (1ULL << 11)
+
+#define CPUID_EXTENDED_FEATURES 0x80000001U
+#define CPUID_EDX_NX            (1U << 20)
+
 static struct paging_address_space kernel_address_space;
 static bool paging_initialized;
 
@@ -22,6 +28,7 @@ static bool paging_get_or_create_table(
     bool user,
     uint64_t **child_table
 );
+
 static bool paging_table_is_empty(const uint64_t *table);
 
 static bool paging_address_space_private_half_is_empty(
@@ -33,11 +40,19 @@ static bool paging_translate_from_pml4(
     uint64_t virtual_address,
     struct paging_translation *translation
 );
+
+static bool paging_enable_nx(void);
+static uint64_t paging_read_msr(uint32_t msr);
+static void paging_write_msr(uint32_t msr, uint64_t value);
 /* END PRIVATE HELPERS */
 
 bool paging_init(void)
 {
     if (paging_initialized) return false;
+
+    if (!paging_enable_nx()) {
+        return false;
+    }
 
     if (!paging_address_space_create_with_kernel(&kernel_address_space)) {
         return false;
@@ -255,7 +270,8 @@ bool paging_map_page(
     uint64_t virtual_address,
     uint64_t physical_address,
     bool writable,
-    bool user)
+    bool user,
+    bool executable)
 {
     if (address_space == NULL) return false;
     if (address_space->pml4_virtual == NULL) return false;
@@ -308,7 +324,8 @@ bool paging_map_page(
     pt[pt_index] = paging_make_page_entry(
         physical_address,
         writable,
-        user
+        user,
+        executable
     );
 
     return true;
@@ -403,7 +420,11 @@ uint64_t paging_make_table_entry(uint64_t table_physical_address, bool writable,
     return entry;
 }
 
-uint64_t paging_make_page_entry(uint64_t page_physical_address, bool writable, bool user)
+uint64_t paging_make_page_entry(
+    uint64_t page_physical_address,
+    bool writable,
+    bool user,
+    bool executable)
 {
     uint64_t entry = page_physical_address & PAGE_ADDRESS_MASK_4K;
 
@@ -415,6 +436,10 @@ uint64_t paging_make_page_entry(uint64_t page_physical_address, bool writable, b
 
     if (user) {
         entry |= PAGE_ENTRY_USER;
+    }
+
+    if (!executable) {
+        entry |= PAGE_ENTRY_NO_EXECUTE;
     }
 
     return entry;
@@ -573,6 +598,59 @@ static bool paging_translate_from_pml4(
 
     translation->physical_address = page_physical + offset;
     translation->page_size = PAGING_PAGE_SIZE_4K;
+
+    return true;
+}
+
+static uint64_t paging_read_msr(uint32_t msr)
+{
+    uint32_t low;
+    uint32_t high;
+
+    __asm__ volatile (
+        "rdmsr"
+        : "=a"(low), "=d"(high)
+        : "c"(msr)
+    );
+
+    return ((uint64_t) high << 32) | low;
+}
+
+static void paging_write_msr(uint32_t msr, uint64_t value)
+{
+    uint32_t low = (uint32_t) value;
+    uint32_t high = (uint32_t) (value >> 32);
+
+    __asm__ volatile (
+        "wrmsr"
+        :
+        : "c"(msr), "a"(low), "d"(high)
+        : "memory"
+    );
+}
+
+static bool paging_enable_nx(void)
+{
+    uint32_t eax = CPUID_EXTENDED_FEATURES;
+    uint32_t ebx;
+    uint32_t ecx;
+    uint32_t edx;
+
+    __asm__ volatile (
+        "cpuid"
+        : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+        :
+    );
+
+    if ((edx & CPUID_EDX_NX) == 0) {
+        return false;
+    }
+
+    uint64_t efer = paging_read_msr(IA32_EFER_MSR);
+
+    efer |= IA32_EFER_NXE;
+
+    paging_write_msr(IA32_EFER_MSR, efer);
 
     return true;
 }
