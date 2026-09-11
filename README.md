@@ -2,7 +2,7 @@
 
 MyOS is a small educational Unix-like operating system project for x86-64.
 
-The project exists to learn how an operating system is built from the ground up, from boot and kernel entry to memory management, processes, syscalls, filesystems, libc, and eventually a small Unix-style userland.
+The project exists to learn how an operating system is built from the ground up, from boot and kernel entry to memory management, privilege separation, processes, syscalls, filesystems, libc, and eventually a small Unix-style userland.
 
 The goal is not to compete with Linux, BSD, or modern production operating systems.
 
@@ -18,7 +18,7 @@ Firmware:     UEFI
 Bootloader:   Limine
 Kernel:       C
 Assembler:    only where necessary
-Executable:   ELF64
+Executable:   ELF64 kernel; userspace ELF loading is planned
 Compiler:     LLVM/Clang 21
 Linker:       LLD 21
 Emulator:     QEMU
@@ -28,7 +28,7 @@ CPU count:    1
 Kernel model: small monolithic kernel
 ```
 
-The kernel is built as a freestanding x86-64 target and does not depend on the development host architecture.
+The kernel is built as a freestanding `x86_64-unknown-none-elf` target and does not depend on the development host architecture.
 
 ## Project philosophy
 
@@ -44,59 +44,137 @@ MyOS deliberately prioritizes:
 - incremental development;
 - minimal abstraction until abstraction becomes necessary.
 
-The project should advance in small, verifiable steps.
-
-Simple implementations are preferred before sophisticated ones.
+The project advances in small, observable, independently verifiable steps. Simple implementations are preferred before sophisticated ones.
 
 Examples:
 
-- a simple physical frame allocator before a general heap allocator;
-- round-robin scheduling before advanced priorities;
-- a simple filesystem before ext2;
-- a small custom shell before Bash;
+- a bitmap physical-frame allocator before a general heap allocator;
+- fixed-quantum round-robin scheduling before advanced priorities;
 - one CPU before SMP;
-- minimal drivers before broad hardware support.
+- embedded user programs before an ELF loader;
+- a small filesystem before a general-purpose disk filesystem;
+- a small custom shell before a full Unix shell;
+- minimal hardware support before broad device compatibility.
 
 ## Current status
 
-MyOS has moved beyond initial bootstrapping and is currently building its memory-management foundation.
+MyOS has moved beyond bootstrapping and basic memory management. The current kernel can enter ring 3, execute multiple user processes in independent address spaces, receive syscalls through `int 0x80`, and preempt user processes using a PIT-driven timer routed through the IOAPIC/LAPIC path.
 
-The current boot sequence is able to initialize the boot environment, physical memory manager, framebuffer console, architecture support, and runtime diagnostics:
+A current boot reaches a sequence conceptually like:
 
 ```text
 MyOS 0.1
 
 [boot] Environment initialized
-[memory] physical memory initialized
+[memory] ...
+[paging] MyOS address space active
 [display] Console initialized
 [arch] x86-64 initialized
+[scheduler] Initialized
 [kernel] Initialization complete
+[clock] ... UTC
+[process] User memory copy test passed
+[kernel] Starting scheduler
+[scheduler] Running PID 1
+...
+[scheduler] Running PID 2
+...
 ```
 
-Implemented foundations currently include:
+The userspace programs used today are still small machine-code payloads embedded in the kernel. They exist to validate privilege transitions, address-space switching, syscalls, timer preemption, and process context restoration before the first ELF loader is introduced.
+
+### Implemented foundations
+
+#### Boot, diagnostics, and display
 
 - UEFI boot through Limine;
 - higher-half ELF64 kernel entry;
+- normalized boot information copied into MyOS-owned structures;
 - serial diagnostics;
-- framebuffer console output;
+- 32-bit framebuffer console;
 - centralized diagnostics and formatting;
+- RTC/CMOS time reading;
 - kernel panic and halt support;
-- x86-64 IDT initialization;
-- exception diagnostics for divide errors and page faults;
-- CR3 and page-table introspection;
-- 4 KiB, 2 MiB, and 1 GiB page translation inspection;
-- boot memory-map normalization into MyOS-owned structures;
+- optional runtime diagnostics.
+
+#### Physical and virtual memory
+
 - higher-half direct-map abstraction;
-- physical-frame bitmap management;
+- physical-frame bitmap allocator;
+- allocator self-reservation;
 - physical frame allocation and release;
 - MyOS-owned page-table allocation;
-- page-table entry construction;
-- page-address-space creation;
-- virtual-to-physical page mapping through a reusable paging API.
+- 4 KiB page mapping and unmapping;
+- reclaim of empty intermediate PT/PD/PDPT tables;
+- virtual-to-physical translation for 4 KiB, 2 MiB, and 1 GiB mappings;
+- explicit writable/user/execute permissions;
+- NX capability detection and `EFER.NXE` enablement;
+- activation of a MyOS-owned PML4 through CR3;
+- per-process PML4 roots;
+- private lower-half process mappings with shared higher-half kernel mappings;
+- user code pages mapped read-only/executable;
+- user stacks mapped read/write/non-executable;
+- unmapped stack guard page;
+- process-memory read/write helpers through physical translation.
 
-MyOS currently allocates only regions marked usable by the bootloader. Regions marked `bootloader-reclaimable` remain reserved until the kernel can prove that no required Limine-owned structures are still referenced.
+MyOS still retains the boot-time higher-half paging branches inherited through Limine. Fully rebuilding those mappings under exclusive kernel ownership and reclaiming bootloader-reclaimable memory remain part of the memory-management work.
 
-The active address space is still the one prepared by Limine. MyOS can already construct complete independent x86-64 page-table hierarchies outside the active CR3 and map 4 KiB virtual pages into them, but it does not yet switch CR3 to a MyOS-owned address space.
+#### x86-64 execution and interrupts
+
+- kernel-owned GDT;
+- ring-0 and ring-3 code/data descriptors;
+- kernel-owned TSS;
+- 256-entry IDT;
+- normalized interrupt frames shared between assembly and C;
+- divide-error and page-fault handling;
+- `iretq` transition from CPL0 to CPL3;
+- legacy PIC disabling;
+- Local APIC initialization;
+- IOAPIC initialization and routing;
+- PIT timer at 100 Hz;
+- spurious-interrupt handling;
+- timer-driven entry into the scheduler.
+
+The interrupt topology is intentionally QEMU/Q35-specific for now. ACPI/MADT discovery is future portability work before broad real-hardware support.
+
+#### Processes, syscalls, and scheduling
+
+- process descriptors with PID, execution context, memory, layout, and state;
+- independent process address spaces and CR3 switching;
+- initial user code and stack layout;
+- ring-3 execution of embedded user programs;
+- syscall entry through `int 0x80`;
+- current syscall ABI using `RAX` for the syscall number and registers for arguments;
+- `DEBUG_PUTC`, `WRITE`, `EXIT`, and `YIELD` syscalls;
+- kernel-side copying from user memory for `WRITE`;
+- cooperative `yield()`;
+- fixed-quantum preemptive round-robin scheduling;
+- timer preemption of CPL3 execution;
+- save/restore of general-purpose register state plus RIP/RSP/RFLAGS;
+- process termination on explicit exit;
+- user page-fault termination path;
+- switching to another process by rewriting the active interrupt frame and returning through `iretq`.
+
+The current scheduler uses a small fixed process table and does not yet implement blocked/sleeping states, dynamic process ownership, resource reaping, or kernel threads.
+
+## Current hardening pass
+
+The mechanisms for paging, ring 3, syscalls, and preemptive scheduling are now functionally demonstrated. Before adding an ELF loader or exposing more general memory-management syscalls, MyOS is intentionally pausing feature expansion to turn several currently implicit invariants into enforced boundaries.
+
+The immediate hardening work is:
+
+- define and enforce canonical user virtual-address bounds for all `process_memory_*` operations;
+- prevent process operations from modifying or reclaiming higher-half kernel-shared paging branches;
+- reject huge-page entries in walkers that specifically expect a lower-level 4 KiB page table;
+- expand CPU exception coverage so faults such as `#UD`, `#GP`, `#SS`, and related exceptions from CPL3 terminate only the offending process;
+- give `#DF` a dedicated IST stack;
+- establish process lifecycle/reaping so terminated processes release pages, page tables, and scheduler slots;
+- add a minimal kernel heap so process objects no longer depend on static or `kernel_main()`-lifetime storage;
+- add clipping to framebuffer primitives before introducing the boot-mascot image blitter;
+- explicitly prohibit kernel/userspace FP/SIMD for now, or later add per-context FPU/SSE state management before allowing it;
+- expand runtime/QEMU tests for isolation, process lifecycle, and context switching.
+
+Until this pass is complete, current CPL3 programs should be treated as trusted internal test payloads rather than a hardened hostile-userspace boundary.
 
 ## Development milestones
 
@@ -132,42 +210,161 @@ The kernel has since progressed well beyond this point.
 
 ### Milestone 2 — Architecture and diagnostics foundation ✅
 
-Completed:
+Completed for the original scope:
 
 - framebuffer-backed console;
 - diagnostics fan-out to serial and framebuffer sinks;
 - reusable formatting layer;
 - architecture initialization boundary;
-- 256-entry x86-64 IDT;
+- x86-64 IDT infrastructure;
 - normalized exception frames;
-- divide-error and page-fault diagnostics;
 - kernel panic path;
-- paging introspection and virtual-address translation diagnostics.
+- paging introspection and runtime diagnostics.
 
-### Milestone 3 — Physical and virtual memory management 🚧
+### Milestone 3 — Kernel-owned virtual memory 🚧 Nearly complete
 
-In progress.
+Implemented:
 
-Completed so far:
+- physical-frame allocation/release;
+- page-table construction;
+- map/unmap;
+- page-table reclamation;
+- NX and page permissions;
+- MyOS-owned active PML4/CR3;
+- process address spaces with shared higher-half kernel mappings;
+- process code/stack mappings.
 
-- normalize Limine memory-map regions into MyOS-owned types;
-- isolate direct-map translation from bootloader-specific APIs;
-- identify and count usable physical frames;
-- create a self-reserving physical-frame bitmap;
-- allocate and release 4 KiB physical frames;
-- allocate zeroed page-table frames;
-- construct x86-64 table and page entries;
-- create independent address spaces with their own PML4 root;
-- construct complete PML4 → PDPT → PD → PT → page hierarchies;
-- map a 4 KiB virtual page to an arbitrary physical frame with `paging_map_page()`.
+Remaining work includes:
 
-Next work in this milestone includes:
+- user-address/ownership hardening;
+- huge-page safety in 4 KiB walkers;
+- fully kernel-owned higher-half mappings;
+- safe reclaim of bootloader-reclaimable memory.
 
-- unmapping pages;
-- explicit page-permission handling and validation;
-- lifecycle management for page-table structures;
-- activating a MyOS-owned address space through CR3;
-- reclaiming bootloader-reclaimable memory when it is safe to do so.
+### Milestone 4 — Interrupts, timer, and kernel heap 🚧 Partially functional
+
+Implemented:
+
+- GDT/TSS;
+- IDT infrastructure;
+- PIC disable;
+- LAPIC/IOAPIC path;
+- PIT timer at 100 Hz;
+- hardware interrupts enabled;
+- RTC support.
+
+Remaining work includes:
+
+- broad CPU exception coverage;
+- dedicated IST handling for critical exceptions;
+- a minimal kernel heap;
+- eventual ACPI/MADT-based interrupt topology discovery.
+
+### Milestone 5 — Scheduler 🚧 Functionally demonstrated
+
+Implemented:
+
+- multiple user processes;
+- resumable CPU contexts;
+- cooperative yield;
+- preemptive fixed-quantum round-robin scheduling;
+- CR3 switching;
+- timer-driven preemption;
+- process exit/termination states.
+
+Remaining work includes:
+
+- resource reaping and slot reuse;
+- blocked/sleeping states;
+- interruptible idle behavior;
+- later separation of process and thread execution contexts when required.
+
+### Milestone 6 — Ring 3 and syscalls 🚧 Functionally demonstrated
+
+Implemented:
+
+- CPL3 entry through `iretq`;
+- ring-3 code and stack mappings;
+- `int 0x80` syscall entry;
+- initial syscall ABI;
+- `DEBUG_PUTC`, `WRITE`, `EXIT`, and `YIELD`;
+- return/resume through interrupt frames.
+
+Remaining work is primarily hardening:
+
+- complete exception containment for hostile user code;
+- stronger user-pointer/address validation;
+- continued ABI discipline as more syscalls are added.
+
+### Milestone 7 — Processes and ELF loading 🚧 Foundations only
+
+Already available:
+
+- process descriptors;
+- process address spaces;
+- user layout and stacks;
+- process scheduling and termination mechanisms.
+
+Next major feature work, after the hardening pass:
+
+- ELF64 validation and loading;
+- mapping ELF segments with derived permissions;
+- initial `argc`/`argv`/`envp` stack construction;
+- dynamic process creation/lifecycle;
+- eventual `execve`, `wait`, and a simple first `fork` implementation.
+
+### Milestones 8–14 — Road to `startx` / `xclock`
+
+The long-term critical path is tracked in [Roadmap: MyOS → startx → xclock](https://github.com/crecabar/myos/issues/13):
+
+```text
+M8   VFS, initramfs, file descriptors
+ ↓
+M9   minimal Unix userland and shell
+ ↓
+M10  POSIX primitives required by X11
+ ↓
+M11  userspace framebuffer and input devices
+ ↓
+M12  libc and cross-porting platform
+ ↓
+M13  minimal native X11 server
+ ↓
+M14  startx-ready system
+ ↓
+xclock
+```
+
+The goal is deliberately not to implement every Unix or POSIX feature in advance. Compatibility work will be driven by concrete dependencies required by real programs.
+
+## Near-term development order
+
+The intended sequence from the current state is:
+
+```text
+Hardening Pass 1
+  ├─ user-address and page-table ownership enforcement
+  ├─ exception containment + #DF IST
+  ├─ process lifecycle/reaping
+  ├─ kernel heap
+  └─ regression tests
+          ↓
+ELF64 loader
+          ↓
+/init
+          ↓
+VFS + file descriptors
+          ↓
+minimal Unix userland
+          ↓
+POSIX/IPC surface required by X11
+          ↓
+userspace display/input
+          ↓
+X11 server
+          ↓
+startx + xclock
+```
 
 ## Toolchain
 
@@ -177,33 +374,51 @@ The local development environment can be verified with:
 make check-toolchain
 ```
 
+Build the kernel with:
+
+```bash
+make
+```
+
+Build the bootable ISO with:
+
+```bash
+make iso
+```
+
+Run MyOS in QEMU with:
+
+```bash
+make run
+```
+
 Detailed toolchain notes are available in:
 
 ```text
 docs/toolchain.md
 ```
 
-## Longer-term direction
+## Hardware scope
 
-Once the memory-management foundation is stable, the project will continue toward:
+Development currently targets QEMU Q35 with one x86-64 CPU. The scheduler, physical allocator, interrupt infrastructure, and other shared kernel state currently rely on this single-core assumption.
+
+Running on real x86-64 hardware remains an explicit project goal, but broad hardware support is not part of the immediate critical path. Before that stage, MyOS will need at least ACPI/MADT-based interrupt discovery and additional hardware-specific validation.
+
+## North Star
+
+The immediate engineering goal is not "build Linux" or "implement all of POSIX". The long-term demonstration target is intentionally concrete:
 
 ```text
-kernel-owned virtual memory
-        ↓
-process address spaces
-        ↓
-scheduler and context switching
-        ↓
-userspace transition
-        ↓
-system calls
-        ↓
-filesystem and libc
-        ↓
-small Unix-style userland
+MyOS $ startx
 ```
 
-Each stage will continue to be developed in small, observable, and independently verifiable steps.
+followed by a working X11 session capable of launching:
+
+```text
+xclock
+```
+
+Getting there requires progressively turning today's small kernel mechanisms into a coherent Unix-like system while keeping each intermediate step understandable and testable.
 
 ## License
 
