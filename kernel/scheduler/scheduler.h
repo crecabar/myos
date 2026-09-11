@@ -2,11 +2,12 @@
 
 /**
  * @file scheduler.h
- * @brief Minimal cooperative process scheduler.
+ * @brief Preemptive round-robin process scheduler.
  *
- * Provides the first MyOS runnable-process selection mechanism. Processes are
- * executed until they terminate; preemption and resumable contexts are not
- * implemented yet.
+ * Manages runnable processes, CPU context preservation, voluntary yields,
+ * process termination, and timer-driven preemption. Each running process
+ * receives a fixed scheduling quantum before another READY process may be
+ * selected.
  */
 
 #ifndef MYOS_SCHEDULER_SCHEDULER_H
@@ -72,10 +73,10 @@ void scheduler_exit_current(
 _Noreturn void scheduler_run(void);
 
 /**
- * Yields the CPU from the currently running user process.
+ * Voluntarily yields the CPU from the currently running user process.
  *
  * The current user context is saved, the process returns to READY state, and
- * the next READY process is selected using cooperative round-robin scheduling.
+ * the next READY process is selected using round-robin scheduling.
  *
  * The supplied interrupt context is rewritten so the syscall return path
  * resumes the selected process.

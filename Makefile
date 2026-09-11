@@ -92,7 +92,8 @@ KERNEL_OBJS := \
     $(BUILD_DIR)/timer.o \
     $(BUILD_DIR)/lapic.o \
     $(BUILD_DIR)/ioapic.o \
-    $(BUILD_DIR)/interrupt_topology.o
+    $(BUILD_DIR)/interrupt_topology.o \
+    $(BUILD_DIR)/process-programs.o \
 
 LINKER_SCRIPT := kernel/linker.ld
 
@@ -304,6 +305,11 @@ $(BUILD_DIR)/interrupt_topology.o: \
 	kernel/arch/x86_64/interrupt_topology.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/process-programs.o: \
+	kernel/process/programs.c \
+	kernel/process/programs.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
 	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJS)
 
@@ -381,7 +387,7 @@ run: $(ISO_IMAGE)
 	$(QEMU) \
 		-machine q35 \
 		-cpu qemu64 \
-		-m 256M \
+		-m 512M \
 		-smp 1 \
 		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
 		-cdrom $(ISO_IMAGE) \
@@ -397,7 +403,7 @@ debug: $(ISO_IMAGE)
 	$(QEMU) \
 		-machine q35 \
 		-cpu qemu64 \
-		-m 256M \
+		-m 512M \
 		-smp 1 \
 		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
 		-cdrom $(ISO_IMAGE) \

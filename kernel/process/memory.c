@@ -231,6 +231,69 @@ bool process_memory_write(
     return true;
 }
 
+bool process_memory_read(
+    const struct process_memory *memory,
+    uint64_t virtual_address,
+    void *destination,
+    size_t size)
+{
+    if (memory == NULL) return false;
+    if (destination == NULL && size != 0) return false;
+
+    uint8_t *output = destination;
+    size_t copied = 0;
+
+    if (size != 0 && virtual_address > UINT64_MAX - (uint64_t) (size - 1)) {
+        return false;
+    }
+
+    while (copied < size) {
+        uint64_t current_virtual = virtual_address + copied;
+
+        struct paging_translation translation;
+
+        if (!paging_translate_address_space(
+            &memory->address_space,
+            current_virtual,
+            &translation
+        )) {
+            return false;
+        }
+
+        /*
+         * For this first version, user memory exposed to syscalls must be a
+         * normal 4 KiB mapping.
+         */
+        if (translation.page_size != PAGING_PAGE_SIZE_4K) {
+            return false;
+        }
+
+        if ((translation.pt_entry & PAGE_ENTRY_USER) == 0) {
+            return false;
+        }
+
+        uint64_t page_offset = current_virtual & 0xFFFULL;
+        size_t page_remaining = 4096 - (size_t) page_offset;
+        size_t remaining = size - copied;
+        size_t chunk_size = remaining < page_remaining
+            ? remaining
+            : page_remaining;
+
+        const uint8_t *source =
+            memory_physical_to_virtual(
+                translation.physical_address
+            );
+
+        for (size_t index = 0; index < chunk_size; ++index) {
+            output[copied + index] = source[index];
+        }
+
+        copied += chunk_size;
+    }
+
+    return true;
+}
+
 bool process_memory_release_pages(
     struct process_memory *memory,
     uint64_t virtual_address,

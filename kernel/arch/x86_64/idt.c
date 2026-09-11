@@ -247,6 +247,11 @@ void syscall_handler(struct interrupt_context *context)
 
     context->rax = syscall_dispatch(
         context->rax,
-        context->rdi
+        context->rdi,
+        context->rsi,
+        context->rdx,
+        context->r10,
+        context->r8,
+        context->r9
     );
 }

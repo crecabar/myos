@@ -198,6 +198,27 @@ bool process_memory_write(
 );
 
 /**
+ * Copies bytes from a process virtual address into a kernel buffer.
+ *
+ * The complete source range must be mapped in the process address space and
+ * accessible from user mode. The operation fails if any page in the range is
+ * unmapped or belongs exclusively to the kernel.
+ *
+ * @param memory Process address space to read from.
+ * @param virtual_address User virtual address of the first byte.
+ * @param destination Kernel buffer that receives the copied bytes.
+ * @param size Number of bytes to copy.
+ *
+ * @return true when the complete range was copied; false otherwise.
+ */
+bool process_memory_read(
+    const struct process_memory *memory,
+    uint64_t virtual_address,
+    void *destination,
+    size_t size
+);
+
+/**
  * Allocates and maps one executable user page owned by the process.
  *
  * The physical frame is mapped user-accessible and executable, but not

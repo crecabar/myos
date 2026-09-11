@@ -14,12 +14,12 @@
 #define SCHEDULER_MAX_PROCESSES 8
 #define SCHEDULER_QUANTUM_TICKS 10
 
-static uint64_t current_quantum_ticks;
-
 static struct process *processes[SCHEDULER_MAX_PROCESSES];
 static size_t process_count;
-static struct process *current_process;
 static size_t next_process_index;
+
+static struct process *current_process;
+static uint64_t current_quantum_ticks;
 
 static struct process *scheduler_find_next_ready(void);
 static _Noreturn void scheduler_enter_process(struct process *process);
@@ -101,6 +101,8 @@ static _Noreturn void scheduler_enter_process(struct process *process)
     )) {
         kernel_panic("Unable to activate scheduled process address space");
     }
+
+    current_quantum_ticks = 0;
 
     current_process = process;
     process->state = PROCESS_STATE_RUNNING;
@@ -214,11 +216,6 @@ void scheduler_yield_current(struct interrupt_context *context)
 
     yielding_process->state = PROCESS_STATE_READY;
 
-    diagnostics_printf(
-        "[scheduler] PID %u yielded\n",
-        yielding_process->id
-    );
-
     current_process = NULL;
 
     struct process *next = scheduler_find_next_ready();
@@ -251,11 +248,6 @@ void scheduler_preempt_current(struct interrupt_context *context)
     );
 
     preempted_process->state = PROCESS_STATE_READY;
-
-    diagnostics_printf(
-        "[scheduler] PID %u preempted\n",
-        preempted_process->id
-    );
 
     current_process = NULL;
 

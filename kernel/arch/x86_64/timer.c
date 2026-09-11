@@ -2,7 +2,6 @@
 
 #include "timer.h"
 #include "lapic.h"
-#include "../../diagnostics/diagnostics.h"
 #include "../../scheduler/scheduler.h"
 
 #include <stddef.h>

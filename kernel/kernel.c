@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/arch.h"
 #include "arch/x86_64/paging.h"
 #include "arch/x86_64/rtc.h"
-#include "arch/x86_64/timer.h"
-#include "arch/x86_64/pic.h"
 #include "process/layout.h"
 #include "process/memory.h"
 #include "process/process.h"
+#include "process/programs.h"
 #include "scheduler/scheduler.h"
 #include "boot/boot.h"
 #include "core/panic.h"
@@ -19,6 +19,8 @@
 #include "init/display.h"
 #include "memory/memory.h"
 #include "version.h"
+#include "config.h"
+
 
 _Noreturn void kernel_main(void)
 {
@@ -60,10 +62,11 @@ _Noreturn void kernel_main(void)
 
     diagnostics_write("[kernel] Initialization complete\n");
 
-    /* RUNTIME DIAGNOSTICS */
+#if MYOS_RUNTIME_DIAGNOSTICS
     diagnostics_write("[kernel] Test and diagnostics\n");
     runtime_diagnostics_dump();
     diagnostics_write("[kernel] Test and diagnostics ended\n");
+#endif
 
     /* RTC */
     struct rtc_time time;
@@ -79,7 +82,54 @@ _Noreturn void kernel_main(void)
     }
 
     /*=======================================================================*/
-    /* Initial user processes */
+    // process memory write and read test
+    struct process_memory memory;
+    struct process_layout layout;
+    static const uint8_t source[] = "Hello from user memory";
+    uint8_t destination[sizeof(source)];
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic("Unable to create PID address space");
+    }
+    if (!process_layout_create(&memory, &layout)) {
+        kernel_panic("Unable to create PID layout");
+    }
+
+    if (!process_memory_write(
+        &memory,
+        layout.code_base,
+        source,
+        sizeof(source)
+    )) {
+        kernel_panic("Unable to write user memory test");
+    }
+
+    if (!process_memory_read(
+        &memory,
+        layout.code_base,
+        destination,
+        sizeof(destination)
+    )) {
+        kernel_panic("Unable to read user memory test");
+    }
+
+    for (size_t index = 0; index < sizeof(source); ++index) {
+        if (source[index] != destination[index]) {
+            kernel_panic("User memory copy test failed");
+        }
+    }
+
+    if (!process_layout_destroy(&memory, &layout)) {
+        kernel_panic("Unable to destroy user memory test layout");
+    }
+
+    if (!process_memory_destroy(&memory)) {
+        kernel_panic("Unable to destroy user memory test address space");
+    }
+    diagnostics_write("[process] User memory copy test passed\n");
+    // process memory write and read test end.
+
+    /* test user processes */
     struct process_memory process_1_memory;
     struct process_layout process_1_layout;
     struct process process_1;
@@ -97,34 +147,12 @@ _Noreturn void kernel_main(void)
     }
 
     /* User program 1 */
-    static const uint8_t process_1_program[] = {
-        /* putc('1') */
-        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
-        0x48, 0xC7, 0xC7, 0x31, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-        /* mov rcx, 0x04000000 */
-        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x00, 0x04,
-        /* dec rcx */
-        0x48, 0xFF, 0xC9,
-        /* jnz -5 */
-        0x75, 0xFB,
-        /* putc('A') */
-        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
-        0x48, 0xC7, 0xC7, 0x41, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-        /* exit(0) */
-        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00,
-        0x48, 0xC7, 0xC7, 0x00, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-
-        /* unreachable */
-        0xEB, 0xFE,
-    };
+    const struct user_program *program_1 = user_program_hello();
     if (!process_memory_write(
         &process_1_memory,
         process_1_layout.code_base,
-        process_1_program,
-        sizeof(process_1_program))
+        program_1->data,
+        program_1->size)
     ) {
         kernel_panic("Unable to load PID 1 program");
     }
@@ -142,42 +170,18 @@ _Noreturn void kernel_main(void)
         kernel_panic("Unable to create PID 2 address space");
     }
 
-    if (!process_layout_create(
-        &process_2_memory,
-        &process_2_layout
-    )) {
+    if (!process_layout_create(&process_2_memory, &process_2_layout)) {
         kernel_panic("Unable to create PID 2 layout");
     }
 
     /* User program 2 */
-    static const uint8_t process_2_program[] = {
-        /* putc('2') */
-        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
-        0x48, 0xC7, 0xC7, 0x32, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-        /* mov rcx, 0x04000000 */
-        0x48, 0xC7, 0xC1, 0x00, 0x00, 0x00, 0x04,
-        /* dec rcx */
-        0x48, 0xFF, 0xC9,
-        /* jnz -5 */
-        0x75, 0xFB,
-        /* putc('B') */
-        0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
-        0x48, 0xC7, 0xC7, 0x42, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-        /* exit(0) */
-        0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00,
-        0x48, 0xC7, 0xC7, 0x00, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-        /* unreachable */
-        0xEB, 0xFE,
-    };
+    const struct user_program *program_2 = user_program_counter();
     if (!process_memory_write(
         &process_2_memory,
         process_2_layout.code_base,
-        process_2_program,
-        sizeof(process_2_program))
-    ) {
+        program_2->data,
+        program_2->size))
+    {
         kernel_panic("Unable to load PID 2 program");
     }
 
@@ -216,33 +220,6 @@ _Noreturn void kernel_main(void)
         process_2_layout.stack.stack_top
     );
     /*=======================================================================*/
-
-    diagnostics_write("[timer] Waiting for 100 ticks\n");
-
-    uint64_t start_ticks = timer_ticks();
-    uint64_t last_reported_tick = 0;
-
-    while ((timer_ticks() - start_ticks) < 100) {
-        __asm__ volatile ("hlt");
-
-        uint64_t elapsed_ticks = timer_ticks() - start_ticks;
-
-        if (elapsed_ticks != 0 &&
-            (elapsed_ticks % 20) == 0 &&
-            elapsed_ticks != last_reported_tick) {
-            diagnostics_printf(
-                "[timer] tick %u\n",
-                elapsed_ticks
-            );
-
-            last_reported_tick = elapsed_ticks;
-        }
-    }
-
-    diagnostics_printf(
-        "[timer] %u ticks received\n",
-        timer_ticks() - start_ticks
-    );
 
     diagnostics_write("[kernel] Starting scheduler\n");
     scheduler_run();
