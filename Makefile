@@ -39,6 +39,7 @@ CFLAGS := \
 	-fno-stack-protector \
 	-fno-common \
 	-mno-red-zone \
+	-mgeneral-regs-only \
 	-mcmodel=kernel \
 	-O0 \
 	-g \

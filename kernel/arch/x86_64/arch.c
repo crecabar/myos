@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <stdint.h>
+
 #include "arch.h"
 #include "gdt.h"
 #include "idt.h"
@@ -11,6 +13,27 @@
 
 #include "../../diagnostics/diagnostics.h"
 #include "../../core/panic.h"
+
+#define X86_CR0_TASK_SWITCHED (1ULL << 3)
+
+static void fp_simd_trap_on_use(void)
+{
+    uint64_t cr0;
+
+    __asm__ volatile (
+        "mov %%cr0, %0"
+        : "=r" (cr0)
+    );
+
+    cr0 |= X86_CR0_TASK_SWITCHED;
+
+    __asm__ volatile (
+        "mov %0, %%cr0"
+        :
+        : "r" (cr0)
+        : "memory"
+    );
+}
 
 void arch_init(void)
 {
@@ -54,6 +77,12 @@ void arch_init(void)
     }
 
     timer_init(100);
+
+    diagnostics_write(
+        "[arch] Enabling FP/SIMD trap-on-use policy\n"
+    );
+    
+    fp_simd_trap_on_use();
 
     __asm__ volatile ("sti");
 }

@@ -38,4 +38,55 @@ const struct user_program *user_program_hello(void);
  */
 const struct user_program *user_program_counter(void);
 
+/**
+ * Returns the built-in page-fault regression program.
+ *
+ * The program deliberately reads from unmapped virtual address zero to verify
+ * that a user-mode page fault terminates only the offending process.
+ *
+ * @return Pointer to the immutable program description.
+ */
+const struct user_program *user_program_malicious_page_fault(void);
+
+/**
+ * Returns the built-in invalid-opcode regression program.
+ *
+ * The program deliberately executes UD2 from user mode to verify that an
+ * invalid instruction terminates only the offending process.
+ *
+ * @return Pointer to the immutable program description.
+ */
+const struct user_program *user_program_malicious_ud2(void);
+
+/**
+ * Returns the built-in privileged-instruction regression program.
+ *
+ * The program deliberately executes HLT from user mode to verify that a
+ * general-protection fault terminates only the offending process.
+ *
+ * @return Pointer to the immutable program description.
+ */
+const struct user_program *user_program_malicious_hlt(void);
+
+/**
+ * Returns a user-mode program that deliberately executes an x87 instruction.
+ *
+ * With the current FP/SIMD trap-on-use policy, the FLDZ instruction must
+ * raise #NM before modifying x87 state.
+ *
+ * @return Pointer to the immutable program description.
+ */
+const struct user_program *user_program_malicious_x87(void);
+
+/**
+ * Returns the built-in exception-containment survivor program.
+ *
+ * The program prints a recognizable message and exits normally so tests can
+ * verify that healthy user-mode execution continues after hostile processes
+ * have been terminated.
+ *
+ * @return Pointer to the immutable program description.
+ */
+const struct user_program *user_program_survivor(void);
+
 #endif

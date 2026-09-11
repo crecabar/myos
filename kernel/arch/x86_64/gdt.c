@@ -8,6 +8,7 @@
 
 #define GDT_ENTRY_COUNT 7
 #define GDT_KERNEL_STACK_SIZE 16384
+#define GDT_DOUBLE_FAULT_STACK_SIZE 16384
 
 #define GDT_KERNEL_CODE_DESCRIPTOR 0x00AF9A000000FFFFULL
 #define GDT_KERNEL_DATA_DESCRIPTOR 0x00CF92000000FFFFULL
@@ -58,6 +59,9 @@ static struct task_state_segment tss;
 static uint8_t kernel_stack[GDT_KERNEL_STACK_SIZE]
     __attribute__((aligned(16)));
 
+static uint8_t double_fault_stack[GDT_DOUBLE_FAULT_STACK_SIZE]
+    __attribute__((aligned(16)));
+
 extern void gdt_load(
     const struct gdt_descriptor *descriptor,
     uint16_t code_selector,
@@ -104,6 +108,9 @@ void gdt_init(void)
      * tss has static storage duration and is already zero-initialized.
      */
     tss.rsp0 = (uint64_t) &kernel_stack[GDT_KERNEL_STACK_SIZE];
+
+    tss.ist1 = (uint64_t) &double_fault_stack[GDT_DOUBLE_FAULT_STACK_SIZE];
+
     tss.io_map_base = (uint16_t) sizeof(struct task_state_segment);
 
     gdt_set_tss_descriptor(

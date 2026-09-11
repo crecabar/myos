@@ -24,10 +24,6 @@ static uint64_t current_quantum_ticks;
 static struct process *scheduler_find_next_ready(void);
 static _Noreturn void scheduler_enter_process(struct process *process);
 static _Noreturn void scheduler_idle(void);
-static _Noreturn void scheduler_finish_current(
-    enum process_termination_reason reason,
-    uint64_t exit_status
-);
 
 static void scheduler_save_context(
     struct process *process,
@@ -139,19 +135,41 @@ static _Noreturn void scheduler_idle(void)
     }
 }
 
-_Noreturn void scheduler_terminate_current(
+void scheduler_terminate_current_from_interrupt(
+    struct interrupt_context *context,
     enum process_termination_reason reason)
 {
+    if (context == NULL) {
+        kernel_panic("Scheduler received null interrupt context");
+    }
+
     if (current_process == NULL) {
         kernel_panic("Scheduler has no current process");
     }
 
+    struct process *terminated_process = current_process;
+
+    terminated_process->state = PROCESS_STATE_TERMINATED;
+    terminated_process->termination_reason = reason;
+    terminated_process->exit_status = 0;
+
     diagnostics_printf(
         "[scheduler] PID %u terminated\n",
-        current_process->id
+        terminated_process->id
     );
 
-    scheduler_finish_current(reason, 0);
+    current_process = NULL;
+
+    struct process *next = scheduler_find_next_ready();
+
+    if (next == NULL) {
+        scheduler_idle();
+    }
+
+    scheduler_switch_from_interrupt(
+        context,
+        next
+    );
 }
 
 void scheduler_exit_current(
@@ -278,23 +296,6 @@ void scheduler_tick(struct interrupt_context *context)
     current_quantum_ticks = 0;
 
     scheduler_preempt_current(context);
-}
-
-static _Noreturn void scheduler_finish_current(
-    enum process_termination_reason reason,
-    uint64_t exit_status)
-{
-    if (current_process == NULL) {
-        kernel_panic("Scheduler has no current process");
-    }
-
-    current_process->state = PROCESS_STATE_TERMINATED;
-    current_process->termination_reason = reason;
-    current_process->exit_status = exit_status;
-
-    current_process = NULL;
-
-    scheduler_run();
 }
 
 static void scheduler_save_context(

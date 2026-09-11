@@ -40,16 +40,22 @@ bool scheduler_add(struct process *process);
  */
 struct process *scheduler_current(void);
 
+
 /**
- * Terminates the current process and transfers execution to the next READY
- * process.
+ * Terminates the current process from an interrupt or exception context.
  *
- * This function does not return. If no runnable process remains, MyOS enters
- * its idle state.
+ * The current process is marked terminated and the supplied interrupt frame
+ * is rewritten with the saved state of the next READY process. The interrupt
+ * return path can then resume that process without restarting it from its
+ * initial entry point.
  *
+ * If no runnable process remains, MyOS enters its idle state.
+ *
+ * @param context Active interrupt frame to replace with the next process.
  * @param reason Process termination reason.
  */
-_Noreturn void scheduler_terminate_current(
+void scheduler_terminate_current_from_interrupt(
+    struct interrupt_context *context,
     enum process_termination_reason reason
 );
 

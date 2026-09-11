@@ -15,7 +15,9 @@
 #include "boot/boot.h"
 #include "core/panic.h"
 #include "diagnostics/diagnostics.h"
+#if MYOS_RUNTIME_DIAGNOSTICS
 #include "diagnostics/runtime.h"
+#endif
 #include "init/display.h"
 #include "memory/memory.h"
 #include "version.h"
@@ -138,6 +140,27 @@ _Noreturn void kernel_main(void)
     struct process_layout process_2_layout;
     struct process process_2;
 
+    struct process_memory process_3_memory;
+    struct process_layout process_3_layout;
+    struct process process_3;
+
+    struct process_memory process_4_memory;
+    struct process_layout process_4_layout;
+    struct process process_4;
+
+    struct process_memory process_5_memory;
+    struct process_layout process_5_layout;
+    struct process process_5;
+
+    struct process_memory process_6_memory;
+    struct process_layout process_6_layout;
+    struct process process_6;
+
+    struct process_memory process_7_memory;
+    struct process_layout process_7_layout;
+    struct process process_7;
+
+    /* User program 1 */
     if (!process_memory_create(&process_1_memory)) {
         kernel_panic("Unable to create PID 1 address space");
     }
@@ -146,7 +169,6 @@ _Noreturn void kernel_main(void)
         kernel_panic("Unable to create PID 1 layout");
     }
 
-    /* User program 1 */
     const struct user_program *program_1 = user_program_hello();
     if (!process_memory_write(
         &process_1_memory,
@@ -166,6 +188,7 @@ _Noreturn void kernel_main(void)
         kernel_panic("Unable to initialize PID 1");
     }
 
+    /* User program 2 */
     if (!process_memory_create(&process_2_memory)) {
         kernel_panic("Unable to create PID 2 address space");
     }
@@ -174,7 +197,6 @@ _Noreturn void kernel_main(void)
         kernel_panic("Unable to create PID 2 layout");
     }
 
-    /* User program 2 */
     const struct user_program *program_2 = user_program_counter();
     if (!process_memory_write(
         &process_2_memory,
@@ -194,6 +216,147 @@ _Noreturn void kernel_main(void)
         kernel_panic("Unable to initialize PID 2");
     }
 
+    /* User program 3 */
+    if (!process_memory_create(&process_3_memory)) {
+        kernel_panic("Unable to create PID 3 address space");
+    }
+    
+    if (!process_layout_create(&process_3_memory, &process_3_layout)) {
+        kernel_panic("Unable to create PID 3 layout");
+    }
+
+    const struct user_program *program_3 = user_program_malicious_page_fault();
+    if (!process_memory_write(
+        &process_3_memory,
+        process_3_layout.code_base,
+        program_3->data,
+        program_3->size
+    )) {
+        kernel_panic("Unable to load PID 3 program");
+    }
+
+    if (!process_init(
+        &process_3,
+        3,
+        &process_3_memory,
+        &process_3_layout
+    )) {
+        kernel_panic("Unable to initialize PID 3");
+    }
+
+    /* User program 4 */
+    if (!process_memory_create(&process_4_memory)) {
+        kernel_panic("Unable to create PID 4 address space");
+    }
+    
+    if (!process_layout_create(&process_4_memory, &process_4_layout)) {
+        kernel_panic("Unable to create PID 4 layout");
+    }
+
+    const struct user_program *program_4 = user_program_malicious_ud2();
+    if (!process_memory_write(
+        &process_4_memory,
+        process_4_layout.code_base,
+        program_4->data,
+        program_4->size
+    )) {
+        kernel_panic("Unable to load PID 4 program");
+    }
+
+    if (!process_init(
+        &process_4,
+        4,
+        &process_4_memory,
+        &process_4_layout
+    )) {
+        kernel_panic("Unable to initialize PID 4");
+    }
+
+    /* User program 5 */
+    if (!process_memory_create(&process_5_memory)) {
+        kernel_panic("Unable to create PID 5 address space");
+    }
+
+    if (!process_layout_create(&process_5_memory, &process_5_layout)) {
+        kernel_panic("Unable to create PID 5 layout");
+    }
+
+    const struct user_program *program_5 = user_program_malicious_hlt();
+    if (!process_memory_write(
+        &process_5_memory,
+        process_5_layout.code_base,
+        program_5->data,
+        program_5->size
+    )) {
+        kernel_panic("Unable to load PID 5 program");
+    }
+
+    if (!process_init(
+        &process_5,
+        5,
+        &process_5_memory,
+        &process_5_layout
+    )) {
+        kernel_panic("Unable to initialize PID 5");
+    }
+
+    /* User program 6 */
+    if (!process_memory_create(&process_6_memory)) {
+        kernel_panic("Unable to create PID 6 address space");
+    }
+
+    if (!process_layout_create(&process_6_memory, &process_6_layout)) {
+        kernel_panic("Unable to create PID 6 layout");
+    }
+
+    const struct user_program *program_6 = user_program_survivor();
+    if (!process_memory_write(
+        &process_6_memory,
+        process_6_layout.code_base,
+        program_6->data,
+        program_6->size
+    )) {
+        kernel_panic("Unable to load PID 6 program");
+    }
+
+    if (!process_init(
+        &process_6,
+        6,
+        &process_6_memory,
+        &process_6_layout
+    )) {
+        kernel_panic("Unable to initialize PID 6");
+    }
+
+    /* User program 7 */
+    if (!process_memory_create(&process_7_memory)) {
+        kernel_panic("Unable to create PID 7 address space");
+    }
+
+    if (!process_layout_create(&process_7_memory, &process_7_layout)) {
+        kernel_panic("Unable to create PID 7 layout");
+    }
+
+    const struct user_program *program_7 = user_program_malicious_x87();
+    if (!process_memory_write(
+        &process_7_memory,
+        process_7_layout.code_base,
+        program_7->data,
+        program_7->size
+    )) {
+        kernel_panic("Unable to load PID 7 program");
+    }
+
+    if (!process_init(
+        &process_7,
+        7,
+        &process_7_memory,
+        &process_7_layout
+    )) {
+        kernel_panic("Unable to initialize PID 7");
+    }
+
+    /* Add user programs to scheduler */
     if (!scheduler_add(&process_1)) {
         kernel_panic("Unable to schedule PID 1");
     }
@@ -202,6 +365,26 @@ _Noreturn void kernel_main(void)
         kernel_panic("Unable to schedule PID 2");
     }
 
+    if (!scheduler_add(&process_3)) {
+        kernel_panic("Unable to schedule PID 3");
+    }
+
+    if (!scheduler_add(&process_4)) {
+        kernel_panic("Unable to schedule PID 4");
+    }
+
+    if (!scheduler_add(&process_5)) {
+        kernel_panic("Unable to schedule PID 5");
+    }
+
+    if (!scheduler_add(&process_6)) {
+        kernel_panic("Unable to schedule PID 6");
+    }
+
+    if (!scheduler_add(&process_7)) {
+        kernel_panic("Unable to schedule PID 7");
+    }
+    
     diagnostics_printf(
         "\n--- Initial processes ---\n"
         "PID 1:\n"
@@ -211,13 +394,49 @@ _Noreturn void kernel_main(void)
         "PID 2:\n"
         "  CR3=%x\n"
         "  RIP=%x\n"
-        "  RSP=%x\n",
+        "  RSP=%x\n"
+        "PID 3:\n"
+        "  CR3=%x\n"
+        "  RIP=%x\n"
+        "  RSP=%x\n"
+        "PID 4:\n"
+        "  CR3=%x\n"
+        "  RIP=%x\n"
+        "  RSP=%x\n"
+        "PID 5:\n"
+        "  CR3=%x\n"
+        "  RIP=%x\n"
+        "  RSP=%x\n"
+        "PID 6:\n"
+        "  CR3=%x\n"
+        "  RIP=%x\n"
+        "  RSP=%x\n"
+        "PID 7:\n"
+        "  CR3=%x\n"
+        "  RIP=%x\n"
+        "  RSP=%x\n"
+        "\n",
         process_1_memory.address_space.pml4_physical,
         process_1_layout.entry_point,
         process_1_layout.stack.stack_top,
         process_2_memory.address_space.pml4_physical,
         process_2_layout.entry_point,
-        process_2_layout.stack.stack_top
+        process_2_layout.stack.stack_top,
+        process_3_memory.address_space.pml4_physical,
+        process_3_layout.entry_point,
+        process_3_layout.stack.stack_top,
+        process_4_memory.address_space.pml4_physical,
+        process_4_layout.entry_point,
+        process_4_layout.stack.stack_top,
+        process_5_memory.address_space.pml4_physical,
+        process_5_layout.entry_point,
+        process_5_layout.stack.stack_top,
+        process_6_memory.address_space.pml4_physical,
+        process_6_layout.entry_point,
+        process_6_layout.stack.stack_top,
+        process_7_memory.address_space.pml4_physical,
+        process_7_layout.entry_point,
+        process_7_layout.stack.stack_top
     );
     /*=======================================================================*/
 
