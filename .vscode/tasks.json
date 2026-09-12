@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "MyOS: Start debug VM",
+            "type": "process",
+            "command": "${workspaceFolder}/scripts/debug-qemu.sh",
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "myos",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}"
+                ],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^MYOS_DEBUG_STARTING$",
+                    "endsPattern": "^MYOS_DEBUG_READY$"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": false
+            }
+        },
+        {
+            "label": "MyOS: Stop debug VM",
+            "type": "process",
+            "command": "make",
+            "args": [
+                "debug-stop"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

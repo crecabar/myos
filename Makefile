@@ -382,8 +382,9 @@ $(ISO_IMAGE): \
 # -----------------------------------------------------------------------------
 
 QEMU_FIRMWARE := $(QEMU_PREFIX)/share/qemu/edk2-x86_64-code.fd
+QEMU_DEBUG_PID := $(BUILD_DIR)/qemu-debug.pid
 
-.PHONY: run debug
+.PHONY: run debug debug-stop
 
 run: $(ISO_IMAGE)
 	$(QEMU) \
@@ -402,6 +403,7 @@ run: $(ISO_IMAGE)
 		-serial stdio
 
 debug: $(ISO_IMAGE)
+	@rm -f $(QEMU_DEBUG_PID)
 	$(QEMU) \
 		-machine q35 \
 		-cpu qemu64 \
@@ -410,10 +412,25 @@ debug: $(ISO_IMAGE)
 		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
 		-cdrom $(ISO_IMAGE) \
 		-boot d \
+		-vga none \
+		-device VGA,edid=on,xres=1920,yres=1200 \
+		-display cocoa,show-cursor=on \
 		-no-reboot \
 		-no-shutdown \
+		-serial stdio \
+		-pidfile $(QEMU_DEBUG_PID) \
 		-S \
 		-gdb tcp::1234
+
+debug-stop:
+	@if [ -f "$(QEMU_DEBUG_PID)" ]; then \
+		pid="$$(cat "$(QEMU_DEBUG_PID)")"; \
+		if kill -0 "$$pid" 2>/dev/null; then \
+			echo "Stopping QEMU debug VM (PID $$pid)..."; \
+			kill "$$pid"; \
+		fi; \
+		rm -f "$(QEMU_DEBUG_PID)"; \
+	fi
 
 # -----------------------------------------------------------------------------
 # Snapshot of current repository status
