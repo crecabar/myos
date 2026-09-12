@@ -1,0 +1,22 @@
+CompileFlags:
+  CompilationDatabase: build
+
+Index:
+  Background: Build
+  StandardLibrary: false
+
+Completion:
+  HeaderInsertion: Never
+
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: None
+
+InlayHints:
+  Enabled: true
+  ParameterNames: true
+  Designators: true
+  DeducedTypes: true
+
+Hover:
+  ShowAKA: true

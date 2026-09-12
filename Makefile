@@ -17,6 +17,7 @@ LLVM_NM      := $(LLVM_PREFIX)/bin/llvm-nm
 QEMU    := qemu-system-x86_64
 GDB     := gdb
 XORRISO := xorriso
+BEAR 	:= bear
 
 # -----------------------------------------------------------------------------
 # Third-party dependencies
@@ -483,10 +484,35 @@ check-toolchain:
 	@echo "Toolchain OK."
 
 # -----------------------------------------------------------------------------
+# Compdb
+# -----------------------------------------------------------------------------
+
+COMPDB := $(BUILD_DIR)/compile_commands.json
+COMPDB_TMP := .compile_commands.json.tmp
+
+.PHONY: compdb
+
+compdb:
+	@command -v $(BEAR) >/dev/null || { \
+		echo "error: Bear is not installed"; \
+		exit 1; \
+	}
+	@rm -f $(COMPDB_TMP)
+	@$(MAKE) clean
+	@mkdir -p $(BUILD_DIR)
+	PATH="$(LLVM_PREFIX)/bin:$$PATH" \
+		$(BEAR) -o $(COMPDB_TMP) -- \
+		$(MAKE) CLANG=clang all
+	@mv $(COMPDB_TMP) $(COMPDB)
+	@echo
+	@echo "Compilation database created:"
+	@echo "  $(COMPDB)"
+
+# -----------------------------------------------------------------------------
 # Cleanup
 # -----------------------------------------------------------------------------
 
 .PHONY: clean
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)/*
