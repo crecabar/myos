@@ -198,6 +198,9 @@ bool paging_map_mmio_page(
  * Address spaces with a shared kernel higher half cannot remove mappings
  * through PML4 entries 256 through 511.
  *
+ * If no present 4 KiB leaf mapping exists, the operation is rejected and
+ * the physical_address output is left unchanged.
+ *
  * @param address_space Address space to modify.
  * @param virtual_address 4 KiB-aligned virtual page address to unmap.
  * @param physical_address Receives the physical frame previously mapped.

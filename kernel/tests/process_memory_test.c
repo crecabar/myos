@@ -33,6 +33,9 @@
 #define PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS 0x0000000000200000ULL
 #define PROCESS_MEMORY_TEST_HUGE_2M_TARGET_ADDRESS 0x0000000000201000ULL
 
+#define PROCESS_MEMORY_TEST_UNMAP_ANCHOR_ADDRESS 0x0000000040000000ULL
+#define PROCESS_MEMORY_TEST_UNMAP_MISSING_ADDRESS 0x0000000040001000ULL
+
 static void process_memory_test_user_range_policy(void)
 {
     if (process_memory_user_range_valid(0x0ULL, 1)) {
@@ -1339,6 +1342,167 @@ static void process_memory_test_paging_2m_huge_guard(void)
     );
 }
 
+static void process_memory_test_paging_unmap_absent_leaf(void)
+{
+    uint64_t free_before = physical_free_frame_count();
+
+    struct paging_address_space address_space;
+
+    if (!paging_address_space_create(&address_space)) {
+        kernel_panic(
+            "Unable to create absent-leaf unmap test address space"
+        );
+    }
+
+    uint64_t anchor_physical;
+
+    if (!physical_alloc_frame(&anchor_physical)) {
+        kernel_panic(
+            "Unable to allocate absent-leaf anchor frame"
+        );
+    }
+
+    if (!paging_map_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_UNMAP_ANCHOR_ADDRESS,
+        anchor_physical,
+        true,
+        false,
+        false
+    )) {
+        kernel_panic(
+            "Unable to create absent-leaf anchor mapping"
+        );
+    }
+
+    if (
+        paging_pml4_index(
+            PROCESS_MEMORY_TEST_UNMAP_ANCHOR_ADDRESS
+        ) !=
+        paging_pml4_index(
+            PROCESS_MEMORY_TEST_UNMAP_MISSING_ADDRESS
+        ) ||
+        paging_pdpt_index(
+            PROCESS_MEMORY_TEST_UNMAP_ANCHOR_ADDRESS
+        ) !=
+        paging_pdpt_index(
+            PROCESS_MEMORY_TEST_UNMAP_MISSING_ADDRESS
+        ) ||
+        paging_pd_index(
+            PROCESS_MEMORY_TEST_UNMAP_ANCHOR_ADDRESS
+        ) !=
+        paging_pd_index(
+            PROCESS_MEMORY_TEST_UNMAP_MISSING_ADDRESS
+        )
+    ) {
+        kernel_panic(
+            "Absent-leaf test addresses do not share page table"
+        );
+    }
+
+    if (
+        paging_pt_index(
+            PROCESS_MEMORY_TEST_UNMAP_ANCHOR_ADDRESS
+        ) ==
+        paging_pt_index(
+            PROCESS_MEMORY_TEST_UNMAP_MISSING_ADDRESS
+        )
+    ) {
+        kernel_panic(
+            "Absent-leaf test addresses use same PTE"
+        );
+    }
+
+    uint64_t free_before_rejected_unmap =
+        physical_free_frame_count();
+
+    uint64_t unmapped_physical = UINT64_MAX;
+
+    if (paging_unmap_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_UNMAP_MISSING_ADDRESS,
+        &unmapped_physical
+    )) {
+        kernel_panic(
+            "Paging reported success for absent leaf mapping"
+        );
+    }
+
+    if (unmapped_physical != UINT64_MAX) {
+        kernel_panic(
+            "Absent-leaf unmap modified its output"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before_rejected_unmap
+    ) {
+        kernel_panic(
+            "Absent-leaf unmap changed frame ownership"
+        );
+    }
+
+    struct paging_translation translation;
+
+    if (!paging_translate_address_space(
+        &address_space,
+        PROCESS_MEMORY_TEST_UNMAP_ANCHOR_ADDRESS,
+        &translation
+    )) {
+        kernel_panic(
+            "Absent-leaf unmap damaged anchor mapping"
+        );
+    }
+
+    if (
+        translation.page_size != PAGING_PAGE_SIZE_4K ||
+        translation.physical_address != anchor_physical
+    ) {
+        kernel_panic(
+            "Absent-leaf unmap changed anchor translation"
+        );
+    }
+
+    if (!paging_unmap_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_UNMAP_ANCHOR_ADDRESS,
+        &unmapped_physical
+    )) {
+        kernel_panic(
+            "Unable to clean up absent-leaf anchor mapping"
+        );
+    }
+
+    if (unmapped_physical != anchor_physical) {
+        kernel_panic(
+            "Absent-leaf cleanup returned wrong physical frame"
+        );
+    }
+
+    if (!physical_free_frame(unmapped_physical)) {
+        kernel_panic(
+            "Unable to release absent-leaf anchor frame"
+        );
+    }
+
+    if (!paging_address_space_destroy(&address_space)) {
+        kernel_panic(
+            "Unable to destroy absent-leaf unmap test address space"
+        );
+    }
+
+    if (physical_free_frame_count() != free_before) {
+        kernel_panic(
+            "Absent-leaf unmap test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[paging] Absent leaf unmap rejection test passed\n"
+    );
+}
+
 void process_memory_test_run(void)
 {
     process_memory_test_user_range_policy();
@@ -1348,6 +1512,7 @@ void process_memory_test_run(void)
     process_memory_test_paging_user_pd_promotion();
     process_memory_test_paging_1g_huge_guard();
     process_memory_test_paging_2m_huge_guard();
+    process_memory_test_paging_unmap_absent_leaf();
 
     struct process_memory memory;
     struct process_layout layout;
