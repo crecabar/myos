@@ -8,6 +8,14 @@
  * process termination, and timer-driven preemption. Each running process
  * receives a fixed scheduling quantum before another READY process may be
  * selected.
+ *
+ * The scheduler owns its internal registration slots and scheduling state,
+ * but it does not own registered process descriptors or any process memory
+ * resources. Registered struct process pointers are borrowed references.
+ *
+ * A registered process descriptor, together with the memory and layout it
+ * references, must remain alive until the scheduler registration has been
+ * removed during reaping.
  */
 
 #ifndef MYOS_SCHEDULER_SCHEDULER_H
@@ -25,9 +33,17 @@
 void scheduler_init(void);
 
 /**
- * Adds a READY process to the scheduler.
+ * Registers a READY process with the scheduler.
  *
- * @param process Process to make schedulable.
+ * The scheduler stores a borrowed reference to the process descriptor.
+ * Registration does not transfer ownership of the process, its memory, or its
+ * layout to the scheduler.
+ *
+ * The process descriptor and every object it borrows must remain alive while
+ * the process remains registered, including after it reaches
+ * PROCESS_STATE_TERMINATED.
+ *
+ * @param process Borrowed process descriptor to make schedulable.
  *
  * @return true when the process was registered; false otherwise.
  */
@@ -36,7 +52,11 @@ bool scheduler_add(struct process *process);
 /**
  * Returns the process currently selected for execution.
  *
- * @return Running process, or NULL when no process is active.
+ * The returned pointer is a borrowed reference owned by the process lifecycle
+ * layer. The caller must not destroy or release the process through this
+ * pointer.
+ *
+ * @return Borrowed running process, or NULL when no process is active.
  */
 struct process *scheduler_current(void);
 
@@ -48,6 +68,11 @@ struct process *scheduler_current(void);
  * is rewritten with the saved state of the next READY process. The interrupt
  * return path can then resume that process without restarting it from its
  * initial entry point.
+ *
+ * Termination does not unregister, reap, or destroy the process. Its
+ * descriptor and associated lifecycle resources remain alive until a later
+ * reaping operation removes the scheduler registration and releases those
+ * resources.
  *
  * If no runnable process remains, MyOS enters its idle state.
  *
@@ -61,6 +86,11 @@ void scheduler_terminate_current_from_interrupt(
 
 /**
  * Terminates the current process normally and schedules the next READY process.
+ *
+ * The process is marked PROCESS_STATE_TERMINATED and its final exit status is
+ * recorded. The scheduler does not unregister, reap, or destroy the process;
+ * its descriptor and associated lifecycle resources remain alive for later
+ * reaping.
  *
  * @param context Current user-mode syscall interrupt frame.
  * @param status Process exit status.

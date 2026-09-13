@@ -3,6 +3,18 @@
 /**
  * @file process.h
  * @brief Process execution state and lifecycle tracking.
+ *
+ * Process lifecycle ownership is separate from scheduler registration.
+ * A lifecycle owner keeps the process descriptor, process memory, and process
+ * layout alive while the process is registered with the scheduler.
+ *
+ * The scheduler borrows the process descriptor and may transition its
+ * execution state, but never owns or destroys lifecycle resources.
+ *
+ * A terminated process remains registered and retains its final termination
+ * information until reaping. Reaping must first remove scheduler references,
+ * then release layout-managed mappings, destroy the empty process address
+ * space, and finally release or recycle lifecycle metadata.
  */
 
 #ifndef MYOS_PROCESS_PROCESS_H
@@ -68,8 +80,17 @@ struct process_context {
 /**
  * Represents a schedulable MyOS user process.
  *
- * The process descriptor tracks execution state and references the virtual
- * memory and layout required to enter its user-mode execution environment.
+ * The process descriptor owns its execution-state fields and saved CPU
+ * context, but it does not own the process_memory or process_layout objects
+ * referenced by memory and layout.
+ *
+ * Those objects are borrowed from the process lifecycle owner and must remain
+ * alive for at least as long as this descriptor may be referenced by the
+ * scheduler.
+ *
+ * PROCESS_STATE_TERMINATED means that the process will never execute again,
+ * but does not imply that its descriptor, layout, memory, or scheduler slot
+ * have been reclaimed. Resource destruction happens later during reaping.
  */
 struct process {
     uint64_t id;
@@ -85,10 +106,18 @@ struct process {
 /**
  * Initializes a schedulable process descriptor.
  *
+ * The process borrows the supplied memory and layout objects. Ownership of
+ * those objects remains with the caller/lifecycle owner, which must keep them
+ * alive while the initialized process may still be referenced.
+ *
+ * This function allocates no resources and takes no ownership. On failure,
+ * the caller remains responsible for all supplied objects.
+ *
  * @param process Process descriptor to initialize.
  * @param id Process identifier.
- * @param memory Process address space.
- * @param layout User virtual-memory layout and initial execution addresses.
+ * @param memory Borrowed process address space.
+ * @param layout Borrowed user virtual-memory layout and initial execution
+ *        addresses.
  *
  * @return true when the descriptor was initialized; false otherwise.
  */
