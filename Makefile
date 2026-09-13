@@ -1,4 +1,5 @@
 .DEFAULT_GOAL := all
+.DELETE_ON_ERROR:
 
 include config.mk
 
@@ -20,6 +21,10 @@ QEMU    := qemu-system-x86_64
 GDB     := gdb
 XORRISO := xorriso
 BEAR 	:= bear
+SGDISK       	:= sgdisk
+MTOOLS_FORMAT 	:= mformat
+MTOOLS_MKDIR  	:= mmd
+MTOOLS_COPY   	:= mcopy
 
 # -----------------------------------------------------------------------------
 # Third-party dependencies
@@ -270,13 +275,110 @@ $(ISO_IMAGE): \
 		$(ISO_ROOT)
 
 # -----------------------------------------------------------------------------
+# USB boot image
+# -----------------------------------------------------------------------------
+
+USB_IMAGE         	:= $(BUILD_DIR)/myos-usb.img
+
+USB_IMAGE_SIZE_MIB := 64
+
+USB_HEADS := 64
+USB_SECTORS_PER_TRACK := 32
+
+USB_CYLINDER_SECTORS := $(shell \
+	echo $$(( $(USB_HEADS) * $(USB_SECTORS_PER_TRACK) )) \
+)
+
+USB_PART_START := $(USB_CYLINDER_SECTORS)
+
+USB_PART_SECTORS := $(shell \
+	echo $$(( ($(USB_IMAGE_SIZE_MIB) - 2) * $(USB_CYLINDER_SECTORS) )) \
+)
+
+USB_PART_END := $(shell \
+	echo $$(( $(USB_PART_START) + $(USB_PART_SECTORS) - 1 )) \
+)
+
+USB_PART_OFFSET := $(shell \
+	echo $$(( $(USB_PART_START) * 512 )) \
+)
+
+.PHONY: usb-image check-usb-tools
+
+usb-image: $(USB_IMAGE)
+
+check-usb-tools:
+	@command -v $(SGDISK) >/dev/null 2>&1 || { \
+		echo "ERROR: sgdisk not found (install gptfdisk)"; \
+		exit 1; \
+	}
+	@command -v $(MTOOLS_FORMAT) >/dev/null 2>&1 || { \
+		echo "ERROR: mformat not found (install mtools)"; \
+		exit 1; \
+	}
+	@command -v $(MTOOLS_MKDIR) >/dev/null 2>&1 || { \
+		echo "ERROR: mmd not found (install mtools)"; \
+		exit 1; \
+	}
+	@command -v $(MTOOLS_COPY) >/dev/null 2>&1 || { \
+		echo "ERROR: mcopy not found (install mtools)"; \
+		exit 1; \
+	}
+
+$(USB_IMAGE): \
+	$(KERNEL_ELF) \
+	limine.conf \
+	$(LIMINE_EFI) | check-usb-tools
+	@echo "Creating bootable UEFI USB image..."
+	rm -f $@
+	dd if=/dev/zero of=$@ bs=1048576 count=$(USB_IMAGE_SIZE_MIB)
+	$(SGDISK) \
+		-n 1:$(USB_PART_START):$(USB_PART_END) \
+		-t 1:ef00 \
+		$@
+
+	$(MTOOLS_FORMAT) \
+		-i $@@@$(USB_PART_OFFSET) \
+		-T $(USB_PART_SECTORS) \
+		-h $(USB_HEADS) \
+		-s $(USB_SECTORS_PER_TRACK) \
+		::
+	$(MTOOLS_MKDIR) -i $@@@$(USB_PART_OFFSET) \
+		::/EFI \
+		::/EFI/BOOT \
+		::/boot
+
+	$(MTOOLS_COPY) -i $@@@$(USB_PART_OFFSET) \
+		$(LIMINE_EFI) \
+		::/EFI/BOOT/BOOTX64.EFI
+
+	$(MTOOLS_COPY) -i $@@@$(USB_PART_OFFSET) \
+		$(KERNEL_ELF) \
+		::/boot/kernel.elf
+
+	$(MTOOLS_COPY) -i $@@@$(USB_PART_OFFSET) \
+		limine.conf \
+		::/limine.conf
+	@echo
+	@echo "Bootable USB image created:"
+	@echo "  $(USB_IMAGE)"
+
+.PHONY: usb-image-diagnostics
+
+usb-image-diagnostics:
+	$(MAKE) \
+		MYOS_RUNTIME_DIAGNOSTICS=1 \
+		MYOS_KERNEL_TESTS=1 \
+		usb-image
+
+# -----------------------------------------------------------------------------
 # QEMU
 # -----------------------------------------------------------------------------
 
 QEMU_FIRMWARE := $(QEMU_PREFIX)/share/qemu/edk2-x86_64-code.fd
 QEMU_DEBUG_PID := $(BUILD_DIR)/qemu-debug.pid
 
-.PHONY: run debug debug-stop
+.PHONY: run run-usb run-usb-diagnostics debug debug-stop
 
 run: $(ISO_IMAGE)
 	$(QEMU) \
@@ -288,11 +390,34 @@ run: $(ISO_IMAGE)
 		-cdrom $(ISO_IMAGE) \
 		-boot d \
 		-vga none \
-        -device VGA,edid=on,xres=1920,yres=1200 \
-        -display cocoa,show-cursor=on \
+		-device VGA,edid=on,xres=1920,yres=1200 \
+		-display cocoa,show-cursor=on \
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio
+
+run-usb: $(USB_IMAGE)
+	$(QEMU) \
+		-machine q35 \
+		-cpu qemu64 \
+		-m 512M \
+		-smp 1 \
+		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
+		-device qemu-xhci,id=xhci \
+		-drive if=none,format=raw,readonly=on,file=$(USB_IMAGE),id=myos-usb \
+		-device usb-storage,bus=xhci.0,drive=myos-usb,bootindex=1 \
+		-vga none \
+		-device VGA,edid=on,xres=1920,yres=1200 \
+		-display cocoa,show-cursor=on \
+		-no-reboot \
+		-no-shutdown \
+		-serial stdio
+
+run-usb-diagnostics:
+	$(MAKE) \
+		MYOS_RUNTIME_DIAGNOSTICS=1 \
+		MYOS_KERNEL_TESTS=1 \
+		run-usb
 
 debug: $(ISO_IMAGE)
 	@rm -f $(QEMU_DEBUG_PID)
