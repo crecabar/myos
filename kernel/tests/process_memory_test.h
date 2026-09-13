@@ -9,11 +9,11 @@
 #define MYOS_TESTS_PROCESS_MEMORY_TEST_H
 
 /**
- * Verifies read/write access through a process address space.
+ * Verifies process virtual-memory isolation and valid memory access.
  *
- * Creates a temporary process address space and layout, writes known data into
- * user memory, reads it back, verifies the contents, and releases all
- * associated resources.
+ * Exercises userspace virtual-address bounds, rejects invalid higher-half and
+ * cross-boundary mutations without modifying paging state, and verifies normal
+ * read/write access through a valid process address space.
  */
 void process_memory_test_run(void);
 

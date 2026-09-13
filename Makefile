@@ -370,10 +370,12 @@ $(BUILD_DIR)/user_process_tests.o: \
 $(BUILD_DIR)/process_memory_test.o: \
 	kernel/tests/process_memory_test.c \
 	kernel/tests/process_memory_test.h \
-	kernel/process/memory.h \
-	kernel/process/layout.h \
+	kernel/arch/x86_64/paging.h \
 	kernel/core/panic.h \
-	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
+	kernel/diagnostics/diagnostics.h \
+	kernel/memory/memory.h \
+	kernel/process/layout.h \
+	kernel/process/memory.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)

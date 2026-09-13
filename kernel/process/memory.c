@@ -4,8 +4,36 @@
 #include "../memory/memory.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define PROCESS_MEMORY_PAGE_SIZE 4096ULL
+
+bool process_memory_user_range_valid(
+    uint64_t virtual_address,
+    size_t size)
+{
+    if (virtual_address < PROCESS_USER_VIRTUAL_MIN) return false;
+    if (virtual_address > PROCESS_USER_VIRTUAL_MAX) return false;
+
+    if (size == 0) {
+        return true;
+    }
+
+    uint64_t last_offset = (uint64_t) (size - 1);
+
+    if (virtual_address > UINT64_MAX - last_offset) {
+        return false;
+    }
+
+    uint64_t end_address =
+        virtual_address + last_offset;
+
+    if (end_address > PROCESS_USER_VIRTUAL_MAX) {
+        return false;
+    }
+
+    return true;
+}
 
 bool process_memory_create(struct process_memory *memory)
 {
@@ -33,6 +61,13 @@ bool process_memory_map_page(
 {
     if (memory == NULL) return false;
 
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        PROCESS_MEMORY_PAGE_SIZE
+    )) {
+        return false;
+    }
+
     return paging_map_page(
         &memory->address_space,
         virtual_address,
@@ -50,6 +85,13 @@ bool process_memory_unmap_page(
 {
     if (memory == NULL) return false;
 
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        PROCESS_MEMORY_PAGE_SIZE
+    )) {
+        return false;
+    }
+
     return paging_unmap_page(
         &memory->address_space,
         virtual_address,
@@ -63,6 +105,13 @@ bool process_memory_allocate_page(
     bool writable)
 {
     if (memory == NULL) return false;
+
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        PROCESS_MEMORY_PAGE_SIZE
+    )) {
+        return false;
+    }
 
     uint64_t physical_address;
 
@@ -90,6 +139,13 @@ bool process_memory_release_page(
 {
     if (memory == NULL) return false;
 
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        PROCESS_MEMORY_PAGE_SIZE
+    )) {
+        return false;
+    }
+
     uint64_t physical_address;
 
     if (!process_memory_unmap_page(
@@ -116,6 +172,19 @@ bool process_memory_allocate_pages(
     if (memory == NULL) return false;
     if (page_count == 0) return false;
     if ((virtual_address & (PROCESS_MEMORY_PAGE_SIZE - 1)) != 0) return false;
+
+    if (page_count > SIZE_MAX / (size_t) PROCESS_MEMORY_PAGE_SIZE) {
+        return false;
+    }
+
+    size_t range_size = page_count * (size_t) PROCESS_MEMORY_PAGE_SIZE;
+
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        range_size
+    )) {
+        return false;
+    }
 
     size_t allocated_pages = 0;
 
@@ -153,29 +222,38 @@ bool process_memory_allocate_pages(
     return false;
 }
 
-bool process_memory_allocate_executable_page(
+bool process_memory_release_pages(
     struct process_memory *memory,
-    uint64_t virtual_address)
+    uint64_t virtual_address,
+    size_t page_count)
 {
     if (memory == NULL) return false;
+    if (page_count == 0) return false;
+    if ((virtual_address & (PROCESS_MEMORY_PAGE_SIZE - 1)) != 0) return false;
 
-    uint64_t physical_address;
-
-    if (!physical_alloc_frame(&physical_address)) {
+    if (page_count > SIZE_MAX / (size_t) PROCESS_MEMORY_PAGE_SIZE) {
         return false;
     }
 
-    if (!paging_map_page(
-        &memory->address_space,
-        virtual_address,
-        physical_address,
-        false,
-        true,
-        true
-    )) {
-        physical_free_frame(physical_address);
+    size_t range_size = page_count * (size_t) PROCESS_MEMORY_PAGE_SIZE;
 
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        range_size
+    )) {
         return false;
+    }
+
+    for (size_t index = 0; index < page_count; ++index) {
+        uint64_t page_virtual_address =
+            virtual_address + ((uint64_t) index * PROCESS_MEMORY_PAGE_SIZE);
+
+        if (!process_memory_release_page(
+            memory,
+            page_virtual_address
+        )) {
+            return false;
+        }
     }
 
     return true;
@@ -188,6 +266,13 @@ bool process_memory_write(
     size_t size)
 {
     if (memory == NULL) return false;
+
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        size
+    )) {
+        return false;
+    }
 
     if (size == 0) {
         return true;
@@ -238,14 +323,18 @@ bool process_memory_read(
     size_t size)
 {
     if (memory == NULL) return false;
+
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        size
+    )) {
+        return false;
+    }
+
     if (destination == NULL && size != 0) return false;
 
     uint8_t *output = destination;
     size_t copied = 0;
-
-    if (size != 0 && virtual_address > UINT64_MAX - (uint64_t) (size - 1)) {
-        return false;
-    }
 
     while (copied < size) {
         uint64_t current_virtual = virtual_address + copied;
@@ -294,25 +383,36 @@ bool process_memory_read(
     return true;
 }
 
-bool process_memory_release_pages(
+bool process_memory_allocate_executable_page(
     struct process_memory *memory,
-    uint64_t virtual_address,
-    size_t page_count)
+    uint64_t virtual_address)
 {
     if (memory == NULL) return false;
-    if (page_count == 0) return false;
-    if ((virtual_address & (PROCESS_MEMORY_PAGE_SIZE - 1)) != 0) return false;
 
-    for (size_t index = 0; index < page_count; ++index) {
-        uint64_t page_virtual_address =
-            virtual_address + ((uint64_t) index * PROCESS_MEMORY_PAGE_SIZE);
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        PROCESS_MEMORY_PAGE_SIZE
+    )) {
+        return false;
+    }
 
-        if (!process_memory_release_page(
-            memory,
-            page_virtual_address
-        )) {
-            return false;
-        }
+    uint64_t physical_address;
+
+    if (!physical_alloc_frame(&physical_address)) {
+        return false;
+    }
+
+    if (!paging_map_page(
+        &memory->address_space,
+        virtual_address,
+        physical_address,
+        false,
+        true,
+        true
+    )) {
+        physical_free_frame(physical_address);
+
+        return false;
     }
 
     return true;

@@ -20,6 +20,22 @@
 #include <stdint.h>
 
 /**
+ * Lowest virtual address permitted for process userspace.
+ *
+ * The first 4 KiB virtual page is intentionally excluded so null and
+ * near-null pointers cannot refer to legal process memory.
+ */
+#define PROCESS_USER_VIRTUAL_MIN 0x0000000000001000ULL
+
+/**
+ * Highest virtual address permitted for process userspace.
+ *
+ * This is the final address in the canonical lower half of the current
+ * four-level x86-64 virtual address space.
+ */
+#define PROCESS_USER_VIRTUAL_MAX 0x00007FFFFFFFFFFFULL
+
+/**
  * Represents the virtual memory owned by a process.
  *
  * Each process memory instance owns its PML4 root and private lower-half
@@ -29,6 +45,29 @@
 struct process_memory {
     struct paging_address_space address_space;
 };
+
+/**
+ * Checks whether a complete virtual-address range belongs to process
+ * userspace.
+ *
+ * The start address must lie between PROCESS_USER_VIRTUAL_MIN and
+ * PROCESS_USER_VIRTUAL_MAX, inclusive. For a non-empty range, the final byte
+ * must also remain inside those bounds and address arithmetic must not
+ * overflow.
+ *
+ * A zero-length range is valid when its start address itself is a legal
+ * userspace address.
+ *
+ * @param virtual_address First virtual address in the range.
+ * @param size Number of bytes in the range.
+ *
+ * @return true when the complete range is legal process userspace; false
+ *         otherwise.
+ */
+bool process_memory_user_range_valid(
+    uint64_t virtual_address,
+    size_t size
+);
 
 /**
  * Initializes an empty process address space.
