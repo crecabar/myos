@@ -35,8 +35,13 @@
 /**
  * Represents the minimal virtual address-space layout of a process.
  *
- * The layout owns an executable code page and a guarded writable user stack
- * inside an existing process memory address space.
+ * The layout defines and manages the lifetime of the user mappings created for
+ * its executable code and stack inside a borrowed process_memory address
+ * space.
+ *
+ * The layout does not own the process_memory object itself. That memory object
+ * must remain alive until all mappings managed by the layout have been
+ * released through process_layout_destroy().
  */
 struct process_layout {
     uint64_t code_base;
@@ -51,7 +56,15 @@ struct process_layout {
  * address. A writable, non-executable user stack with one unmapped guard page
  * is created near the top of the lower address space.
  *
- * @param memory Process memory that will own the layout.
+ * The supplied process memory is borrowed. On successful creation, the layout
+ * assumes responsibility for releasing the newly created code and stack
+ * mappings, but does not take ownership of the process_memory object itself.
+ *
+ * If creation fails, this function rolls back any mappings created for the
+ * layout before the failure and the caller retains ownership of both input
+ * objects.
+ *
+ * @param memory Borrowed process memory in which layout mappings are created.
  * @param layout Layout descriptor to initialize.
  *
  * @return true when the complete layout was created; false otherwise.
@@ -62,14 +75,18 @@ bool process_layout_create(
 );
 
 /**
- * Releases all memory regions owned by a process layout.
+ * Releases all mappings managed by a process layout.
  *
- * The process memory object itself is not destroyed by this function.
+ * The supplied process memory is borrowed and is not destroyed by this
+ * function.
  *
- * @param memory Process memory that owns the layout.
- * @param layout Layout descriptor to destroy.
+ * On success, the layout is responsible for no remaining process-memory
+ * mappings.
  *
- * @return true when all layout-owned mappings were released; false otherwise.
+ * @param memory Borrowed process memory containing the layout mappings.
+ * @param layout Layout whose managed mappings are to be released.
+ *
+ * @return true when all layout-managed mappings were released; false otherwise.
  */
 bool process_layout_destroy(
     struct process_memory *memory,
