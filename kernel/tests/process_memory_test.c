@@ -1503,11 +1503,178 @@ static void process_memory_test_paging_unmap_absent_leaf(void)
     );
 }
 
+static void process_memory_test_shared_reclaim_boundary(void)
+{
+    uint64_t free_before = physical_free_frame_count();
+
+    struct process_memory memory;
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic(
+            "Unable to create shared reclaim test address space"
+        );
+    }
+
+    if (!memory.address_space.kernel_half_shared) {
+        kernel_panic(
+            "Shared reclaim test address space does not share kernel half"
+        );
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            PROCESS_MEMORY_TEST_KERNEL_ADDRESS
+        );
+
+    uint64_t kernel_pml4_entry_before =
+        memory.address_space.pml4_virtual[kernel_pml4_index];
+
+    if ((kernel_pml4_entry_before & PAGE_ENTRY_PRESENT) == 0) {
+        kernel_panic(
+            "Shared reclaim test kernel PML4 entry is absent"
+        );
+    }
+
+    struct paging_translation translation_before;
+
+    if (!paging_translate_address_space(
+        &memory.address_space,
+        PROCESS_MEMORY_TEST_KERNEL_ADDRESS,
+        &translation_before
+    )) {
+        kernel_panic(
+            "Shared reclaim test kernel mapping is not visible"
+        );
+    }
+
+    uint64_t free_before_release =
+        physical_free_frame_count();
+
+    if (process_memory_release_page(
+        &memory,
+        PROCESS_MEMORY_TEST_KERNEL_ADDRESS
+    )) {
+        kernel_panic(
+            "Process released shared higher-half kernel page"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before_release
+    ) {
+        kernel_panic(
+            "Rejected shared higher-half release changed frame ownership"
+        );
+    }
+
+    if (
+        memory.address_space.pml4_virtual[kernel_pml4_index] !=
+        kernel_pml4_entry_before
+    ) {
+        kernel_panic(
+            "Rejected shared higher-half release modified process PML4"
+        );
+    }
+
+    struct paging_translation translation_after;
+
+    if (!paging_translate_address_space(
+        &memory.address_space,
+        PROCESS_MEMORY_TEST_KERNEL_ADDRESS,
+        &translation_after
+    )) {
+        kernel_panic(
+            "Rejected shared higher-half release removed kernel mapping"
+        );
+    }
+
+    if (
+        translation_after.physical_address !=
+        translation_before.physical_address ||
+        translation_after.page_size !=
+        translation_before.page_size
+    ) {
+        kernel_panic(
+            "Rejected shared higher-half release changed kernel translation"
+        );
+    }
+
+    uint64_t free_before_multi_release =
+        physical_free_frame_count();
+
+    if (process_memory_release_pages(
+        &memory,
+        PROCESS_MEMORY_TEST_KERNEL_ADDRESS,
+        1
+    )) {
+        kernel_panic(
+            "Process released shared higher-half kernel range"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before_multi_release
+    ) {
+        kernel_panic(
+            "Rejected shared higher-half range release changed frame ownership"
+        );
+    }
+
+    if (
+        memory.address_space.pml4_virtual[kernel_pml4_index] !=
+        kernel_pml4_entry_before
+    ) {
+        kernel_panic(
+            "Rejected shared higher-half range release modified process PML4"
+        );
+    }
+
+    if (!paging_translate_address_space(
+        &memory.address_space,
+        PROCESS_MEMORY_TEST_KERNEL_ADDRESS,
+        &translation_after
+    )) {
+        kernel_panic(
+            "Rejected shared higher-half range release removed kernel mapping"
+        );
+    }
+
+    if (
+        translation_after.physical_address !=
+        translation_before.physical_address ||
+        translation_after.page_size !=
+        translation_before.page_size
+    ) {
+        kernel_panic(
+            "Rejected shared higher-half range release changed translation"
+        );
+    }
+
+    if (!process_memory_destroy(&memory)) {
+        kernel_panic(
+            "Unable to destroy shared reclaim test address space"
+        );
+    }
+
+    if (physical_free_frame_count() != free_before) {
+        kernel_panic(
+            "Shared reclaim boundary test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[process] Shared higher-half reclaim boundary test passed\n"
+    );
+}
+
 void process_memory_test_run(void)
 {
     process_memory_test_user_range_policy();
     process_memory_test_invalid_mutations();
     process_memory_test_paging_shared_half_boundary();
+    process_memory_test_shared_reclaim_boundary();
     process_memory_test_paging_user_pml4_promotion();
     process_memory_test_paging_user_pd_promotion();
     process_memory_test_paging_1g_huge_guard();
