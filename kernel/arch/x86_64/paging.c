@@ -508,6 +508,10 @@ bool paging_unmap_page(
 
     uint64_t page_entry = pt[pt_index];
 
+    if ((page_entry & PAGE_ENTRY_PRESENT) == 0) {
+        return false;
+    }
+
     *physical_address = paging_entry_address(page_entry);
     pt[pt_index] = 0;
 
