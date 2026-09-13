@@ -2,8 +2,6 @@
 
 #include <stdint.h>
 
-#include "config.h"
-
 #include "arch/x86_64/arch.h"
 #include "arch/x86_64/paging.h"
 #include "arch/x86_64/rtc.h"
