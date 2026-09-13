@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include "runtime.h"
-#include "diagnostics.h"
+#include "runtime_diagnostics.h"
 
-#include "../arch/x86_64/paging.h"
 #include "../arch/x86_64/gdt.h"
+#include "../arch/x86_64/paging.h"
 #include "../core/panic.h"
+#include "../diagnostics/diagnostics.h"
 #include "../memory/memory.h"
+#include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/stack.h"
-#include "../process/layout.h"
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 extern char __kernel_start[];
 extern char __kernel_end[];
@@ -39,8 +39,9 @@ static void runtime_test_process_layout(void);
 static void runtime_test_gdt(void);
 /* END HELPERS */
 
-void runtime_diagnostics_dump(void)
+void runtime_diagnostics_run(void)
 {
+    diagnostics_write("[tests] Starting runtime diagnostics\n");
     diagnostics_write("\n=== Runtime diagnostics ===\n");
 
     runtime_dump_kernel_layout();
@@ -85,6 +86,8 @@ void runtime_diagnostics_dump(void)
 
     diagnostics_write("\n--- GDT and TSS test ---\n");
     runtime_test_gdt();
+
+    diagnostics_write("[tests] Runtime diagnostics completed\n");
 }
 
 static uint16_t read_cs(void)
@@ -386,9 +389,14 @@ static void runtime_test_page_table_chain(void)
 
 static void runtime_test_kernel_address_space(void)
 {
+    uint64_t free_before = physical_free_frame_count();
     struct paging_address_space address_space;
 
-    if (!paging_address_space_create_with_kernel(&address_space)) {
+    if (
+        !paging_address_space_create_with_kernel(
+            &address_space
+        )
+    ) {
         kernel_panic("Unable to create kernel-aware address space");
     }
 
@@ -463,7 +471,9 @@ static void runtime_test_kernel_address_space(void)
     /*
      * Direct map
      */
-    uint64_t direct_map_virtual_address = (uint64_t) memory_physical_to_virtual(address_space.pml4_physical);
+    uint64_t direct_map_virtual_address = (uint64_t) memory_physical_to_virtual(
+        address_space.pml4_physical
+    );
 
     struct paging_translation inherited_direct_map_translation;
 
@@ -480,6 +490,20 @@ static void runtime_test_kernel_address_space(void)
         kernel_panic("Inherited direct map resolved wrong physical address");
     }
 
+    if (
+        !paging_address_space_destroy(
+            &address_space
+        )
+    ) {
+        kernel_panic("Unable to destroy kernel-aware test address space");
+    }
+
+    uint64_t free_after = physical_free_frame_count();
+
+    if (free_after != free_before) {
+        kernel_panic("Kernel address space test leaked physical frames");
+    }
+
     diagnostics_printf(
         "Kernel address space execution test:\n"
         "  kernel VA=%x\n"
@@ -492,7 +516,9 @@ static void runtime_test_kernel_address_space(void)
         "  active stack PA=%x\n"
         "  inherited stack PA=%x\n"
         "  direct map VA=%x\n"
-        "  direct map PA=%x\n",
+        "  direct map PA=%x\n"
+        "  free before=%u\n"
+        "  free after=%u\n",
         kernel_virtual_address,
         active_kernel_translation.physical_address,
         inherited_kernel_translation.physical_address,
@@ -503,7 +529,9 @@ static void runtime_test_kernel_address_space(void)
         active_stack_translation.physical_address,
         inherited_stack_translation.physical_address,
         direct_map_virtual_address,
-        inherited_direct_map_translation.physical_address
+        inherited_direct_map_translation.physical_address,
+        free_before,
+        free_after
     );
 }
 

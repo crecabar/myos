@@ -1,5 +1,7 @@
 .DEFAULT_GOAL := all
 
+include config.mk
+
 # -----------------------------------------------------------------------------
 # Toolchain
 # -----------------------------------------------------------------------------
@@ -45,6 +47,8 @@ CFLAGS := \
 	-O0 \
 	-g \
 	-I$(LIMINE_PROTOCOL_DIR) \
+	-DMYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS) \
+	-DMYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS) \
 	-Wall \
 	-Wextra \
 	-Werror \
@@ -55,6 +59,7 @@ CFLAGS := \
 # -----------------------------------------------------------------------------
 
 BUILD_DIR := build
+CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 
 # -----------------------------------------------------------------------------
 # Kernel
@@ -72,7 +77,6 @@ KERNEL_OBJS := \
 	$(BUILD_DIR)/interrupts.o \
 	$(BUILD_DIR)/idt.o \
 	$(BUILD_DIR)/diagnostics.o \
-	$(BUILD_DIR)/runtime.o \
 	$(BUILD_DIR)/format.o \
 	$(BUILD_DIR)/paging.o \
 	$(BUILD_DIR)/panic.o \
@@ -94,8 +98,21 @@ KERNEL_OBJS := \
     $(BUILD_DIR)/timer.o \
     $(BUILD_DIR)/lapic.o \
     $(BUILD_DIR)/ioapic.o \
-    $(BUILD_DIR)/interrupt_topology.o \
-    $(BUILD_DIR)/process-programs.o \
+    $(BUILD_DIR)/interrupt_topology.o
+
+ifeq ($(MYOS_RUNTIME_DIAGNOSTICS),1)
+	KERNEL_OBJS += \
+		$(BUILD_DIR)/runtime_diagnostics.o
+endif
+
+ifeq ($(MYOS_KERNEL_TESTS),1)
+	KERNEL_OBJS += \
+		$(BUILD_DIR)/process-programs.o \
+		$(BUILD_DIR)/user_process_tests.o \
+		$(BUILD_DIR)/process_memory_test.o
+endif
+
+$(KERNEL_OBJS): $(CONFIG_STAMP)
 
 LINKER_SCRIPT := kernel/linker.ld
 
@@ -109,8 +126,25 @@ all: $(KERNEL_ELF)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
+.PHONY: FORCE
+FORCE:
+
+$(CONFIG_STAMP): FORCE | $(BUILD_DIR)
+	@printf '%s\n' \
+		'MYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS)' \
+		'MYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS)' \
+		> $(CONFIG_STAMP).tmp
+	@if ! cmp -s $(CONFIG_STAMP).tmp $(CONFIG_STAMP); then \
+		mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP); \
+	else \
+		rm -f $(CONFIG_STAMP).tmp; \
+	fi
+
+
 $(BUILD_DIR)/kernel.o: \
 	kernel/kernel.c \
+	kernel/config.h \
+	kernel/version.h \
 	kernel/arch/x86_64/arch.h \
 	kernel/arch/x86_64/paging.h \
 	kernel/arch/x86_64/serial.h \
@@ -119,6 +153,9 @@ $(BUILD_DIR)/kernel.o: \
 	kernel/core/panic.h \
 	kernel/drivers/framebuffer.h \
 	kernel/memory/memory.h \
+	kernel/tests/runtime_diagnostics.h \
+	kernel/tests/process_memory_test.h \
+	kernel/tests/user_processes.h \
 	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
@@ -165,11 +202,17 @@ $(BUILD_DIR)/diagnostics.o: \
 	kernel/arch/x86_64/serial.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/runtime.o: \
-	kernel/diagnostics/runtime.c \
-	kernel/diagnostics/runtime.h \
+$(BUILD_DIR)/runtime_diagnostics.o: \
+	kernel/tests/runtime_diagnostics.c \
+	kernel/tests/runtime_diagnostics.h \
+	kernel/arch/x86_64/gdt.h \
+	kernel/arch/x86_64/paging.h \
 	kernel/core/panic.h \
-	kernel/arch/x86_64/paging.h | $(BUILD_DIR)
+	kernel/diagnostics/diagnostics.h \
+	kernel/memory/memory.h \
+	kernel/process/layout.h \
+	kernel/process/memory.h \
+	kernel/process/stack.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/format.o: \
@@ -310,6 +353,27 @@ $(BUILD_DIR)/interrupt_topology.o: \
 $(BUILD_DIR)/process-programs.o: \
 	kernel/process/programs.c \
 	kernel/process/programs.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/user_process_tests.o: \
+	kernel/tests/user_processes.c \
+	kernel/tests/user_processes.h \
+	kernel/process/process.h \
+	kernel/process/memory.h \
+	kernel/process/layout.h \
+	kernel/process/programs.h \
+	kernel/scheduler/scheduler.h \
+	kernel/core/panic.h \
+	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/process_memory_test.o: \
+	kernel/tests/process_memory_test.c \
+	kernel/tests/process_memory_test.h \
+	kernel/process/memory.h \
+	kernel/process/layout.h \
+	kernel/core/panic.h \
+	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
