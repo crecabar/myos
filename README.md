@@ -13,19 +13,20 @@ The goal is not to compete with Linux, BSD, or modern production operating syste
 MyOS currently targets:
 
 ```text
-Architecture: x86-64
-Firmware:     UEFI
-Bootloader:   Limine
-Kernel:       C
-Assembler:    only where necessary
-Executable:   ELF64 kernel; userspace ELF loading is planned
-Compiler:     LLVM/Clang 21
-Linker:       LLD 21
-Emulator:     QEMU
-Debugger:     GDB
-Build system: GNU Make
-CPU count:    1
-Kernel model: small monolithic kernel
+Architecture:       x86-64
+Firmware:           UEFI
+Bootloader:         Limine
+Kernel:             C
+Assembler:          only where necessary
+Executable:         ELF64 kernel; userspace ELF loading is planned
+Compiler:           LLVM/Clang 21
+Linker:             LLD 21
+Emulator:           QEMU
+Validated hardware: Dell Xeon workstation via UEFI USB boot
+Debugger:           GDB
+Build system:       GNU Make
+CPU count:          1
+Kernel model:       small monolithic kernel
 ```
 
 The kernel is built as a freestanding `x86_64-unknown-none-elf` target and does not depend on the development host architecture.
@@ -60,6 +61,8 @@ Examples:
 
 MyOS has moved beyond bootstrapping and basic memory management. The current kernel can enter ring 3, execute multiple user processes in independent address spaces, receive syscalls through `int 0x80`, preempt user processes using a PIT-driven timer routed through the IOAPIC/LAPIC path, and contain a broad set of user-originated CPU exceptions without bringing down the kernel.
 
+On 2026-09-13, MyOS also completed its first successful boot on physical x86-64 hardware: a Dell Xeon workstation booting the kernel from a UEFI USB image. The full runtime diagnostics and kernel test suite completed successfully, and the scheduler reached the expected idle state after all test processes terminated.
+
 A current boot reaches a sequence conceptually like:
 
 ```text
@@ -83,6 +86,32 @@ MyOS 0.1
 
 The userspace programs used today are still small x86-64 machine-code payloads, but they now live as architecture-specific kernel test fixtures rather than normal process code. They validate privilege transitions, address-space switching, syscalls, timer preemption, process context restoration, and exception containment before the first ELF loader is introduced.
 
+### 2026-09-13 — First successful boot on physical hardware ✅
+
+MyOS successfully booted on a Dell Xeon workstation from a GPT-partitioned UEFI USB image for the first time.
+
+The physical-hardware run completed the same runtime diagnostics and hostile userspace regression tests used under QEMU, including:
+
+- physical-memory allocator and paging diagnostics;
+- page-table ownership and userspace-boundary hardening tests;
+- process-memory range, stack, and layout lifecycle tests;
+- GDT/TSS validation;
+- independent process address spaces and CR3 switching;
+- ring-3 execution and syscall handling;
+- preemptive round-robin scheduling;
+- user-originated `#PF`, `#UD`, `#GP`, and `#NM` exception containment;
+- termination of offending CPL3 processes without bringing down the kernel;
+- survivor-process execution after hostile-process faults.
+
+After the test processes completed or were intentionally terminated, the scheduler reached:
+
+```text
+[scheduler] No runnable processes
+[scheduler] System idle
+```
+
+This milestone confirms that the current kernel mechanisms are not limited to the QEMU execution environment. It does not imply broad hardware portability yet: interrupt discovery and other platform details still need to move toward ACPI/MADT-driven configuration before MyOS can claim general x86-64 hardware support.
+
 ### Implemented foundations
 
 #### Boot, diagnostics, and display
@@ -95,7 +124,9 @@ The userspace programs used today are still small x86-64 machine-code payloads, 
 - centralized diagnostics and formatting;
 - RTC/CMOS time reading;
 - kernel panic and halt support;
-- optional runtime diagnostics.
+- optional runtime diagnostics;
+- bootable ISO generation;
+- bootable GPT/EFI USB image generation for QEMU and physical hardware.
 
 #### Physical and virtual memory
 
@@ -139,7 +170,7 @@ MyOS still retains the boot-time higher-half paging branches inherited through L
 - spurious-interrupt handling;
 - timer-driven entry into the scheduler.
 
-The interrupt topology is intentionally QEMU/Q35-specific for now. ACPI/MADT discovery is future portability work before broad real-hardware support.
+The current interrupt topology is still intentionally simple and not generally discoverable at runtime. The successful Dell workstation boot validates the present path on that machine, but ACPI/MADT discovery remains future portability work before broad real-hardware support.
 
 #### Processes, syscalls, and scheduling
 
@@ -192,9 +223,10 @@ Completed:
 - GNU Make build system;
 - linker script;
 - Limine/UEFI boot integration;
-- bootable image generation;
+- bootable ISO and UEFI USB image generation;
 - QEMU execution;
-- GDB remote debugging.
+- GDB remote debugging;
+- first successful UEFI USB boot on physical x86-64 hardware.
 
 ### Milestone 1 — First owned kernel code ✅
 
@@ -404,10 +436,34 @@ Build the bootable ISO with:
 make iso
 ```
 
-Run MyOS in QEMU with:
+Build the bootable UEFI USB image with:
+
+```bash
+make usb-image
+```
+
+Build a UEFI USB image with runtime diagnostics and kernel tests enabled with:
+
+```bash
+make usb-image-diagnostics
+```
+
+Run MyOS in QEMU from the ISO with:
 
 ```bash
 make run
+```
+
+Run the USB image in QEMU as USB mass storage with:
+
+```bash
+make run-usb
+```
+
+Run the diagnostic/test USB image in QEMU with:
+
+```bash
+make run-usb-diagnostics
 ```
 
 Detailed toolchain notes are available in:
@@ -418,9 +474,11 @@ docs/toolchain.md
 
 ## Hardware scope
 
-Development currently targets QEMU Q35 with one x86-64 CPU. The scheduler, physical allocator, interrupt infrastructure, and other shared kernel state currently rely on this single-core assumption.
+Development primarily targets QEMU Q35 with one x86-64 CPU. The scheduler, physical allocator, interrupt infrastructure, and other shared kernel state currently rely on this single-core assumption.
 
-Running on real x86-64 hardware remains an explicit project goal, but broad hardware support is not part of the immediate critical path. Before that stage, MyOS will need at least ACPI/MADT-based interrupt discovery and additional hardware-specific validation.
+As of 2026-09-13, MyOS has also booted successfully on a physical Dell Xeon workstation from a UEFI USB image. The full runtime diagnostics and kernel test suite passed on that machine, including userspace execution, timer-driven scheduling, process isolation, paging hardening checks, and exception containment.
+
+This is a validated physical-hardware milestone, not a claim of broad hardware compatibility. MyOS still needs ACPI/MADT-based interrupt discovery and additional platform validation before general x86-64 hardware support is a realistic goal.
 
 ## North Star
 
