@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 /**
- * @file programs.h
- * @brief Built-in user-mode programs used during early MyOS development.
+ * @file user_programs.h
+ * @brief x86-64 user-mode program images used by kernel architecture tests.
  */
 
-#ifndef MYOS_PROCESS_PROGRAMS_H
-#define MYOS_PROCESS_PROGRAMS_H
+#ifndef MYOS_ARCH_X86_64_TESTS_USER_PROGRAMS_H
+#define MYOS_ARCH_X86_64_TESTS_USER_PROGRAMS_H
 
 #include <stddef.h>
 #include <stdint.h>

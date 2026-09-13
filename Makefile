@@ -107,7 +107,7 @@ endif
 
 ifeq ($(MYOS_KERNEL_TESTS),1)
 	KERNEL_OBJS += \
-		$(BUILD_DIR)/process-programs.o \
+		$(BUILD_DIR)/x86_64_user_programs.o \
 		$(BUILD_DIR)/user_process_tests.o \
 		$(BUILD_DIR)/process_memory_test.o
 endif
@@ -350,9 +350,9 @@ $(BUILD_DIR)/interrupt_topology.o: \
 	kernel/arch/x86_64/interrupt_topology.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/process-programs.o: \
-	kernel/process/programs.c \
-	kernel/process/programs.h | $(BUILD_DIR)
+$(BUILD_DIR)/x86_64_user_programs.o: \
+	kernel/arch/x86_64/tests/user_programs.c \
+	kernel/arch/x86_64/tests/user_programs.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/user_process_tests.o: \
@@ -361,7 +361,7 @@ $(BUILD_DIR)/user_process_tests.o: \
 	kernel/process/process.h \
 	kernel/process/memory.h \
 	kernel/process/layout.h \
-	kernel/process/programs.h \
+	kernel/arch/x86_64/tests/user_programs.h \
 	kernel/scheduler/scheduler.h \
 	kernel/core/panic.h \
 	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
@@ -495,6 +495,37 @@ debug-stop:
 		fi; \
 		rm -f "$(QEMU_DEBUG_PID)"; \
 	fi
+
+# -----------------------------------------------------------------------------
+# Development configurations
+# -----------------------------------------------------------------------------
+
+.PHONY: run-tests debug-tests run-diagnostics debug-diagnostics
+
+run-tests:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=0 \
+		run
+
+debug-tests:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=0 \
+		debug
+
+run-diagnostics:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=1 \
+		run
+
+debug-diagnostics:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=1 \
+		debug
+
 
 # -----------------------------------------------------------------------------
 # Snapshot of current repository status

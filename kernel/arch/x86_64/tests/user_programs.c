@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 /**
- * @file programs.c
- * @brief Built-in user-mode program images.
+ * @file user_programs.c
+ * @brief x86-64 user-mode program images used by kernel architecture tests.
  */
 
-#include "programs.h"
+#include "user_programs.h"
 
 static const uint8_t hello_program_data[] = {
     // write(message, 24)

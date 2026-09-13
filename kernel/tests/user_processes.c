@@ -12,7 +12,7 @@
 #include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/process.h"
-#include "../process/programs.h"
+#include "../arch/x86_64/tests/user_programs.h"
 #include "../scheduler/scheduler.h"
 
 #include <stddef.h>
