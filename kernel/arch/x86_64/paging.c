@@ -56,6 +56,15 @@ static bool paging_translate_from_pml4(
 static bool paging_enable_nx(void);
 static uint64_t paging_read_msr(uint32_t msr);
 static void paging_write_msr(uint32_t msr, uint64_t value);
+
+static bool paging_address_space_inherit_kernel_half(
+    struct paging_address_space *address_space
+);
+
+static bool paging_address_space_pml4_index_mutable(
+    const struct paging_address_space *address_space,
+    uint16_t pml4_index
+);
 /* END PRIVATE HELPERS */
 
 bool paging_init(void)
@@ -66,7 +75,17 @@ bool paging_init(void)
         return false;
     }
 
-    if (!paging_address_space_create_with_kernel(&kernel_address_space)) {
+    if (!paging_address_space_create(&kernel_address_space)) {
+        return false;
+    }
+
+    if (!paging_address_space_inherit_kernel_half(
+        &kernel_address_space
+    )) {
+        paging_address_space_destroy(
+            &kernel_address_space
+        );
+
         return false;
     }
 
@@ -235,6 +254,7 @@ bool paging_address_space_create(struct paging_address_space *address_space)
 
     address_space->pml4_physical = pml4_physical;
     address_space->pml4_virtual = pml4_virtual;
+    address_space->kernel_half_shared = false;
 
     return true;
 }
@@ -254,6 +274,7 @@ bool paging_address_space_destroy(struct paging_address_space *address_space)
 
     address_space->pml4_physical = 0;
     address_space->pml4_virtual = NULL;
+    address_space->kernel_half_shared = false;
 
     return true;
 }
@@ -267,12 +288,15 @@ bool paging_address_space_create_with_kernel(
         return false;
     }
 
-    uint64_t active_pml4_physical = paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
-    uint64_t *active_pml4_virtual = memory_physical_to_virtual(active_pml4_physical);
+    if (!paging_address_space_inherit_kernel_half(
+        address_space
+    )) {
+        paging_address_space_destroy(address_space);
 
-    for (size_t index = PAGING_PML4_KERNEL_START; index < PAGING_TABLE_ENTRY_COUNT; ++index) {
-        address_space->pml4_virtual[index] = active_pml4_virtual[index];
+        return false;
     }
+
+    address_space->kernel_half_shared = true;
 
     return true;
 }
@@ -322,6 +346,15 @@ static bool paging_map_page_flags(
     bool user = (flags & PAGE_ENTRY_USER) != 0;
 
     uint16_t pml4_index = paging_pml4_index(virtual_address);
+
+    if (
+        !paging_address_space_pml4_index_mutable(
+            address_space,
+            pml4_index)
+    ) {
+        return false;
+    }
+
     uint16_t pdpt_index = paging_pdpt_index(virtual_address);
     uint16_t pd_index = paging_pd_index(virtual_address);
     uint16_t pt_index = paging_pt_index(virtual_address);
@@ -421,6 +454,15 @@ bool paging_unmap_page(
     if ((virtual_address & 0xfffULL) != 0) return false;
 
     uint16_t pml4_index = paging_pml4_index(virtual_address);
+
+    if (
+        !paging_address_space_pml4_index_mutable(
+            address_space,
+            pml4_index)
+    ) {
+        return false;
+    }
+
     uint16_t pdpt_index = paging_pdpt_index(virtual_address);
     uint16_t pd_index = paging_pd_index(virtual_address);
     uint16_t pt_index = paging_pt_index(virtual_address);
@@ -582,6 +624,52 @@ static uint64_t paging_make_page_entry_flags(
     return (physical_address & PAGE_ADDRESS_MASK_4K) |
            PAGE_ENTRY_PRESENT |
            flags;
+}
+
+static bool paging_address_space_inherit_kernel_half(
+    struct paging_address_space *address_space)
+{
+    if (address_space == NULL) return false;
+    if (address_space->pml4_virtual == NULL) return false;
+
+    uint64_t active_pml4_physical =
+        paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
+
+    uint64_t *active_pml4_virtual =
+        memory_physical_to_virtual(
+            active_pml4_physical
+        );
+
+    for (
+        size_t index = PAGING_PML4_KERNEL_START;
+        index < PAGING_TABLE_ENTRY_COUNT;
+        ++index
+    ) {
+        address_space->pml4_virtual[index] =
+            active_pml4_virtual[index];
+    }
+
+    return true;
+}
+
+static bool paging_address_space_pml4_index_mutable(
+    const struct paging_address_space *address_space,
+    uint16_t pml4_index)
+{
+    if (address_space == NULL) return false;
+
+    if (pml4_index >= PAGING_TABLE_ENTRY_COUNT) {
+        return false;
+    }
+
+    if (
+        address_space->kernel_half_shared &&
+        pml4_index >= PAGING_PML4_KERNEL_START
+    ) {
+        return false;
+    }
+
+    return true;
 }
 
 static bool paging_table_is_empty(const uint64_t *table)

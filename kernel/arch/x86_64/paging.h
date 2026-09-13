@@ -49,10 +49,23 @@ struct paging_translation {
  * The physical address is suitable for loading into CR3.
  * The virtual address points to the same PML4 through the kernel direct map
  * and is used by MyOS to inspect and modify the table.
+ *
+ * Address spaces may reference a shared kernel higher half. In that case,
+ * PML4 entries 256 through 511 remain visible but are not owned for mutation
+ * by this address space.
  */
 struct paging_address_space {
     uint64_t pml4_physical;
     uint64_t *pml4_virtual;
+
+    /**
+     * Whether PML4 entries 256 through 511 form a non-owned shared kernel half.
+     *
+     * When true, the entries remain available for translation and kernel
+     * execution but must not be mutated or reclaimed through this address
+     * space.
+     */
+    bool kernel_half_shared;
 };
 
 /**
@@ -112,9 +125,9 @@ bool paging_address_space_destroy(struct paging_address_space *address_space);
  * Creates a new address space with an empty private lower half and the
  * kernel mappings inherited in the upper half.
  *
- * The new PML4 root is owned by the returned address space. Kernel page-table
- * branches referenced by entries 256 through 511 are shared and remain owned
- * by the kernel.
+ * PML4 entries 256 through 511 are marked as a shared kernel half. They remain
+ * available for translation but must not be mutated through the returned
+ * address space.
  *
  * @param address_space Receives the newly created address space.
  *
@@ -128,6 +141,9 @@ bool paging_address_space_create_with_kernel(struct paging_address_space *addres
  * Missing intermediate page tables are allocated automatically.
  * The virtual and physical addresses must both be 4 KiB aligned.
  * Existing mappings are not overwritten.
+ *
+ * Address spaces with a shared kernel higher half cannot create mappings
+ * through PML4 entries 256 through 511.
  *
  * When user is true, the user-accessible bit is propagated through every
  * required page-table level.
@@ -171,6 +187,9 @@ bool paging_map_mmio_page(
  *
  * Empty intermediate PT, PD, and PDPT tables owned by the address space are
  * reclaimed automatically. The mapped data frame itself is not released.
+ *
+ * Address spaces with a shared kernel higher half cannot remove mappings
+ * through PML4 entries 256 through 511.
  *
  * @param address_space Address space to modify.
  * @param virtual_address 4 KiB-aligned virtual page address to unmap.
