@@ -473,12 +473,20 @@ bool paging_unmap_page(
         return false;
     }
 
+    if ((pml4_entry & PAGE_ENTRY_HUGE) != 0) {
+        return false;
+    }
+
     uint64_t pdpt_physical = paging_entry_address(pml4_entry);
     uint64_t *pdpt = memory_physical_to_virtual(pdpt_physical);
 
     uint64_t pdpt_entry = pdpt[pdpt_index];
 
     if ((pdpt_entry & PAGE_ENTRY_PRESENT) == 0) {
+        return false;
+    }
+
+    if ((pdpt_entry & PAGE_ENTRY_HUGE) != 0) {
         return false;
     }
 
@@ -491,14 +499,14 @@ bool paging_unmap_page(
         return false;
     }
 
+    if ((pd_entry & PAGE_ENTRY_HUGE) != 0) {
+        return false;
+    }
+
     uint64_t pt_physical = paging_entry_address(pd_entry);
     uint64_t *pt = memory_physical_to_virtual(pt_physical);
 
     uint64_t page_entry = pt[pt_index];
-
-    if ((page_entry & PAGE_ENTRY_PRESENT) == 0) {
-        return false;
-    }
 
     *physical_address = paging_entry_address(page_entry);
     pt[pt_index] = 0;
@@ -588,10 +596,11 @@ static bool paging_get_or_create_table(
     uint64_t entry = parent_table[index];
 
     if ((entry & PAGE_ENTRY_PRESENT) != 0) {
-        if (
-            user &&
-            (entry & PAGE_ENTRY_USER) == 0
-        ) {
+        if ((entry & PAGE_ENTRY_HUGE) != 0) {
+            return false;
+        }
+
+        if (user && (entry & PAGE_ENTRY_USER) == 0) {
             return false;
         }
 

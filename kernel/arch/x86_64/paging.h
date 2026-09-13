@@ -142,6 +142,9 @@ bool paging_address_space_create_with_kernel(struct paging_address_space *addres
  * The virtual and physical addresses must both be 4 KiB aligned.
  * Existing mappings are not overwritten.
  *
+ * Mapping is rejected if an intermediate entry represents a huge page,
+ * because this API only creates 4 KiB mappings.
+ *
  * Address spaces with a shared kernel higher half cannot create mappings
  * through PML4 entries 256 through 511.
  *
@@ -185,6 +188,9 @@ bool paging_map_mmio_page(
 
 /**
  * Removes one 4 KiB page mapping from an address space.
+ *
+ * Unmapping is rejected if the walk encounters a huge-page mapping.
+ * This API only removes 4 KiB page mappings.
  *
  * Empty intermediate PT, PD, and PDPT tables owned by the address space are
  * reclaimed automatically. The mapped data frame itself is not released.
