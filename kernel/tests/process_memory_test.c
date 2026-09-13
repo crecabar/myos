@@ -264,7 +264,7 @@ static void process_memory_test_paging_shared_half_boundary(void)
     uint64_t free_before = physical_free_frame_count();
 
     struct paging_address_space *kernel_space =
-    paging_kernel_address_space();
+        paging_kernel_address_space();
 
     if (kernel_space == NULL) {
         kernel_panic(

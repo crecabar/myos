@@ -54,15 +54,14 @@ struct paging_translation {
  * PML4 entries 256 through 511 remain visible but are not owned for mutation
  * by this address space.
  */
- struct paging_address_space {
+struct paging_address_space {
     uint64_t pml4_physical;
     uint64_t *pml4_virtual;
 
     /**
-     * Whether PML4 entries 256 through 511 reference kernel branches shared
-     * with another address space.
+     * Whether PML4 entries 256 through 511 form a non-owned shared kernel half.
      *
-     * Shared kernel-half entries remain available for translation and kernel
+     * When true, the entries remain available for translation and kernel
      * execution but must not be mutated or reclaimed through this address
      * space.
      */
