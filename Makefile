@@ -67,57 +67,99 @@ CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 
-KERNEL_OBJS := \
-	$(BUILD_DIR)/kernel.o \
-	$(BUILD_DIR)/boot.o \
-	$(BUILD_DIR)/serial.o \
-	$(BUILD_DIR)/framebuffer.o \
-	$(BUILD_DIR)/font8x8.o \
-	$(BUILD_DIR)/console.o \
-	$(BUILD_DIR)/interrupts.o \
-	$(BUILD_DIR)/idt.o \
-	$(BUILD_DIR)/diagnostics.o \
-	$(BUILD_DIR)/format.o \
-	$(BUILD_DIR)/paging.o \
-	$(BUILD_DIR)/panic.o \
-	$(BUILD_DIR)/display.o \
-	$(BUILD_DIR)/arch.o \
-	$(BUILD_DIR)/memory.o \
-	$(BUILD_DIR)/process_memory.o \
-	$(BUILD_DIR)/process_stack.o \
-	$(BUILD_DIR)/process_layout.o \
-	$(BUILD_DIR)/gdt.o \
-    $(BUILD_DIR)/gdt_asm.o \
-    $(BUILD_DIR)/rtc.o \
-    $(BUILD_DIR)/usermode.o \
-    $(BUILD_DIR)/usermode_asm.o \
-    $(BUILD_DIR)/syscall.o \
-    $(BUILD_DIR)/process.o \
-    $(BUILD_DIR)/scheduler.o \
-    $(BUILD_DIR)/pic.o \
-    $(BUILD_DIR)/timer.o \
-    $(BUILD_DIR)/lapic.o \
-    $(BUILD_DIR)/ioapic.o \
-    $(BUILD_DIR)/interrupt_topology.o
+# Kernel production sources. Files below tests/ are intentionally excluded.
+KERNEL_PRODUCTION_C_SOURCES := $(shell \
+	find kernel \
+		-type f \
+		-name '*.c' \
+		! -path '*/tests/*' \
+		-print | sort \
+)
+
+KERNEL_PRODUCTION_ASM_SOURCES := $(shell \
+	find kernel \
+		-type f \
+		-name '*.S' \
+		! -path '*/tests/*' \
+		-print | sort \
+)
+
+# Kernel test sources. runtime_diagnostics.c is controlled independently.
+KERNEL_TEST_C_SOURCES := $(shell \
+	find kernel \
+		-type f \
+		-name '*.c' \
+		-path '*/tests/*' \
+		! -name 'runtime_diagnostics.c' \
+		-print | sort \
+)
+
+KERNEL_TEST_ASM_SOURCES := $(shell \
+	find kernel \
+		-type f \
+		-name '*.S' \
+		-path '*/tests/*' \
+		-print | sort \
+)
+
+# Sources included in the current kernel build configuration.
+KERNEL_C_SOURCES := $(KERNEL_PRODUCTION_C_SOURCES)
+KERNEL_ASM_SOURCES := $(KERNEL_PRODUCTION_ASM_SOURCES)
 
 ifeq ($(MYOS_RUNTIME_DIAGNOSTICS),1)
-	KERNEL_OBJS += \
-		$(BUILD_DIR)/runtime_diagnostics.o
+	KERNEL_C_SOURCES += kernel/tests/runtime_diagnostics.c
 endif
 
 ifeq ($(MYOS_KERNEL_TESTS),1)
-	KERNEL_OBJS += \
-		$(BUILD_DIR)/x86_64_user_programs.o \
-		$(BUILD_DIR)/user_process_tests.o \
-		$(BUILD_DIR)/process_memory_test.o
+	KERNEL_C_SOURCES += $(KERNEL_TEST_C_SOURCES)
+	KERNEL_ASM_SOURCES += $(KERNEL_TEST_ASM_SOURCES)
 endif
 
-$(KERNEL_OBJS): $(CONFIG_STAMP)
+KERNEL_OBJ_DIR := $(BUILD_DIR)/obj
+
+KERNEL_C_OBJS := \
+	$(patsubst %.c,$(KERNEL_OBJ_DIR)/c/%.o,$(KERNEL_C_SOURCES))
+
+KERNEL_ASM_OBJS := \
+	$(patsubst %.S,$(KERNEL_OBJ_DIR)/asm/%.o,$(KERNEL_ASM_SOURCES))
+
+KERNEL_OBJS := \
+	$(KERNEL_C_OBJS) \
+	$(KERNEL_ASM_OBJS)
+
+KERNEL_DEPS := \
+	$(KERNEL_C_OBJS:.o=.d) \
+	$(KERNEL_ASM_OBJS:.o=.d)
 
 LINKER_SCRIPT := kernel/linker.ld
 
 LDFLAGS := \
 	-T $(LINKER_SCRIPT)
+
+.PHONY: kernel-sources
+
+kernel-sources:
+	@echo "=== Kernel production C sources ==="
+	@printf '  %s\n' $(KERNEL_PRODUCTION_C_SOURCES)
+	@echo
+	@echo "=== Kernel production assembly sources ==="
+	@printf '  %s\n' $(KERNEL_PRODUCTION_ASM_SOURCES)
+	@echo
+	@echo "=== Kernel test C sources ==="
+	@printf '  %s\n' $(KERNEL_TEST_C_SOURCES)
+	@echo
+	@echo "=== Kernel test assembly sources ==="
+	@printf '  %s\n' $(KERNEL_TEST_ASM_SOURCES)
+
+.PHONY: kernel-objects
+
+kernel-objects:
+	@echo "=== Kernel C objects ==="
+	@printf '  %s\n' $(KERNEL_C_OBJS)
+	@echo
+	@echo "=== Kernel assembly objects ==="
+	@printf '  %s\n' $(KERNEL_ASM_OBJS)
+
 
 .PHONY: all
 
@@ -140,246 +182,30 @@ $(CONFIG_STAMP): FORCE | $(BUILD_DIR)
 		rm -f $(CONFIG_STAMP).tmp; \
 	fi
 
+$(KERNEL_OBJ_DIR)/c/%.o: %.c $(CONFIG_STAMP) | $(LIMINE_HEADER)
+	@mkdir -p $(@D)
+	$(CLANG) $(CFLAGS) \
+		-MMD \
+		-MP \
+		-MF $(@:.o=.d) \
+		-MT $@ \
+		-c $< \
+		-o $@
 
-$(BUILD_DIR)/kernel.o: \
-	kernel/kernel.c \
-	kernel/config.h \
-	kernel/version.h \
-	kernel/arch/x86_64/arch.h \
-	kernel/arch/x86_64/paging.h \
-	kernel/arch/x86_64/serial.h \
-	kernel/boot/boot.h \
-	kernel/console/console.h \
-	kernel/core/panic.h \
-	kernel/drivers/framebuffer.h \
-	kernel/memory/memory.h \
-	kernel/tests/runtime_diagnostics.h \
-	kernel/tests/process_memory_test.h \
-	kernel/tests/user_processes.h \
-	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/serial.o: \
-	kernel/arch/x86_64/serial.c \
-	kernel/arch/x86_64/serial.h \
-	kernel/arch/x86_64/io.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/framebuffer.o: \
-	kernel/drivers/framebuffer.c \
-	kernel/drivers/framebuffer.h \
-	kernel/font/font8x8.h \
-	$(LIMINE_HEADER) | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/font8x8.o: \
-	kernel/font/font8x8.c \
-	kernel/font/font8x8.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/console.o: \
-	kernel/console/console.c \
-	kernel/console/console.h \
-	kernel/drivers/framebuffer.h \
-	kernel/font/font8x8.h \
-	$(LIMINE_HEADER) | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/interrupts.o: \
-	kernel/arch/x86_64/interrupts.S | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/idt.o: \
-	kernel/arch/x86_64/idt.c \
-	kernel/arch/x86_64/idt.h \
-	kernel/arch/x86_64/serial.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/diagnostics.o: \
-	kernel/diagnostics/diagnostics.c \
-	kernel/diagnostics/diagnostics.h \
-	kernel/console/console.h \
-	kernel/arch/x86_64/serial.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/runtime_diagnostics.o: \
-	kernel/tests/runtime_diagnostics.c \
-	kernel/tests/runtime_diagnostics.h \
-	kernel/arch/x86_64/gdt.h \
-	kernel/arch/x86_64/paging.h \
-	kernel/core/panic.h \
-	kernel/diagnostics/diagnostics.h \
-	kernel/memory/memory.h \
-	kernel/process/layout.h \
-	kernel/process/memory.h \
-	kernel/process/stack.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/format.o: \
-	kernel/format/format.c \
-	kernel/format/format.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/paging.o: \
-	kernel/arch/x86_64/paging.c \
-	kernel/arch/x86_64/paging.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/panic.o: \
-	kernel/core/panic.c \
-	kernel/core/panic.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/boot.o: \
-	kernel/boot/limine.c \
-	kernel/boot/boot.h \
-	kernel/core/panic.h \
-	$(LIMINE_HEADER) | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/display.o: \
-	kernel/init/display.c \
-	kernel/init/display.h \
-	kernel/console/console.h \
-	kernel/drivers/framebuffer.h \
-	kernel/diagnostics/diagnostics.h \
-	kernel/core/panic.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/arch.o: \
-	kernel/arch/x86_64/arch.c \
-	kernel/arch/x86_64/arch.h \
-	kernel/arch/x86_64/idt.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/memory.o: \
-	kernel/memory/memory.c \
-	kernel/memory/memory.h \
-	kernel/core/panic.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/process_memory.o: \
-	kernel/process/memory.c \
-	kernel/process/memory.h \
-	kernel/arch/x86_64/paging.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/process_stack.o: \
-	kernel/process/stack.c \
-	kernel/process/stack.h \
-	kernel/process/memory.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/process_layout.o: \
-	kernel/process/layout.c \
-	kernel/process/layout.h \
-	kernel/process/memory.h \
-	kernel/process/stack.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/gdt.o: \
-	kernel/arch/x86_64/gdt.c \
-	kernel/arch/x86_64/gdt.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/gdt_asm.o: \
-	kernel/arch/x86_64/gdt.S | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/rtc.o: \
-	kernel/arch/x86_64/rtc.c \
-	kernel/arch/x86_64/rtc.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/usermode.o: \
-	kernel/arch/x86_64/usermode.c \
-	kernel/arch/x86_64/usermode.h \
-	kernel/arch/x86_64/gdt.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/usermode_asm.o: \
-	kernel/arch/x86_64/usermode.S | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/syscall.o: \
-	kernel/syscall/syscall.c \
-	kernel/syscall/syscall.h \
-	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/process.o: \
-	kernel/process/process.c \
-	kernel/process/process.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/scheduler.o: \
-	kernel/scheduler/scheduler.c \
-	kernel/scheduler/scheduler.h \
-	kernel/process/process.h \
-	kernel/process/memory.h \
-	kernel/process/layout.h \
-	kernel/arch/x86_64/paging.h \
-	kernel/arch/x86_64/usermode.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/pic.o: \
-	kernel/arch/x86_64/pic.c \
-	kernel/arch/x86_64/pic.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/timer.o: \
-	kernel/arch/x86_64/timer.c \
-	kernel/arch/x86_64/timer.h \
-	kernel/arch/x86_64/pic.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/lapic.o: \
-	kernel/arch/x86_64/lapic.c \
-	kernel/arch/x86_64/lapic.h \
-	kernel/memory/memory.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/ioapic.o: \
-	kernel/arch/x86_64/ioapic.c \
-	kernel/arch/x86_64/ioapic.h \
-	kernel/memory/memory.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/interrupt_topology.o: \
-	kernel/arch/x86_64/interrupt_topology.c \
-	kernel/arch/x86_64/interrupt_topology.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/x86_64_user_programs.o: \
-	kernel/arch/x86_64/tests/user_programs.c \
-	kernel/arch/x86_64/tests/user_programs.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/user_process_tests.o: \
-	kernel/tests/user_processes.c \
-	kernel/tests/user_processes.h \
-	kernel/process/process.h \
-	kernel/process/memory.h \
-	kernel/process/layout.h \
-	kernel/arch/x86_64/tests/user_programs.h \
-	kernel/scheduler/scheduler.h \
-	kernel/core/panic.h \
-	kernel/diagnostics/diagnostics.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/process_memory_test.o: \
-	kernel/tests/process_memory_test.c \
-	kernel/tests/process_memory_test.h \
-	kernel/arch/x86_64/paging.h \
-	kernel/core/panic.h \
-	kernel/diagnostics/diagnostics.h \
-	kernel/memory/memory.h \
-	kernel/process/layout.h \
-	kernel/process/memory.h | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) -c $< -o $@
+$(KERNEL_OBJ_DIR)/asm/%.o: %.S $(CONFIG_STAMP) | $(LIMINE_HEADER)
+	@mkdir -p $(@D)
+	$(CLANG) $(CFLAGS) \
+		-MMD \
+		-MP \
+		-MF $(@:.o=.d) \
+		-MT $@ \
+		-c $< \
+		-o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
 	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJS)
+
+-include $(KERNEL_DEPS)
 
 # -----------------------------------------------------------------------------
 # Limine
