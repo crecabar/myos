@@ -588,13 +588,18 @@ static bool paging_get_or_create_table(
     uint64_t entry = parent_table[index];
 
     if ((entry & PAGE_ENTRY_PRESENT) != 0) {
-        if (user) {
-            parent_table[index] |= PAGE_ENTRY_USER;
+        if (
+            user &&
+            (entry & PAGE_ENTRY_USER) == 0
+        ) {
+            return false;
         }
 
-        uint64_t child_physical = paging_entry_address(parent_table[index]);
+        uint64_t child_physical =
+            paging_entry_address(entry);
 
-        *child_table = memory_physical_to_virtual(child_physical);
+        *child_table =
+            memory_physical_to_virtual(child_physical);
 
         return true;
     }

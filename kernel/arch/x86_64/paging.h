@@ -145,8 +145,9 @@ bool paging_address_space_create_with_kernel(struct paging_address_space *addres
  * Address spaces with a shared kernel higher half cannot create mappings
  * through PML4 entries 256 through 511.
  *
- * When user is true, the user-accessible bit is propagated through every
- * required page-table level.
+ * When user is true, newly created intermediate page-table entries are marked
+ * user-accessible. Existing intermediate entries must already permit user
+ * access; supervisor-only branches are never promoted implicitly.
  *
  * @param address_space Address space to modify.
  * @param virtual_address 4 KiB-aligned virtual page address.
