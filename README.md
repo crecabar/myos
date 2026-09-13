@@ -58,7 +58,7 @@ Examples:
 
 ## Current status
 
-MyOS has moved beyond bootstrapping and basic memory management. The current kernel can enter ring 3, execute multiple user processes in independent address spaces, receive syscalls through `int 0x80`, and preempt user processes using a PIT-driven timer routed through the IOAPIC/LAPIC path.
+MyOS has moved beyond bootstrapping and basic memory management. The current kernel can enter ring 3, execute multiple user processes in independent address spaces, receive syscalls through `int 0x80`, preempt user processes using a PIT-driven timer routed through the IOAPIC/LAPIC path, and contain a broad set of user-originated CPU exceptions without bringing down the kernel.
 
 A current boot reaches a sequence conceptually like:
 
@@ -73,15 +73,15 @@ MyOS 0.1
 [scheduler] Initialized
 [kernel] Initialization complete
 [clock] ... UTC
-[process] User memory copy test passed
 [kernel] Starting scheduler
-[scheduler] Running PID 1
+[scheduler] Running PID ...
 ...
-[scheduler] Running PID 2
+[process] PID ... terminated: ...
+[scheduler] Running PID ...
 ...
 ```
 
-The userspace programs used today are still small machine-code payloads embedded in the kernel. They exist to validate privilege transitions, address-space switching, syscalls, timer preemption, and process context restoration before the first ELF loader is introduced.
+The userspace programs used today are still small x86-64 machine-code payloads, but they now live as architecture-specific kernel test fixtures rather than normal process code. They validate privilege transitions, address-space switching, syscalls, timer preemption, process context restoration, and exception containment before the first ELF loader is introduced.
 
 ### Implemented foundations
 
@@ -115,7 +115,8 @@ The userspace programs used today are still small machine-code payloads embedded
 - user code pages mapped read-only/executable;
 - user stacks mapped read/write/non-executable;
 - unmapped stack guard page;
-- process-memory read/write helpers through physical translation.
+- process-memory read/write helpers through physical translation;
+- validated user-memory copy-in for buffered syscalls, including overflow protection and 4 KiB USER-page checks.
 
 MyOS still retains the boot-time higher-half paging branches inherited through Limine. Fully rebuilding those mappings under exclusive kernel ownership and reclaiming bootloader-reclaimable memory remain part of the memory-management work.
 
@@ -126,7 +127,10 @@ MyOS still retains the boot-time higher-half paging branches inherited through L
 - kernel-owned TSS;
 - 256-entry IDT;
 - normalized interrupt frames shared between assembly and C;
-- divide-error and page-fault handling;
+- broad architectural exception coverage including `#DE`, `#DB`, NMI, `#BP`, `#OF`, `#BR`, `#UD`, `#NM`, `#DF`, `#TS`, `#NP`, `#SS`, `#GP`, `#PF`, `#MF`, `#AC`, `#MC`, `#XM`, `#VE`, and `#CP`;
+- CPL3 exception containment that terminates the offending process where appropriate while keeping kernel-origin faults fatal;
+- dedicated TSS IST stack for `#DF`;
+- explicit FP/SIMD trap-on-use policy through `CR0.TS` and `#NM` until per-context FP/SIMD state exists;
 - `iretq` transition from CPL0 to CPL3;
 - legacy PIC disabling;
 - Local APIC initialization;
@@ -144,7 +148,7 @@ The interrupt topology is intentionally QEMU/Q35-specific for now. ACPI/MADT dis
 - initial user code and stack layout;
 - ring-3 execution of embedded user programs;
 - syscall entry through `int 0x80`;
-- current syscall ABI using `RAX` for the syscall number and registers for arguments;
+- explicit six-register x86-64 syscall ABI: `RAX` for the syscall number/result and `RDI`, `RSI`, `RDX`, `R10`, `R8`, `R9` for arguments 0–5;
 - `DEBUG_PUTC`, `WRITE`, `EXIT`, and `YIELD` syscalls;
 - kernel-side copying from user memory for `WRITE`;
 - cooperative `yield()`;
@@ -152,8 +156,10 @@ The interrupt topology is intentionally QEMU/Q35-specific for now. ACPI/MADT dis
 - timer preemption of CPL3 execution;
 - save/restore of general-purpose register state plus RIP/RSP/RFLAGS;
 - process termination on explicit exit;
-- user page-fault termination path;
-- switching to another process by rewriting the active interrupt frame and returning through `iretq`.
+- explicit process termination reasons;
+- exception-driven termination of hostile CPL3 processes, including invalid memory access, `ud2`, privileged `hlt`, and x87 use under the current `#NM` policy;
+- switching to another process by rewriting the active interrupt frame and returning through `iretq`;
+- compile-time kernel test gating through `MYOS_KERNEL_TESTS`, separate from runtime diagnostics.
 
 The current scheduler uses a small fixed process table and does not yet implement blocked/sleeping states, dynamic process ownership, resource reaping, or kernel threads.
 
@@ -161,20 +167,19 @@ The current scheduler uses a small fixed process table and does not yet implemen
 
 The mechanisms for paging, ring 3, syscalls, and preemptive scheduling are now functionally demonstrated. Before adding an ELF loader or exposing more general memory-management syscalls, MyOS is intentionally pausing feature expansion to turn several currently implicit invariants into enforced boundaries.
 
-The immediate hardening work is:
+The immediate hardening work is now concentrated on:
 
 - define and enforce canonical user virtual-address bounds for all `process_memory_*` operations;
 - prevent process operations from modifying or reclaiming higher-half kernel-shared paging branches;
 - reject huge-page entries in walkers that specifically expect a lower-level 4 KiB page table;
-- expand CPU exception coverage so faults such as `#UD`, `#GP`, `#SS`, and related exceptions from CPL3 terminate only the offending process;
-- give `#DF` a dedicated IST stack;
 - establish process lifecycle/reaping so terminated processes release pages, page tables, and scheduler slots;
 - add a minimal kernel heap so process objects no longer depend on static or `kernel_main()`-lifetime storage;
 - add clipping to framebuffer primitives before introducing the boot-mascot image blitter;
-- explicitly prohibit kernel/userspace FP/SIMD for now, or later add per-context FPU/SSE state management before allowing it;
-- expand runtime/QEMU tests for isolation, process lifecycle, and context switching.
+- expand paging-isolation, lifecycle, and automated QEMU regression tests.
 
-Until this pass is complete, current CPL3 programs should be treated as trusted internal test payloads rather than a hardened hostile-userspace boundary.
+The exception-containment side of this pass is now substantially implemented: broad x86-64 exception coverage is installed, appropriate CPL3 faults terminate only the offending process, `#DF` uses a dedicated IST stack, initial user RFLAGS are explicit, and FP/SIMD is deliberately trapped through `#NM` until per-context state management exists.
+
+The kernel now deliberately runs hostile CPL3 regression fixtures, but the userspace boundary should still be considered incomplete until canonical address limits, shared page-table ownership, and process resource reclamation are enforced.
 
 ## Development milestones
 
@@ -241,12 +246,16 @@ Remaining work includes:
 - fully kernel-owned higher-half mappings;
 - safe reclaim of bootloader-reclaimable memory.
 
-### Milestone 4 — Interrupts, timer, and kernel heap 🚧 Partially functional
+### Milestone 4 — Interrupts, timer, and kernel heap 🚧 Interrupt/exception foundation substantially complete
 
 Implemented:
 
 - GDT/TSS;
 - IDT infrastructure;
+- broad x86-64 architectural exception coverage;
+- CPL3 exception containment with kernel-fatal CPL0 faults;
+- dedicated `#DF` IST stack;
+- FP/SIMD trap-on-use policy (`CR0.TS` → `#NM`);
 - PIC disable;
 - LAPIC/IOAPIC path;
 - PIT timer at 100 Hz;
@@ -255,9 +264,9 @@ Implemented:
 
 Remaining work includes:
 
-- broad CPU exception coverage;
-- dedicated IST handling for critical exceptions;
+- sleep/delay primitives driven by timer ticks;
 - a minimal kernel heap;
+- heap lifetime/integrity diagnostics;
 - eventual ACPI/MADT-based interrupt topology discovery.
 
 ### Milestone 5 — Scheduler 🚧 Functionally demonstrated
@@ -270,7 +279,9 @@ Implemented:
 - preemptive fixed-quantum round-robin scheduling;
 - CR3 switching;
 - timer-driven preemption;
-- process exit/termination states.
+- process exit/termination states and explicit termination reasons;
+- exception-driven process termination from the active interrupt frame;
+- hostile-process/survivor regression fixtures proving scheduling continues after user faults.
 
 Remaining work includes:
 
@@ -279,31 +290,37 @@ Remaining work includes:
 - interruptible idle behavior;
 - later separation of process and thread execution contexts when required.
 
-### Milestone 6 — Ring 3 and syscalls 🚧 Functionally demonstrated
+### Milestone 6 — Ring 3 and syscalls 🚧 Functionally demonstrated and materially hardened
 
 Implemented:
 
 - CPL3 entry through `iretq`;
 - ring-3 code and stack mappings;
 - `int 0x80` syscall entry;
-- initial syscall ABI;
+- six-register x86-64 syscall argument convention (`RDI`, `RSI`, `RDX`, `R10`, `R8`, `R9`) with syscall number/result in `RAX`;
 - `DEBUG_PUTC`, `WRITE`, `EXIT`, and `YIELD`;
-- return/resume through interrupt frames.
+- validated buffered `WRITE` copy-in from the calling process;
+- explicit initial user RFLAGS (`0x202`);
+- broad CPL3 CPU-exception containment;
+- return/resume through rewritten interrupt frames.
 
 Remaining work is primarily hardening:
 
-- complete exception containment for hostile user code;
-- stronger user-pointer/address validation;
-- continued ABI discipline as more syscalls are added.
+- enforce canonical user virtual-address bounds across all process-memory APIs;
+- enforce page-table ownership so process operations cannot affect shared higher-half mappings;
+- complete syscall preservation/clobber and stable error-return conventions;
+- add active invalid-pointer/range regressions.
 
 ### Milestone 7 — Processes and ELF loading 🚧 Foundations only
 
 Already available:
 
-- process descriptors;
+- process descriptors with termination reasons;
 - process address spaces;
 - user layout and stacks;
-- process scheduling and termination mechanisms.
+- process scheduling and exception-contained termination mechanisms;
+- documented kernel-side syscall register ABI and buffered user-memory `WRITE`;
+- architecture-specific embedded user-program test fixtures.
 
 Next major feature work, after the hardening pass:
 
@@ -343,11 +360,12 @@ The intended sequence from the current state is:
 
 ```text
 Hardening Pass 1
-  ├─ user-address and page-table ownership enforcement
-  ├─ exception containment + #DF IST
-  ├─ process lifecycle/reaping
+  ├─ canonical user-address bounds + page-table ownership enforcement
+  ├─ huge-page guards in 4 KiB-only walkers
+  ├─ process lifecycle/reaping + scheduler slot reuse
   ├─ kernel heap
-  └─ regression tests
+  ├─ framebuffer clipping / bounds safety
+  └─ stronger isolation/lifecycle regressions
           ↓
 ELF64 loader
           ↓
