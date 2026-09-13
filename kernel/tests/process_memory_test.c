@@ -27,6 +27,12 @@
 #define PROCESS_MEMORY_TEST_SUPERVISOR_PD_ADDRESS     0x0000000040200000ULL
 #define PROCESS_MEMORY_TEST_USER_PD_TARGET_ADDRESS    0x0000000040201000ULL
 
+#define PROCESS_MEMORY_TEST_HUGE_1G_ANCHOR_ADDRESS 0x0000000040000000ULL
+#define PROCESS_MEMORY_TEST_HUGE_1G_TARGET_ADDRESS 0x0000000040200000ULL
+
+#define PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS 0x0000000000200000ULL
+#define PROCESS_MEMORY_TEST_HUGE_2M_TARGET_ADDRESS 0x0000000000201000ULL
+
 static void process_memory_test_user_range_policy(void)
 {
     if (process_memory_user_range_valid(0x0ULL, 1)) {
@@ -819,6 +825,520 @@ static void process_memory_test_paging_user_pd_promotion(void)
     );
 }
 
+static void process_memory_test_paging_1g_huge_guard(void)
+{
+    uint64_t free_before = physical_free_frame_count();
+
+    struct paging_address_space address_space;
+
+    if (!paging_address_space_create(&address_space)) {
+        kernel_panic(
+            "Unable to create 1 GiB huge-page guard address space"
+        );
+    }
+
+    uint64_t anchor_physical;
+
+    if (!physical_alloc_frame(&anchor_physical)) {
+        kernel_panic(
+            "Unable to allocate 1 GiB huge-page anchor frame"
+        );
+    }
+
+    if (!paging_map_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_1G_ANCHOR_ADDRESS,
+        anchor_physical,
+        true,
+        false,
+        false
+    )) {
+        kernel_panic(
+            "Unable to create 1 GiB huge-page anchor mapping"
+        );
+    }
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            PROCESS_MEMORY_TEST_HUGE_1G_ANCHOR_ADDRESS
+        );
+
+    uint16_t pdpt_index =
+        paging_pdpt_index(
+            PROCESS_MEMORY_TEST_HUGE_1G_ANCHOR_ADDRESS
+        );
+
+    uint16_t anchor_pd_index =
+        paging_pd_index(
+            PROCESS_MEMORY_TEST_HUGE_1G_ANCHOR_ADDRESS
+        );
+
+    uint16_t target_pd_index =
+        paging_pd_index(
+            PROCESS_MEMORY_TEST_HUGE_1G_TARGET_ADDRESS
+        );
+
+    if (anchor_pd_index == target_pd_index) {
+        kernel_panic(
+            "1 GiB huge-page test addresses use same PD entry"
+        );
+    }
+
+    uint64_t pml4_entry =
+        address_space.pml4_virtual[pml4_index];
+
+    uint64_t *pdpt =
+        memory_physical_to_virtual(
+            paging_entry_address(pml4_entry)
+        );
+
+    uint64_t pdpt_entry_original =
+        pdpt[pdpt_index];
+
+    uint64_t *pd =
+        memory_physical_to_virtual(
+            paging_entry_address(pdpt_entry_original)
+        );
+
+    uint64_t target_pd_entry_before =
+        pd[target_pd_index];
+
+    uint64_t anchor_pd_entry =
+        pd[anchor_pd_index];
+
+    uint64_t *anchor_pt =
+        memory_physical_to_virtual(
+            paging_entry_address(anchor_pd_entry)
+        );
+
+    uint16_t anchor_pt_index =
+        paging_pt_index(
+            PROCESS_MEMORY_TEST_HUGE_1G_ANCHOR_ADDRESS
+        );
+
+    uint64_t anchor_page_entry_before =
+        anchor_pt[anchor_pt_index];
+
+    /*
+     * The entry deliberately keeps pointing at the existing PD frame.
+     * The address space is never activated. This creates a safe trap for
+     * detecting a 4 KiB walker that incorrectly descends through HUGE.
+     */
+    pdpt[pdpt_index] =
+        pdpt_entry_original |
+        PAGE_ENTRY_HUGE;
+
+    uint64_t huge_entry_before =
+        pdpt[pdpt_index];
+
+    uint64_t target_physical;
+
+    if (!physical_alloc_frame(&target_physical)) {
+        kernel_panic(
+            "Unable to allocate 1 GiB huge-page target frame"
+        );
+    }
+
+    uint64_t free_before_map =
+        physical_free_frame_count();
+
+    if (paging_map_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_1G_TARGET_ADDRESS,
+        target_physical,
+        true,
+        false,
+        false
+    )) {
+        kernel_panic(
+            "4 KiB mapping traversed 1 GiB huge-page entry"
+        );
+    }
+
+    if (pdpt[pdpt_index] != huge_entry_before) {
+        kernel_panic(
+            "Rejected 1 GiB mapping modified PDPT entry"
+        );
+    }
+
+    if (pd[target_pd_index] != target_pd_entry_before) {
+        kernel_panic(
+            "Rejected 1 GiB mapping modified trap PD"
+        );
+    }
+
+    if (physical_free_frame_count() != free_before_map) {
+        kernel_panic(
+            "Rejected 1 GiB mapping allocated paging frames"
+        );
+    }
+
+    struct paging_translation translation;
+
+    if (!paging_translate_address_space(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_1G_TARGET_ADDRESS,
+        &translation
+    )) {
+        kernel_panic(
+            "1 GiB huge-page translation was rejected"
+        );
+    }
+
+    if (translation.page_size != PAGING_PAGE_SIZE_1G) {
+        kernel_panic(
+            "1 GiB huge-page translation reported wrong page size"
+        );
+    }
+
+    uint64_t unmapped_physical = UINT64_MAX;
+    uint64_t free_before_unmap =
+        physical_free_frame_count();
+
+    if (paging_unmap_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_1G_ANCHOR_ADDRESS,
+        &unmapped_physical
+    )) {
+        kernel_panic(
+            "4 KiB unmap traversed 1 GiB huge-page entry"
+        );
+    }
+
+    if (unmapped_physical != UINT64_MAX) {
+        kernel_panic(
+            "Rejected 1 GiB unmap modified its output"
+        );
+    }
+
+    if (pdpt[pdpt_index] != huge_entry_before) {
+        kernel_panic(
+            "Rejected 1 GiB unmap modified PDPT entry"
+        );
+    }
+
+    if (
+        anchor_pt[anchor_pt_index] !=
+        anchor_page_entry_before
+    ) {
+        kernel_panic(
+            "Rejected 1 GiB unmap modified trap page table"
+        );
+    }
+
+    if (physical_free_frame_count() != free_before_unmap) {
+        kernel_panic(
+            "Rejected 1 GiB unmap changed frame ownership"
+        );
+    }
+
+    if (!physical_free_frame(target_physical)) {
+        kernel_panic(
+            "Unable to release 1 GiB huge-page target frame"
+        );
+    }
+
+    /*
+     * Restore the valid 4 KiB hierarchy before normal cleanup.
+     */
+    pdpt[pdpt_index] = pdpt_entry_original;
+
+    if (!paging_unmap_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_1G_ANCHOR_ADDRESS,
+        &unmapped_physical
+    )) {
+        kernel_panic(
+            "Unable to clean up 1 GiB huge-page anchor"
+        );
+    }
+
+    if (unmapped_physical != anchor_physical) {
+        kernel_panic(
+            "1 GiB huge-page cleanup returned wrong frame"
+        );
+    }
+
+    if (!physical_free_frame(unmapped_physical)) {
+        kernel_panic(
+            "Unable to release 1 GiB huge-page anchor frame"
+        );
+    }
+
+    if (!paging_address_space_destroy(&address_space)) {
+        kernel_panic(
+            "Unable to destroy 1 GiB huge-page guard address space"
+        );
+    }
+
+    if (physical_free_frame_count() != free_before) {
+        kernel_panic(
+            "1 GiB huge-page guard test leaked frames"
+        );
+    }
+
+    diagnostics_write(
+        "[paging] 1 GiB huge-page guard test passed\n"
+    );
+}
+
+static void process_memory_test_paging_2m_huge_guard(void)
+{
+    uint64_t free_before = physical_free_frame_count();
+
+    struct paging_address_space address_space;
+
+    if (!paging_address_space_create(&address_space)) {
+        kernel_panic(
+            "Unable to create 2 MiB huge-page guard address space"
+        );
+    }
+
+    uint64_t anchor_physical;
+
+    if (!physical_alloc_frame(&anchor_physical)) {
+        kernel_panic(
+            "Unable to allocate 2 MiB huge-page anchor frame"
+        );
+    }
+
+    if (!paging_map_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS,
+        anchor_physical,
+        true,
+        false,
+        false
+    )) {
+        kernel_panic(
+            "Unable to create 2 MiB huge-page anchor mapping"
+        );
+    }
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS
+        );
+
+    uint16_t pdpt_index =
+        paging_pdpt_index(
+            PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS
+        );
+
+    uint16_t pd_index =
+        paging_pd_index(
+            PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS
+        );
+
+    uint16_t anchor_pt_index =
+        paging_pt_index(
+            PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS
+        );
+
+    uint16_t target_pt_index =
+        paging_pt_index(
+            PROCESS_MEMORY_TEST_HUGE_2M_TARGET_ADDRESS
+        );
+
+    if (anchor_pt_index == target_pt_index) {
+        kernel_panic(
+            "2 MiB huge-page test addresses use same PT entry"
+        );
+    }
+
+    uint64_t pml4_entry =
+        address_space.pml4_virtual[pml4_index];
+
+    uint64_t *pdpt =
+        memory_physical_to_virtual(
+            paging_entry_address(pml4_entry)
+        );
+
+    uint64_t pdpt_entry =
+        pdpt[pdpt_index];
+
+    uint64_t *pd =
+        memory_physical_to_virtual(
+            paging_entry_address(pdpt_entry)
+        );
+
+    uint64_t pd_entry_original =
+        pd[pd_index];
+
+    uint64_t *pt =
+        memory_physical_to_virtual(
+            paging_entry_address(pd_entry_original)
+        );
+
+    uint64_t anchor_page_entry_before =
+        pt[anchor_pt_index];
+
+    uint64_t target_page_entry_before =
+        pt[target_pt_index];
+
+    /*
+     * Keep the existing PT as a trap table while presenting its parent PDE
+     * to the paging walker as a synthetic 2 MiB huge-page entry.
+     */
+    pd[pd_index] =
+        pd_entry_original |
+        PAGE_ENTRY_HUGE;
+
+    uint64_t huge_entry_before =
+        pd[pd_index];
+
+    uint64_t target_physical;
+
+    if (!physical_alloc_frame(&target_physical)) {
+        kernel_panic(
+            "Unable to allocate 2 MiB huge-page target frame"
+        );
+    }
+
+    uint64_t free_before_map =
+        physical_free_frame_count();
+
+    if (paging_map_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_2M_TARGET_ADDRESS,
+        target_physical,
+        true,
+        false,
+        false
+    )) {
+        kernel_panic(
+            "4 KiB mapping traversed 2 MiB huge-page entry"
+        );
+    }
+
+    if (pd[pd_index] != huge_entry_before) {
+        kernel_panic(
+            "Rejected 2 MiB mapping modified PD entry"
+        );
+    }
+
+    if (pt[target_pt_index] != target_page_entry_before) {
+        kernel_panic(
+            "Rejected 2 MiB mapping modified trap page table"
+        );
+    }
+
+    if (physical_free_frame_count() != free_before_map) {
+        kernel_panic(
+            "Rejected 2 MiB mapping changed frame ownership"
+        );
+    }
+
+    struct paging_translation translation;
+
+    if (!paging_translate_address_space(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_2M_TARGET_ADDRESS,
+        &translation
+    )) {
+        kernel_panic(
+            "2 MiB huge-page translation was rejected"
+        );
+    }
+
+    if (translation.page_size != PAGING_PAGE_SIZE_2M) {
+        kernel_panic(
+            "2 MiB huge-page translation reported wrong page size"
+        );
+    }
+
+    uint64_t unmapped_physical = UINT64_MAX;
+    uint64_t free_before_unmap =
+        physical_free_frame_count();
+
+    if (paging_unmap_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS,
+        &unmapped_physical
+    )) {
+        kernel_panic(
+            "4 KiB unmap traversed 2 MiB huge-page entry"
+        );
+    }
+
+    if (unmapped_physical != UINT64_MAX) {
+        kernel_panic(
+            "Rejected 2 MiB unmap modified its output"
+        );
+    }
+
+    if (pd[pd_index] != huge_entry_before) {
+        kernel_panic(
+            "Rejected 2 MiB unmap modified PD entry"
+        );
+    }
+
+    if (
+        pt[anchor_pt_index] !=
+        anchor_page_entry_before
+    ) {
+        kernel_panic(
+            "Rejected 2 MiB unmap modified trap page table"
+        );
+    }
+
+    if (physical_free_frame_count() != free_before_unmap) {
+        kernel_panic(
+            "Rejected 2 MiB unmap changed frame ownership"
+        );
+    }
+
+    if (!physical_free_frame(target_physical)) {
+        kernel_panic(
+            "Unable to release 2 MiB huge-page target frame"
+        );
+    }
+
+    /*
+     * Restore the original hierarchy so the normal 4 KiB unmap path can
+     * reclaim every intermediate table created for the anchor mapping.
+     */
+    pd[pd_index] = pd_entry_original;
+
+    if (!paging_unmap_page(
+        &address_space,
+        PROCESS_MEMORY_TEST_HUGE_2M_ANCHOR_ADDRESS,
+        &unmapped_physical
+    )) {
+        kernel_panic(
+            "Unable to clean up 2 MiB huge-page anchor"
+        );
+    }
+
+    if (unmapped_physical != anchor_physical) {
+        kernel_panic(
+            "2 MiB huge-page cleanup returned wrong frame"
+        );
+    }
+
+    if (!physical_free_frame(unmapped_physical)) {
+        kernel_panic(
+            "Unable to release 2 MiB huge-page anchor frame"
+        );
+    }
+
+    if (!paging_address_space_destroy(&address_space)) {
+        kernel_panic(
+            "Unable to destroy 2 MiB huge-page guard address space"
+        );
+    }
+
+    if (physical_free_frame_count() != free_before) {
+        kernel_panic(
+            "2 MiB huge-page guard test leaked frames"
+        );
+    }
+
+    diagnostics_write(
+        "[paging] 2 MiB huge-page guard test passed\n"
+    );
+}
+
 void process_memory_test_run(void)
 {
     process_memory_test_user_range_policy();
@@ -826,6 +1346,8 @@ void process_memory_test_run(void)
     process_memory_test_paging_shared_half_boundary();
     process_memory_test_paging_user_pml4_promotion();
     process_memory_test_paging_user_pd_promotion();
+    process_memory_test_paging_1g_huge_guard();
+    process_memory_test_paging_2m_huge_guard();
 
     struct process_memory memory;
     struct process_layout layout;
