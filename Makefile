@@ -26,6 +26,10 @@ MTOOLS_FORMAT 	:= mformat
 MTOOLS_MKDIR  	:= mmd
 MTOOLS_COPY   	:= mcopy
 
+QEMU_TEST_EXIT_PORT          := 0xF4
+QEMU_TEST_EXIT_SUCCESS_VALUE := 0x10
+QEMU_TEST_EXIT_FAILURE_VALUE := 0x11
+
 # -----------------------------------------------------------------------------
 # Third-party dependencies
 # -----------------------------------------------------------------------------
@@ -54,6 +58,10 @@ CFLAGS := \
 	-I$(LIMINE_PROTOCOL_DIR) \
 	-DMYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS) \
 	-DMYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS) \
+	-DMYOS_QEMU_TEST_EXIT=$(MYOS_QEMU_TEST_EXIT) \
+	-DMYOS_QEMU_TEST_EXIT_PORT=$(QEMU_TEST_EXIT_PORT) \
+	-DMYOS_QEMU_TEST_EXIT_SUCCESS_VALUE=$(QEMU_TEST_EXIT_SUCCESS_VALUE) \
+	-DMYOS_QEMU_TEST_EXIT_FAILURE_VALUE=$(QEMU_TEST_EXIT_FAILURE_VALUE) \
 	-Wall \
 	-Wextra \
 	-Werror \
@@ -180,6 +188,10 @@ $(CONFIG_STAMP): FORCE | $(BUILD_DIR)
 	@printf '%s\n' \
 		'MYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS)' \
 		'MYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS)' \
+		'MYOS_QEMU_TEST_EXIT=$(MYOS_QEMU_TEST_EXIT)' \
+		'QEMU_TEST_EXIT_PORT=$(QEMU_TEST_EXIT_PORT)' \
+		'QEMU_TEST_EXIT_SUCCESS_VALUE=$(QEMU_TEST_EXIT_SUCCESS_VALUE)' \
+		'QEMU_TEST_EXIT_FAILURE_VALUE=$(QEMU_TEST_EXIT_FAILURE_VALUE)' \
 		> $(CONFIG_STAMP).tmp
 	@if ! cmp -s $(CONFIG_STAMP).tmp $(CONFIG_STAMP); then \
 		mv $(CONFIG_STAMP).tmp $(CONFIG_STAMP); \
@@ -378,7 +390,7 @@ usb-image-diagnostics:
 QEMU_FIRMWARE := $(QEMU_PREFIX)/share/qemu/edk2-x86_64-code.fd
 QEMU_DEBUG_PID := $(BUILD_DIR)/qemu-debug.pid
 
-.PHONY: run run-usb run-usb-diagnostics debug debug-stop
+.PHONY: run run-usb run-usb-diagnostics debug debug-stop run-qemu-tests
 
 run: $(ISO_IMAGE)
 	$(QEMU) \
@@ -395,6 +407,38 @@ run: $(ISO_IMAGE)
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio
+
+run-qemu-tests: $(ISO_IMAGE)
+	@set +e; \
+	$(QEMU) \
+		-machine q35 \
+		-cpu qemu64 \
+		-m 512M \
+		-smp 1 \
+		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
+		-cdrom $(ISO_IMAGE) \
+		-boot d \
+		-vga none \
+		-device VGA,edid=on,xres=1920,yres=1200 \
+		-display none \
+		-monitor none \
+		-no-reboot \
+		-serial stdio \
+		-device isa-debug-exit,iobase=$(QEMU_TEST_EXIT_PORT),iosize=0x04; \
+	status=$$?; \
+	success_status=$$(( ($(QEMU_TEST_EXIT_SUCCESS_VALUE) << 1) | 1 )); \
+	failure_status=$$(( ($(QEMU_TEST_EXIT_FAILURE_VALUE) << 1) | 1 )); \
+	echo; \
+	if [ "$$status" -eq "$$success_status" ]; then \
+		echo "[test] QEMU kernel tests passed"; \
+		exit 0; \
+	fi; \
+	if [ "$$status" -eq "$$failure_status" ]; then \
+		echo "[test] QEMU kernel tests failed"; \
+		exit 1; \
+	fi; \
+	echo "[test] QEMU exited unexpectedly with status $$status"; \
+	exit 1
 
 run-usb: $(USB_IMAGE)
 	$(QEMU) \
@@ -453,13 +497,20 @@ debug-stop:
 # Development configurations
 # -----------------------------------------------------------------------------
 
-.PHONY: run-tests debug-tests run-diagnostics debug-diagnostics
+.PHONY: run-tests test-qemu debug-tests run-diagnostics debug-diagnostics
 
 run-tests:
 	$(MAKE) \
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=0 \
 		run
+
+test-qemu:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=0 \
+		MYOS_QEMU_TEST_EXIT=1 \
+		run-qemu-tests
 
 debug-tests:
 	$(MAKE) \
