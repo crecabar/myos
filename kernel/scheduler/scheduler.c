@@ -214,8 +214,24 @@ static _Noreturn void scheduler_idle(void)
     diagnostics_write("[scheduler] No runnable processes\n");
     diagnostics_write("[scheduler] System idle\n");
 
+    /*
+     * Idle owns the no-runnable-process transition with interrupts disabled.
+     *
+     * interrupts_wait() enables interrupts immediately before HLT and returns
+     * with them disabled again. This makes the READY check and subsequent
+     * sleep race-free on the current single-CPU scheduler.
+     */
+    interrupts_disable();
+
     for (;;) {
-        __asm__ volatile ("hlt");
+        struct process *next =
+            scheduler_find_next_ready();
+
+        if (next != NULL) {
+            scheduler_enter_process(next);
+        }
+
+        interrupts_wait();
     }
 }
 
