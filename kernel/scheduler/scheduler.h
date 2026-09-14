@@ -28,6 +28,11 @@
 #include <stdint.h>
 
 /**
+ * Maximum number of process registrations held by the scheduler.
+ */
+#define SCHEDULER_MAX_PROCESSES 8
+
+/**
  * Initializes the scheduler.
  */
 void scheduler_init(void);
@@ -43,11 +48,33 @@ void scheduler_init(void);
  * the process remains registered, including after it reaches
  * PROCESS_STATE_TERMINATED.
  *
+ * A process may be registered only once. Registration uses one free scheduler
+ * slot and fails when all scheduler slots are occupied.
+ *
  * @param process Borrowed process descriptor to make schedulable.
  *
  * @return true when the process was registered; false otherwise.
  */
 bool scheduler_add(struct process *process);
+
+/**
+ * Removes a terminated process registration from the scheduler.
+ *
+ * The process must already be in PROCESS_STATE_TERMINATED and must not be the
+ * currently running process.
+ *
+ * Successful removal releases only the scheduler's borrowed reference and
+ * makes its slot available for reuse. It does not reclaim process memory,
+ * layout resources, lifecycle metadata, PID, or termination information.
+ *
+ * After this function succeeds, the process lifecycle owner may safely reclaim
+ * the process resources.
+ *
+ * @param process Terminated process whose scheduler registration is removed.
+ *
+ * @return true when the registration was removed; false otherwise.
+ */
+bool scheduler_unregister_terminated(struct process *process);
 
 /**
  * Returns the process currently selected for execution.

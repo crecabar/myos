@@ -11,7 +11,6 @@
 
 #include <stddef.h>
 
-#define SCHEDULER_MAX_PROCESSES 8
 #define SCHEDULER_QUANTUM_TICKS 10
 
 static struct process *processes[SCHEDULER_MAX_PROCESSES];
@@ -42,6 +41,12 @@ static void scheduler_switch_from_interrupt(
 
 void scheduler_init(void)
 {
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        processes[index] = NULL;
+    }
+
     process_count = 0;
     current_process = NULL;
     next_process_index = 0;
@@ -52,12 +57,63 @@ bool scheduler_add(struct process *process)
 {
     if (process == NULL) return false;
     if (process->state != PROCESS_STATE_READY) return false;
-    if (process_count >= SCHEDULER_MAX_PROCESSES) return false;
 
-    processes[process_count] = process;
-    ++process_count;
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        if (processes[index] == process) {
+            return false;
+        }
+    }
 
-    return true;
+    if (process_count >= SCHEDULER_MAX_PROCESSES) {
+        return false;
+    }
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        if (processes[index] != NULL) {
+            continue;
+        }
+
+        processes[index] = process;
+        ++process_count;
+
+        return true;
+    }
+
+    kernel_panic(
+        "Scheduler process count does not match occupied slots"
+    );
+}
+
+bool scheduler_unregister_terminated(struct process *process)
+{
+    if (process == NULL) return false;
+    if (process->state != PROCESS_STATE_TERMINATED) return false;
+    if (process == current_process) return false;
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        if (processes[index] != process) {
+            continue;
+        }
+
+        if (process_count == 0) {
+            kernel_panic(
+                "Scheduler process count is inconsistent"
+            );
+        }
+
+        processes[index] = NULL;
+        --process_count;
+
+        return true;
+    }
+
+    return false;
 }
 
 struct process *scheduler_current(void)
@@ -71,15 +127,26 @@ static struct process *scheduler_find_next_ready(void)
         return NULL;
     }
 
-    for (size_t offset = 0; offset < process_count; ++offset) {
+    for (size_t offset = 0;
+         offset < SCHEDULER_MAX_PROCESSES;
+         ++offset) {
         size_t index =
-            (next_process_index + offset) % process_count;
+            (next_process_index + offset) %
+            SCHEDULER_MAX_PROCESSES;
 
-        if (processes[index]->state == PROCESS_STATE_READY) {
+        struct process *process =
+            processes[index];
+
+        if (process == NULL) {
+            continue;
+        }
+
+        if (process->state == PROCESS_STATE_READY) {
             next_process_index =
-                (index + 1) % process_count;
+                (index + 1) %
+                SCHEDULER_MAX_PROCESSES;
 
-            return processes[index];
+            return process;
         }
     }
 
