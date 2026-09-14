@@ -20,6 +20,7 @@
 
 #if MYOS_KERNEL_TESTS
 #include "arch/x86_64/tests/interrupt_wait_test.h"
+#include "tests/elf64_test.h"
 #include "tests/framebuffer_test.h"
 #include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
@@ -83,18 +84,19 @@ _Noreturn void kernel_main(void)
         diagnostics_write("[clock] RTC unavailable\n");
     }
 
-    #if MYOS_RUNTIME_DIAGNOSTICS
+#if MYOS_RUNTIME_DIAGNOSTICS
     runtime_diagnostics_run();
-    #endif
+#endif
 
-    #if MYOS_KERNEL_TESTS
+#if MYOS_KERNEL_TESTS
+    elf64_test_run();
     interrupt_wait_test_run();
     framebuffer_test_run();
     process_memory_test_run();
     process_lifecycle_test_run();
     scheduler_slot_test_run();
     user_process_tests_prepare();
-    #endif
+#endif
 
     diagnostics_write("[kernel] Starting scheduler\n");
     scheduler_run();
