@@ -53,6 +53,41 @@ _Static_assert(
     "struct task_state_segment must be 104 bytes"
 );
 
+_Static_assert(
+    _Alignof(struct gdt_descriptor) == 1,
+    "struct gdt_descriptor must be byte-aligned"
+);
+
+_Static_assert(
+    offsetof(struct gdt_descriptor, limit) == 0,
+    "gdt_descriptor.limit offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct gdt_descriptor, base) == 2,
+    "gdt_descriptor.base offset mismatch"
+);
+
+_Static_assert(
+    _Alignof(struct task_state_segment) == 1,
+    "struct task_state_segment must be byte-aligned"
+);
+
+_Static_assert(
+    offsetof(struct task_state_segment, rsp0) == 4,
+    "task_state_segment.rsp0 offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct task_state_segment, ist1) == 36,
+    "task_state_segment.ist1 offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct task_state_segment, io_map_base) == 102,
+    "task_state_segment.io_map_base offset mismatch"
+);
+
 static uint64_t gdt[GDT_ENTRY_COUNT];
 static struct task_state_segment tss;
 

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <stdint.h>
-
 #include "idt.h"
 #include "interrupts.h"
 #include "timer.h"
@@ -10,6 +8,9 @@
 #include "../../process/process.h"
 #include "../../scheduler/scheduler.h"
 #include "../../syscall/syscall.h"
+
+#include <stddef.h>
+#include <stdint.h>
 
 #define IDT_ENTRIES 256
 
@@ -98,6 +99,61 @@ _Static_assert(
 _Static_assert(
     sizeof(struct idt_descriptor) == 10,
     "struct idt_descriptor must be 10 bytes"
+);
+
+_Static_assert(
+    _Alignof(struct idt_entry) == 1,
+    "struct idt_entry must be byte-aligned"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, offset_low) == 0,
+    "idt_entry.offset_low offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, selector) == 2,
+    "idt_entry.selector offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, ist) == 4,
+    "idt_entry.ist offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, type_attributes) == 5,
+    "idt_entry.type_attributes offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, offset_middle) == 6,
+    "idt_entry.offset_middle offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, offset_high) == 8,
+    "idt_entry.offset_high offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, zero) == 12,
+    "idt_entry.zero offset mismatch"
+);
+
+_Static_assert(
+    _Alignof(struct idt_descriptor) == 1,
+    "struct idt_descriptor must be byte-aligned"
+);
+
+_Static_assert(
+    offsetof(struct idt_descriptor, limit) == 0,
+    "idt_descriptor.limit offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_descriptor, base) == 2,
+    "idt_descriptor.base offset mismatch"
 );
 
 static struct idt_entry idt[IDT_ENTRIES];

@@ -27,6 +27,7 @@
 #include "memory.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /**
@@ -79,6 +80,37 @@ struct process_context {
     uint64_t rsp;
     uint64_t rflags;
 };
+
+_Static_assert(
+    sizeof(struct process_context) == 144,
+    "struct process_context must be 144 bytes"
+);
+
+_Static_assert(
+    _Alignof(struct process_context) == 8,
+    "struct process_context must be 8-byte aligned"
+);
+
+_Static_assert(offsetof(struct process_context, r15) == 0, "process_context.r15 offset mismatch");
+_Static_assert(offsetof(struct process_context, r14) == 8, "process_context.r14 offset mismatch");
+_Static_assert(offsetof(struct process_context, r13) == 16, "process_context.r13 offset mismatch");
+_Static_assert(offsetof(struct process_context, r12) == 24, "process_context.r12 offset mismatch");
+_Static_assert(offsetof(struct process_context, r11) == 32, "process_context.r11 offset mismatch");
+_Static_assert(offsetof(struct process_context, r10) == 40, "process_context.r10 offset mismatch");
+_Static_assert(offsetof(struct process_context, r9) == 48, "process_context.r9 offset mismatch");
+_Static_assert(offsetof(struct process_context, r8) == 56, "process_context.r8 offset mismatch");
+
+_Static_assert(offsetof(struct process_context, rbp) == 64, "process_context.rbp offset mismatch");
+_Static_assert(offsetof(struct process_context, rdi) == 72, "process_context.rdi offset mismatch");
+_Static_assert(offsetof(struct process_context, rsi) == 80, "process_context.rsi offset mismatch");
+_Static_assert(offsetof(struct process_context, rdx) == 88, "process_context.rdx offset mismatch");
+_Static_assert(offsetof(struct process_context, rcx) == 96, "process_context.rcx offset mismatch");
+_Static_assert(offsetof(struct process_context, rbx) == 104, "process_context.rbx offset mismatch");
+_Static_assert(offsetof(struct process_context, rax) == 112, "process_context.rax offset mismatch");
+
+_Static_assert(offsetof(struct process_context, rip) == 120, "process_context.rip offset mismatch");
+_Static_assert(offsetof(struct process_context, rsp) == 128, "process_context.rsp offset mismatch");
+_Static_assert(offsetof(struct process_context, rflags) == 136, "process_context.rflags offset mismatch");
 
 /**
  * Represents a schedulable MyOS user process.
