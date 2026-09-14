@@ -44,3 +44,29 @@ bool process_init(
 
     return true;
 }
+
+bool process_reclaim_resources(struct process *process)
+{
+    if (process == NULL) return false;
+    if (process->state != PROCESS_STATE_TERMINATED) return false;
+    if (process->memory == NULL) return false;
+    if (process->layout == NULL) return false;
+
+    if (!process_layout_destroy(
+        process->memory,
+        process->layout
+    )) {
+        return false;
+    }
+
+    if (!process_memory_destroy(
+        process->memory
+    )) {
+        return false;
+    }
+
+    process->layout = NULL;
+    process->memory = NULL;
+
+    return true;
+}

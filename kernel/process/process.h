@@ -128,4 +128,31 @@ bool process_init(
     struct process_layout *layout
 );
 
+/**
+ * Reclaims resources associated with a terminated process.
+ *
+ * The caller must be the process lifecycle owner and must ensure that the
+ * process is no longer referenced by the scheduler before calling this
+ * function.
+ *
+ * The process must already be in PROCESS_STATE_TERMINATED. Its layout-managed
+ * mappings are released first, followed by its now-empty process address
+ * space.
+ *
+ * This function does not release or recycle the process descriptor, process
+ * memory metadata object, process layout metadata object, PID, termination
+ * information, or scheduler capacity.
+ *
+ * On success, the process no longer references its former memory or layout.
+ *
+ * A teardown failure indicates an inconsistent lifecycle or memory state.
+ * Resources already released before the failure are not reconstructed.
+ *
+ * @param process Terminated process whose associated resources are reclaimed.
+ *
+ * @return true when all associated resources were reclaimed; false when the
+ *         process is invalid, is not terminated, or teardown fails.
+ */
+bool process_reclaim_resources(struct process *process);
+
 #endif
