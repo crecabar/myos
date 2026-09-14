@@ -11,10 +11,13 @@
  * The scheduler borrows the process descriptor and may transition its
  * execution state, but never owns or destroys lifecycle resources.
  *
- * A terminated process remains registered and retains its final termination
- * information until reaping. Reaping must first remove scheduler references,
- * then release layout-managed mappings, destroy the empty process address
- * space, and finally release or recycle lifecycle metadata.
+ * When a process terminates through the scheduler, the scheduler first
+ * records its final termination state, switches back to the kernel-owned
+ * address space, and removes its borrowed registration.
+ *
+ * Once detached, the process lifecycle owner may release layout-managed
+ * mappings, destroy the empty process address space, and finally release or
+ * recycle lifecycle metadata.
  */
 
 #ifndef MYOS_PROCESS_PROCESS_H
@@ -88,9 +91,13 @@ struct process_context {
  * alive for at least as long as this descriptor may be referenced by the
  * scheduler.
  *
- * PROCESS_STATE_TERMINATED means that the process will never execute again,
- * but does not imply that its descriptor, layout, memory, or scheduler slot
- * have been reclaimed. Resource destruction happens later during reaping.
+ * PROCESS_STATE_TERMINATED means that the process will never execute again.
+ * It does not by itself imply that lifecycle resources have been reclaimed.
+ *
+ * Processes terminated through the scheduler are detached from their
+ * scheduler registration before being handed back to the lifecycle owner.
+ * Their descriptor, layout, memory, PID, and termination information remain
+ * valid until the lifecycle owner explicitly reclaims or recycles them.
  */
 struct process {
     uint64_t id;

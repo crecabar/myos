@@ -14,8 +14,9 @@
  * resources. Registered struct process pointers are borrowed references.
  *
  * A registered process descriptor, together with the memory and layout it
- * references, must remain alive until the scheduler registration has been
- * removed during reaping.
+ * references, must remain alive until the scheduler has detached the
+ * registration. For process termination, detachment occurs only after the
+ * scheduler has switched back to the kernel-owned address space.
  */
 
 #ifndef MYOS_SCHEDULER_SCHEDULER_H
@@ -33,9 +34,40 @@
 #define SCHEDULER_MAX_PROCESSES 8
 
 /**
+ * Handles a process after termination has been detached from the scheduler.
+ *
+ * The scheduler invokes the handler only after switching back to the
+ * kernel-owned address space and removing its borrowed process registration.
+ *
+ * The handler may therefore reclaim the terminated process resources and may
+ * subsequently reinitialize and register the same lifecycle storage again.
+ *
+ * @param process Detached terminated process.
+ */
+typedef void (*scheduler_terminated_handler)(
+    struct process *process
+);
+
+/**
  * Initializes the scheduler.
  */
 void scheduler_init(void);
+
+/**
+ * Sets the handler invoked for safely detached terminated processes.
+ *
+ * Only one handler is active at a time. Passing NULL disables termination
+ * notification.
+ *
+ * The handler runs after the terminated process is no longer current, the
+ * kernel address space is active, and the scheduler registration has been
+ * removed.
+ *
+ * @param handler Terminated-process lifecycle handler, or NULL.
+ */
+void scheduler_set_terminated_handler(
+    scheduler_terminated_handler handler
+);
 
 /**
  * Registers a READY process with the scheduler.
@@ -96,10 +128,10 @@ struct process *scheduler_current(void);
  * return path can then resume that process without restarting it from its
  * initial entry point.
  *
- * Termination does not unregister, reap, or destroy the process. Its
- * descriptor and associated lifecycle resources remain alive until a later
- * reaping operation removes the scheduler registration and releases those
- * resources.
+ * Once termination metadata has been recorded, the scheduler switches to the
+ * kernel-owned address space and removes its borrowed registration. If a
+ * terminated-process handler is installed, it is then invoked so the lifecycle
+ * owner may safely reclaim or recycle the detached process resources.
  *
  * If no runnable process remains, MyOS enters its idle state.
  *
@@ -115,9 +147,12 @@ void scheduler_terminate_current_from_interrupt(
  * Terminates the current process normally and schedules the next READY process.
  *
  * The process is marked PROCESS_STATE_TERMINATED and its final exit status is
- * recorded. The scheduler does not unregister, reap, or destroy the process;
- * its descriptor and associated lifecycle resources remain alive for later
- * reaping.
+ * recorded.
+ *
+ * Once termination metadata has been recorded, the scheduler switches to the
+ * kernel-owned address space and removes its borrowed registration. If a
+ * terminated-process handler is installed, it is then invoked so the lifecycle
+ * owner may safely reclaim or recycle the detached process resources.
  *
  * @param context Current user-mode syscall interrupt frame.
  * @param status Process exit status.
