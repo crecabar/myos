@@ -466,6 +466,40 @@ Run the diagnostic/test USB image in QEMU with:
 make run-usb-diagnostics
 ```
 
+### Writing the USB image to physical media
+
+On macOS, first identify the target USB device:
+
+```bash
+diskutil list
+```
+
+**Warning:** writing the image directly to a device destroys the existing partition table and data on that device. Device identifiers are not stable across reconnects, so verify the target every time before running `dd`.
+
+For the first physical-hardware boot, the USB stick appeared as `/dev/disk6`. After building the desired image, unmount the whole device without ejecting it:
+
+```bash
+diskutil unmountDisk /dev/disk6
+```
+
+Then write the image through the corresponding raw device:
+
+```bash
+sudo dd \
+    if=build/myos-usb.img \
+    of=/dev/rdisk6 \
+    bs=1048576
+```
+
+Flush outstanding writes and eject the device cleanly:
+
+```bash
+sync
+diskutil eject /dev/disk6
+```
+
+The `/dev/disk6` / `/dev/rdisk6` identifiers above are examples from the first successful Dell workstation boot. Replace the disk number with the device reported by `diskutil list` on the current machine.
+
 Detailed toolchain notes are available in:
 
 ```text
