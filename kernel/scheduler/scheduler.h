@@ -17,6 +17,11 @@
  * references, must remain alive until the scheduler has detached the
  * registration. For process termination, detachment occurs only after the
  * scheduler has switched back to the kernel-owned address space.
+ *
+ * When no READY process exists, the scheduler enters an interruptible idle
+ * state. The READY set is inspected with maskable interrupts disabled, then
+ * the CPU enables interrupts and halts atomically. After an interrupt wakes
+ * the CPU, the scheduler rechecks the READY set before sleeping again.
  */
 
 #ifndef MYOS_SCHEDULER_SCHEDULER_H
@@ -166,7 +171,14 @@ void scheduler_exit_current(
  * Starts execution of the next READY process.
  *
  * Activates the process address space and enters user mode at the process
- * initial RIP and RSP. This function does not return.
+ * initial RIP and RSP.
+ *
+ * When no READY process exists, the scheduler enters an interruptible idle
+ * state. The READY set is inspected with maskable interrupts disabled, then
+ * the CPU enables interrupts and halts atomically. After an interrupt wakes
+ * the CPU, the scheduler rechecks the READY set before sleeping again.
+ *
+ * This function does not return.
  */
 _Noreturn void scheduler_run(void);
 

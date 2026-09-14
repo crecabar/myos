@@ -41,6 +41,28 @@ struct interrupt_context {
 };
 
 /**
+ * Disables maskable CPU interrupts.
+ */
+void interrupts_disable(void);
+
+/**
+ * Enables maskable CPU interrupts.
+ */
+void interrupts_enable(void);
+
+/**
+ * Waits for an interrupt and returns with maskable interrupts disabled.
+ *
+ * The caller must enter with maskable interrupts disabled. Interrupts are
+ * enabled immediately before HLT so a pending interrupt cannot be lost between
+ * enabling interrupts and entering the halted state.
+ *
+ * Once execution resumes after HLT, maskable interrupts are disabled again
+ * before returning to the caller.
+ */
+void interrupts_wait(void);
+
+/**
  *
  * @param context
  */

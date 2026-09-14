@@ -8,6 +8,49 @@
 .extern syscall_handler
 .extern timer_handle_interrupt
 
+// interrupts_disable: disable maskable interrupts
+.global interrupts_disable
+.type interrupts_disable, @function
+
+interrupts_disable:
+    cli
+    ret
+
+.size interrupts_disable, .-interrupts_disable
+
+
+// interrupts_enable: enable maskable interrupts
+.global interrupts_enable
+.type interrupts_enable, @function
+
+interrupts_enable:
+    sti
+    ret
+
+.size interrupts_enable, .-interrupts_enable
+
+
+/*
+ * interrupts_wait: atomically enable interrupts and halt until an interrupt.
+ *
+ * STI inhibits maskable interrupt recognition until after the immediately
+ * following instruction, making STI; HLT safe against a wakeup arriving in
+ * between those two operations.
+ *
+ * CLI restores the caller-facing invariant that interrupts are disabled when
+ * this function returns.
+ */
+.global interrupts_wait
+.type interrupts_wait, @function
+
+interrupts_wait:
+    sti
+    hlt
+    cli
+    ret
+
+.size interrupts_wait, .-interrupts_wait
+
 /*
  * Defines an exception stub for vectors whose architectural exception frame
  * does not contain a hardware-pushed error code.

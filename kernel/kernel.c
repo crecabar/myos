@@ -19,6 +19,7 @@
 #endif
 
 #if MYOS_KERNEL_TESTS
+#include "arch/x86_64/tests/interrupt_wait_test.h"
 #include "tests/framebuffer_test.h"
 #include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
@@ -87,6 +88,7 @@ _Noreturn void kernel_main(void)
     #endif
 
     #if MYOS_KERNEL_TESTS
+    interrupt_wait_test_run();
     framebuffer_test_run();
     process_memory_test_run();
     process_lifecycle_test_run();
