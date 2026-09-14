@@ -3,6 +3,21 @@
 /**
  * @file process.h
  * @brief Process execution state and lifecycle tracking.
+ *
+ * Process lifecycle ownership is separate from scheduler registration.
+ * A lifecycle owner keeps the process descriptor, process memory, and process
+ * layout alive while the process is registered with the scheduler.
+ *
+ * The scheduler borrows the process descriptor and may transition its
+ * execution state, but never owns or destroys lifecycle resources.
+ *
+ * When a process terminates through the scheduler, the scheduler first
+ * records its final termination state, switches back to the kernel-owned
+ * address space, and removes its borrowed registration.
+ *
+ * Once detached, the process lifecycle owner may release layout-managed
+ * mappings, destroy the empty process address space, and finally release or
+ * recycle lifecycle metadata.
  */
 
 #ifndef MYOS_PROCESS_PROCESS_H
@@ -68,8 +83,21 @@ struct process_context {
 /**
  * Represents a schedulable MyOS user process.
  *
- * The process descriptor tracks execution state and references the virtual
- * memory and layout required to enter its user-mode execution environment.
+ * The process descriptor owns its execution-state fields and saved CPU
+ * context, but it does not own the process_memory or process_layout objects
+ * referenced by memory and layout.
+ *
+ * Those objects are borrowed from the process lifecycle owner and must remain
+ * alive for at least as long as this descriptor may be referenced by the
+ * scheduler.
+ *
+ * PROCESS_STATE_TERMINATED means that the process will never execute again.
+ * It does not by itself imply that lifecycle resources have been reclaimed.
+ *
+ * Processes terminated through the scheduler are detached from their
+ * scheduler registration before being handed back to the lifecycle owner.
+ * Their descriptor, layout, memory, PID, and termination information remain
+ * valid until the lifecycle owner explicitly reclaims or recycles them.
  */
 struct process {
     uint64_t id;
@@ -85,10 +113,18 @@ struct process {
 /**
  * Initializes a schedulable process descriptor.
  *
+ * The process borrows the supplied memory and layout objects. Ownership of
+ * those objects remains with the caller/lifecycle owner, which must keep them
+ * alive while the initialized process may still be referenced.
+ *
+ * This function allocates no resources and takes no ownership. On failure,
+ * the caller remains responsible for all supplied objects.
+ *
  * @param process Process descriptor to initialize.
  * @param id Process identifier.
- * @param memory Process address space.
- * @param layout User virtual-memory layout and initial execution addresses.
+ * @param memory Borrowed process address space.
+ * @param layout Borrowed user virtual-memory layout and initial execution
+ *        addresses.
  *
  * @return true when the descriptor was initialized; false otherwise.
  */
@@ -98,5 +134,32 @@ bool process_init(
     struct process_memory *memory,
     struct process_layout *layout
 );
+
+/**
+ * Reclaims resources associated with a terminated process.
+ *
+ * The caller must be the process lifecycle owner and must ensure that the
+ * process is no longer referenced by the scheduler before calling this
+ * function.
+ *
+ * The process must already be in PROCESS_STATE_TERMINATED. Its layout-managed
+ * mappings are released first, followed by its now-empty process address
+ * space.
+ *
+ * This function does not release or recycle the process descriptor, process
+ * memory metadata object, process layout metadata object, PID, termination
+ * information, or scheduler capacity.
+ *
+ * On success, the process no longer references its former memory or layout.
+ *
+ * A teardown failure indicates an inconsistent lifecycle or memory state.
+ * Resources already released before the failure are not reconstructed.
+ *
+ * @param process Terminated process whose associated resources are reclaimed.
+ *
+ * @return true when all associated resources were reclaimed; false when the
+ *         process is invalid, is not terminated, or teardown fails.
+ */
+bool process_reclaim_resources(struct process *process);
 
 #endif

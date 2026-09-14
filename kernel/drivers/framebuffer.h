@@ -31,6 +31,11 @@ uint32_t framebuffer_make_color(
     uint8_t blue
 );
 
+/**
+ * Draws one pixel when the coordinate lies inside the visible framebuffer.
+ *
+ * Invalid framebuffer geometry and out-of-bounds coordinates are ignored.
+ */
 void framebuffer_put_pixel(
     struct framebuffer *framebuffer,
     uint64_t x,
@@ -38,6 +43,12 @@ void framebuffer_put_pixel(
     uint32_t color
 );
 
+/**
+ * Fills the visible intersection of a rectangle with the framebuffer.
+ *
+ * Rectangles extending beyond the right or bottom edge are clipped. Empty,
+ * fully out-of-bounds, or invalid requests perform no writes.
+ */
 void framebuffer_fill_rect(
     struct framebuffer *framebuffer,
     uint64_t x,
@@ -47,6 +58,12 @@ void framebuffer_fill_rect(
     uint32_t color
 );
 
+/**
+ * Draws an 8x8 glyph using bounded framebuffer rectangle primitives.
+ *
+ * Glyph blocks extending outside the visible framebuffer are clipped.
+ * A NULL glyph or zero scale performs no writes.
+ */
 void framebuffer_draw_glyph(
     struct framebuffer *framebuffer,
     uint64_t x,

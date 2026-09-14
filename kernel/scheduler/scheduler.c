@@ -11,12 +11,13 @@
 
 #include <stddef.h>
 
-#define SCHEDULER_MAX_PROCESSES 8
 #define SCHEDULER_QUANTUM_TICKS 10
 
 static struct process *processes[SCHEDULER_MAX_PROCESSES];
 static size_t process_count;
 static size_t next_process_index;
+
+static scheduler_terminated_handler terminated_handler;
 
 static struct process *current_process;
 static uint64_t current_quantum_ticks;
@@ -40,24 +41,96 @@ static void scheduler_switch_from_interrupt(
     struct process *next
 );
 
+static void scheduler_detach_terminated(
+    struct process *process
+);
+
 void scheduler_init(void)
 {
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        processes[index] = NULL;
+    }
+
     process_count = 0;
     current_process = NULL;
     next_process_index = 0;
     current_quantum_ticks = 0;
+    terminated_handler = NULL;
+}
+
+void scheduler_set_terminated_handler(
+    scheduler_terminated_handler handler)
+{
+    terminated_handler = handler;
 }
 
 bool scheduler_add(struct process *process)
 {
     if (process == NULL) return false;
     if (process->state != PROCESS_STATE_READY) return false;
-    if (process_count >= SCHEDULER_MAX_PROCESSES) return false;
 
-    processes[process_count] = process;
-    ++process_count;
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        if (processes[index] == process) {
+            return false;
+        }
+    }
 
-    return true;
+    if (process_count >= SCHEDULER_MAX_PROCESSES) {
+        return false;
+    }
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        if (processes[index] != NULL) {
+            continue;
+        }
+
+        processes[index] = process;
+        ++process_count;
+
+        return true;
+    }
+
+    kernel_panic(
+        "Scheduler process count does not match occupied slots"
+    );
+}
+
+bool scheduler_unregister_terminated(struct process *process)
+{
+    if (process == NULL) return false;
+    if (process->state != PROCESS_STATE_TERMINATED) return false;
+    if (process == current_process) return false;
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        if (processes[index] != process) {
+            continue;
+        }
+
+        if (process_count == 0) {
+            kernel_panic(
+                "Scheduler process count is inconsistent"
+            );
+        }
+
+        processes[index] = NULL;
+        --process_count;
+
+        if (process_count == 0) {
+            next_process_index = 0;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 struct process *scheduler_current(void)
@@ -71,15 +144,26 @@ static struct process *scheduler_find_next_ready(void)
         return NULL;
     }
 
-    for (size_t offset = 0; offset < process_count; ++offset) {
+    for (size_t offset = 0;
+         offset < SCHEDULER_MAX_PROCESSES;
+         ++offset) {
         size_t index =
-            (next_process_index + offset) % process_count;
+            (next_process_index + offset) %
+            SCHEDULER_MAX_PROCESSES;
 
-        if (processes[index]->state == PROCESS_STATE_READY) {
+        struct process *process =
+            processes[index];
+
+        if (process == NULL) {
+            continue;
+        }
+
+        if (process->state == PROCESS_STATE_READY) {
             next_process_index =
-                (index + 1) % process_count;
+                (index + 1) %
+                SCHEDULER_MAX_PROCESSES;
 
-            return processes[index];
+            return process;
         }
     }
 
@@ -135,6 +219,47 @@ static _Noreturn void scheduler_idle(void)
     }
 }
 
+static void scheduler_detach_terminated(
+    struct process *process)
+{
+    if (process == NULL) {
+        kernel_panic(
+            "Scheduler attempted to detach null process"
+        );
+    }
+
+    if (process->state != PROCESS_STATE_TERMINATED) {
+        kernel_panic(
+            "Scheduler attempted to detach non-terminated process"
+        );
+    }
+
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (kernel_space == NULL) {
+        kernel_panic(
+            "Kernel address space unavailable during process detach"
+        );
+    }
+
+    if (!paging_address_space_activate(kernel_space)) {
+        kernel_panic(
+            "Unable to activate kernel address space during process detach"
+        );
+    }
+
+    if (!scheduler_unregister_terminated(process)) {
+        kernel_panic(
+            "Unable to unregister terminated process"
+        );
+    }
+
+    if (terminated_handler != NULL) {
+        terminated_handler(process);
+    }
+}
+
 void scheduler_terminate_current_from_interrupt(
     struct interrupt_context *context,
     enum process_termination_reason reason)
@@ -159,6 +284,9 @@ void scheduler_terminate_current_from_interrupt(
     );
 
     current_process = NULL;
+    scheduler_detach_terminated(
+        terminated_process
+    );
 
     struct process *next = scheduler_find_next_ready();
 
@@ -197,6 +325,10 @@ void scheduler_exit_current(
     );
 
     current_process = NULL;
+
+    scheduler_detach_terminated(
+        exiting_process
+    );
 
     struct process *next = scheduler_find_next_ready();
 

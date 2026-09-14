@@ -36,11 +36,18 @@
 #define PROCESS_USER_VIRTUAL_MAX 0x00007FFFFFFFFFFFULL
 
 /**
- * Represents the virtual memory owned by a process.
+ * Represents the virtual memory owned by a process lifecycle.
  *
- * Each process memory instance owns its PML4 root and private lower-half
- * mappings. Kernel mappings in the upper half of the address space are shared
- * with the kernel and are not owned by the process.
+ * Each process memory instance owns its PML4 root, private lower-half page
+ * tables, and physical frames allocated through its allocate APIs until those
+ * frames are explicitly released.
+ *
+ * Frames supplied to process_memory_map_page() are borrowed and do not become
+ * owned by process memory merely because they are mapped.
+ *
+ * Kernel mappings in the upper half are borrowed from the kernel address
+ * space. They are shared, must not be mutated through this object, and are
+ * never reclaimed when process memory is destroyed.
  */
 struct process_memory {
     struct paging_address_space address_space;
@@ -89,6 +96,10 @@ bool process_memory_create(struct process_memory *memory);
  * Shared kernel mappings are left untouched and only the process-owned PML4
  * root is released.
  *
+ * This operation is only valid after all private user mappings have already
+ * been released by their respective owners. It does not perform process
+ * reaping or implicit layout teardown.
+ *
  * @param memory Process memory structure to destroy.
  *
  * @return true when the address space was destroyed successfully; false
@@ -103,6 +114,14 @@ bool process_memory_destroy(struct process_memory *memory);
  * tables are created automatically by the paging subsystem.
  *
  * This operation does not take ownership of or allocate the physical frame.
+ *
+ * The caller retains ownership of the supplied physical frame. The mapping
+ * must be removed with process_memory_unmap_page() before that frame is
+ * released or reused by its owner.
+ *
+ * A frame mapped through this function must not later be released through
+ * process_memory_release_page() merely because it is present in this address
+ * space.
  *
  * @param memory Process memory to modify.
  * @param virtual_address 4 KiB-aligned user virtual address.
@@ -124,6 +143,11 @@ bool process_memory_map_page(
  * The physical address previously associated with the virtual page is
  * returned to the caller. Empty private page-table levels are reclaimed
  * automatically by the paging subsystem.
+ *
+ * This operation is only valid for mappings whose backing physical frame is
+ * owned by process memory, such as pages created through the process-memory
+ * allocation APIs. Caller-owned frames mapped with process_memory_map_page()
+ * must instead be removed with process_memory_unmap_page().
  *
  * @param memory Process memory to modify.
  * @param virtual_address 4 KiB-aligned user virtual address to unmap.
@@ -180,6 +204,10 @@ bool process_memory_release_page(
  * Each virtual page receives its own physical frame. If any allocation or
  * mapping fails, pages already created by this call are released before the
  * function returns.
+ *
+ * Every mapping in the range must be backed by a physical frame owned by
+ * process memory. This function must not be used to release ranges containing
+ * caller-owned frames installed through process_memory_map_page().
  *
  * @param memory Process memory to modify.
  * @param virtual_address 4 KiB-aligned start address of the range.

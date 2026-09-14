@@ -8,6 +8,15 @@
  * process termination, and timer-driven preemption. Each running process
  * receives a fixed scheduling quantum before another READY process may be
  * selected.
+ *
+ * The scheduler owns its internal registration slots and scheduling state,
+ * but it does not own registered process descriptors or any process memory
+ * resources. Registered struct process pointers are borrowed references.
+ *
+ * A registered process descriptor, together with the memory and layout it
+ * references, must remain alive until the scheduler has detached the
+ * registration. For process termination, detachment occurs only after the
+ * scheduler has switched back to the kernel-owned address space.
  */
 
 #ifndef MYOS_SCHEDULER_SCHEDULER_H
@@ -20,23 +29,93 @@
 #include <stdint.h>
 
 /**
+ * Maximum number of process registrations held by the scheduler.
+ */
+#define SCHEDULER_MAX_PROCESSES 8
+
+/**
+ * Handles a process after termination has been detached from the scheduler.
+ *
+ * The scheduler invokes the handler only after switching back to the
+ * kernel-owned address space and removing its borrowed process registration.
+ *
+ * The handler may therefore reclaim the terminated process resources and may
+ * subsequently reinitialize and register the same lifecycle storage again.
+ *
+ * @param process Detached terminated process.
+ */
+typedef void (*scheduler_terminated_handler)(
+    struct process *process
+);
+
+/**
  * Initializes the scheduler.
  */
 void scheduler_init(void);
 
 /**
- * Adds a READY process to the scheduler.
+ * Sets the handler invoked for safely detached terminated processes.
  *
- * @param process Process to make schedulable.
+ * Only one handler is active at a time. Passing NULL disables termination
+ * notification.
+ *
+ * The handler runs after the terminated process is no longer current, the
+ * kernel address space is active, and the scheduler registration has been
+ * removed.
+ *
+ * @param handler Terminated-process lifecycle handler, or NULL.
+ */
+void scheduler_set_terminated_handler(
+    scheduler_terminated_handler handler
+);
+
+/**
+ * Registers a READY process with the scheduler.
+ *
+ * The scheduler stores a borrowed reference to the process descriptor.
+ * Registration does not transfer ownership of the process, its memory, or its
+ * layout to the scheduler.
+ *
+ * The process descriptor and every object it borrows must remain alive while
+ * the process remains registered, including after it reaches
+ * PROCESS_STATE_TERMINATED.
+ *
+ * A process may be registered only once. Registration uses one free scheduler
+ * slot and fails when all scheduler slots are occupied.
+ *
+ * @param process Borrowed process descriptor to make schedulable.
  *
  * @return true when the process was registered; false otherwise.
  */
 bool scheduler_add(struct process *process);
 
 /**
+ * Removes a terminated process registration from the scheduler.
+ *
+ * The process must already be in PROCESS_STATE_TERMINATED and must not be the
+ * currently running process.
+ *
+ * Successful removal releases only the scheduler's borrowed reference and
+ * makes its slot available for reuse. It does not reclaim process memory,
+ * layout resources, lifecycle metadata, PID, or termination information.
+ *
+ * After this function succeeds, the process lifecycle owner may safely reclaim
+ * the process resources.
+ *
+ * @param process Terminated process whose scheduler registration is removed.
+ *
+ * @return true when the registration was removed; false otherwise.
+ */
+bool scheduler_unregister_terminated(struct process *process);
+
+/**
  * Returns the process currently selected for execution.
  *
- * @return Running process, or NULL when no process is active.
+ * The returned pointer is a borrowed reference owned by the process lifecycle
+ * layer. The caller must not destroy or release the process through this
+ * pointer.
+ *
+ * @return Borrowed running process, or NULL when no process is active.
  */
 struct process *scheduler_current(void);
 
@@ -48,6 +127,11 @@ struct process *scheduler_current(void);
  * is rewritten with the saved state of the next READY process. The interrupt
  * return path can then resume that process without restarting it from its
  * initial entry point.
+ *
+ * Once termination metadata has been recorded, the scheduler switches to the
+ * kernel-owned address space and removes its borrowed registration. If a
+ * terminated-process handler is installed, it is then invoked so the lifecycle
+ * owner may safely reclaim or recycle the detached process resources.
  *
  * If no runnable process remains, MyOS enters its idle state.
  *
@@ -61,6 +145,14 @@ void scheduler_terminate_current_from_interrupt(
 
 /**
  * Terminates the current process normally and schedules the next READY process.
+ *
+ * The process is marked PROCESS_STATE_TERMINATED and its final exit status is
+ * recorded.
+ *
+ * Once termination metadata has been recorded, the scheduler switches to the
+ * kernel-owned address space and removes its borrowed registration. If a
+ * terminated-process handler is installed, it is then invoked so the lifecycle
+ * owner may safely reclaim or recycle the detached process resources.
  *
  * @param context Current user-mode syscall interrupt frame.
  * @param status Process exit status.

@@ -15,10 +15,14 @@
 #include <stdint.h>
 
 /**
- * Represents a user-mode stack owned by a process.
+ * Represents a user-mode stack layout inside process memory.
  *
- * The stack consists of one unmapped guard page followed by a contiguous
- * range of writable user pages. The stack grows downward from stack_top.
+ * The stack descriptor tracks and manages the lifetime of the mapped user
+ * pages created for the stack, but does not own the process_memory object
+ * containing those mappings.
+ *
+ * The guard page remains deliberately unmapped and therefore owns no physical
+ * frame.
  */
 struct process_stack {
     uint64_t guard_address;
@@ -33,7 +37,13 @@ struct process_stack {
  * The guard page remains deliberately unmapped. The stack pages are allocated
  * immediately above it and are mapped writable and user-accessible.
  *
- * @param memory Process memory that will own the stack pages.
+ * The supplied process memory is borrowed. On successful creation, the stack
+ * descriptor becomes responsible for releasing the newly allocated stack
+ * mappings through process_stack_destroy().
+ *
+ * If creation fails, the descriptor manages no remaining stack mappings.
+ *
+ * @param memory Borrowed process memory in which stack pages are created.
  * @param stack Stack descriptor to initialize.
  * @param stack_top Virtual address immediately above the stack.
  * @param page_count Number of mapped 4 KiB stack pages.
@@ -48,15 +58,19 @@ bool process_stack_create(
 );
 
 /**
- * Releases all mapped pages belonging to a user stack.
+ * Releases all mapped pages managed by a user stack.
  *
- * The guard page remains unmapped throughout the stack lifetime and therefore
- * owns no physical frame.
+ * The supplied process memory is borrowed and remains alive after this
+ * operation. The guard page is unmapped throughout the stack lifetime and
+ * therefore owns no physical frame.
  *
- * @param memory Process memory that owns the stack.
- * @param stack Stack descriptor to destroy.
+ * On success, the stack descriptor is responsible for no remaining
+ * process-memory mappings.
  *
- * @return true when all stack pages were released; false otherwise.
+ * @param memory Borrowed process memory containing the stack mappings.
+ * @param stack Stack descriptor whose managed mappings are to be released.
+ *
+ * @return true when all stack pages managed by the descriptor were released; false otherwise.
  */
 bool process_stack_destroy(
     struct process_memory *memory,
