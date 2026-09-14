@@ -19,6 +19,7 @@
 #endif
 
 #if MYOS_KERNEL_TESTS
+#include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
 #include "tests/user_processes.h"
 #endif
@@ -85,6 +86,7 @@ _Noreturn void kernel_main(void)
 
     #if MYOS_KERNEL_TESTS
     process_memory_test_run();
+    process_lifecycle_test_run();
     user_process_tests_prepare();
     #endif
 
