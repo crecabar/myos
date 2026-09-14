@@ -16,6 +16,11 @@
 #include "../arch/x86_64/tests/user_programs.h"
 #include "../scheduler/scheduler.h"
 
+#if MYOS_QEMU_TEST_EXIT
+#include "../arch/x86_64/qemu_test_exit.h"
+#endif
+
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -36,6 +41,12 @@ static struct user_process_fixture lifecycle_stress_fixture;
 static size_t lifecycle_stress_cycle;
 static uint64_t lifecycle_stress_free_frame_baseline;
 
+static bool standard_process_completed[
+    USER_PROCESS_TEST_COUNT
+];
+
+static size_t standard_process_completed_count;
+
 // Private helpers declarations
 static void user_process_test_prepare(
     struct user_process_fixture *fixture,
@@ -53,8 +64,24 @@ static void user_process_lifecycle_stress_terminated(
 
 static void user_process_tests_dump(void);
 
+static void user_process_standard_terminated(
+    struct process *process
+);
+
+static bool user_process_standard_result_valid(
+    size_t index,
+    const struct process *process
+);
+// End private helpers declarations
+
 void user_process_tests_prepare(void)
 {
+    standard_process_completed_count = 0;
+
+    for (size_t index = 0; index < USER_PROCESS_TEST_COUNT; ++index) {
+        standard_process_completed[index] = false;
+    }
+
     lifecycle_stress_cycle = 0;
 
     lifecycle_stress_free_frame_baseline =
@@ -258,13 +285,115 @@ static void user_process_lifecycle_stress_terminated(
         return;
     }
 
-    scheduler_set_terminated_handler(NULL);
+    scheduler_set_terminated_handler(
+        user_process_standard_terminated
+    );
 
     diagnostics_write(
         "[process] Repeated process lifecycle stress test passed\n"
     );
 
     user_process_tests_prepare_standard();
+}
+
+static void user_process_standard_terminated(
+    struct process *process)
+{
+    if (process == NULL) {
+        kernel_panic(
+            "Standard process test received null process"
+        );
+    }
+
+    size_t index = USER_PROCESS_TEST_COUNT;
+
+    for (size_t candidate = 0;
+         candidate < USER_PROCESS_TEST_COUNT;
+         ++candidate) {
+        if (process == &fixtures[candidate].process) {
+            index = candidate;
+            break;
+        }
+    }
+
+    if (index == USER_PROCESS_TEST_COUNT) {
+        kernel_panic(
+            "Standard process test received unexpected process"
+        );
+    }
+
+    if (standard_process_completed[index]) {
+        kernel_panic(
+            "Standard process test completed twice"
+        );
+    }
+
+    if (!user_process_standard_result_valid(
+        index,
+        process
+    )) {
+        kernel_panic(
+            "Standard process test produced unexpected result"
+        );
+    }
+
+    standard_process_completed[index] = true;
+    ++standard_process_completed_count;
+
+    if (
+        standard_process_completed_count <
+        USER_PROCESS_TEST_COUNT
+    ) {
+        return;
+    }
+
+    scheduler_set_terminated_handler(NULL);
+
+    diagnostics_write(
+        "[test] Kernel test suite passed\n"
+    );
+
+#if MYOS_QEMU_TEST_EXIT
+    qemu_test_exit_success();
+#endif
+}
+
+static bool user_process_standard_result_valid(
+    size_t index,
+    const struct process *process)
+{
+    if (process->state != PROCESS_STATE_TERMINATED) {
+        return false;
+    }
+
+    switch (index) {
+        case 0:
+        case 1:
+        case 5:
+            return
+                process->termination_reason ==
+                    PROCESS_TERMINATION_EXITED &&
+                process->exit_status == 0;
+
+        case 2:
+            return
+                process->termination_reason ==
+                    PROCESS_TERMINATION_SEGMENTATION_FAULT;
+
+        case 3:
+        case 6:
+            return
+                process->termination_reason ==
+                    PROCESS_TERMINATION_ILLEGAL_INSTRUCTION;
+
+        case 4:
+            return
+                process->termination_reason ==
+                    PROCESS_TERMINATION_PROTECTION_FAULT;
+
+        default:
+            return false;
+    }
 }
 
 static void user_process_tests_dump(void)

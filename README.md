@@ -466,6 +466,43 @@ Run the diagnostic/test USB image in QEMU with:
 make run-usb-diagnostics
 ```
 
+### Automated kernel tests
+
+Run the kernel test suite interactively with:
+
+```bash
+make run-tests
+```
+
+This keeps QEMU open after the tests complete so the final kernel state can be
+inspected manually.
+
+For an automated pass/fail result suitable for CI, use:
+
+```bash
+make test-qemu
+```
+
+The automated runner boots a kernel built with MYOS_KERNEL_TESTS=1 and uses
+QEMU's isa-debug-exit device to convert the kernel test result into a process
+exit status.
+
+A successful run prints:
+
+```text
+[test] Kernel test suite passed
+[test] QEMU kernel tests passed
+```
+
+and returns exit status 0.
+
+A kernel panic, failed regression expectation, or unexpected QEMU termination
+returns a non-zero exit status.
+
+The automated QEMU exit path is enabled only for make test-qemu; normal
+kernel runs, interactive kernel-test runs, and physical-hardware images retain
+their normal halt/idle behavior.
+
 ### Writing the USB image to physical media
 
 On macOS, first identify the target USB device:
