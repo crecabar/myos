@@ -17,6 +17,8 @@ static struct process *processes[SCHEDULER_MAX_PROCESSES];
 static size_t process_count;
 static size_t next_process_index;
 
+static scheduler_terminated_handler terminated_handler;
+
 static struct process *current_process;
 static uint64_t current_quantum_ticks;
 
@@ -39,6 +41,10 @@ static void scheduler_switch_from_interrupt(
     struct process *next
 );
 
+static void scheduler_detach_terminated(
+    struct process *process
+);
+
 void scheduler_init(void)
 {
     for (size_t index = 0;
@@ -51,6 +57,13 @@ void scheduler_init(void)
     current_process = NULL;
     next_process_index = 0;
     current_quantum_ticks = 0;
+    terminated_handler = NULL;
+}
+
+void scheduler_set_terminated_handler(
+    scheduler_terminated_handler handler)
+{
+    terminated_handler = handler;
 }
 
 bool scheduler_add(struct process *process)
@@ -109,6 +122,10 @@ bool scheduler_unregister_terminated(struct process *process)
 
         processes[index] = NULL;
         --process_count;
+
+        if (process_count == 0) {
+            next_process_index = 0;
+        }
 
         return true;
     }
@@ -202,6 +219,47 @@ static _Noreturn void scheduler_idle(void)
     }
 }
 
+static void scheduler_detach_terminated(
+    struct process *process)
+{
+    if (process == NULL) {
+        kernel_panic(
+            "Scheduler attempted to detach null process"
+        );
+    }
+
+    if (process->state != PROCESS_STATE_TERMINATED) {
+        kernel_panic(
+            "Scheduler attempted to detach non-terminated process"
+        );
+    }
+
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (kernel_space == NULL) {
+        kernel_panic(
+            "Kernel address space unavailable during process detach"
+        );
+    }
+
+    if (!paging_address_space_activate(kernel_space)) {
+        kernel_panic(
+            "Unable to activate kernel address space during process detach"
+        );
+    }
+
+    if (!scheduler_unregister_terminated(process)) {
+        kernel_panic(
+            "Unable to unregister terminated process"
+        );
+    }
+
+    if (terminated_handler != NULL) {
+        terminated_handler(process);
+    }
+}
+
 void scheduler_terminate_current_from_interrupt(
     struct interrupt_context *context,
     enum process_termination_reason reason)
@@ -226,6 +284,9 @@ void scheduler_terminate_current_from_interrupt(
     );
 
     current_process = NULL;
+    scheduler_detach_terminated(
+        terminated_process
+    );
 
     struct process *next = scheduler_find_next_ready();
 
@@ -264,6 +325,10 @@ void scheduler_exit_current(
     );
 
     current_process = NULL;
+
+    scheduler_detach_terminated(
+        exiting_process
+    );
 
     struct process *next = scheduler_find_next_ready();
 
