@@ -13,6 +13,11 @@
 struct boot_info {
     uint64_t direct_map_offset;
 
+    void *smbios_entry_32;
+    void *smbios_entry_64;
+
+    const char *command_line;
+
     struct framebuffer framebuffer;
 
     struct memory_region memory_regions[

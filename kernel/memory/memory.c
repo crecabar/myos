@@ -316,6 +316,44 @@ uint64_t physical_free_frame_count(void)
     return frame_bitmap_count_free();
 }
 
+uint64_t memory_usable_byte_count(void)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    uint64_t usable_bytes = 0;
+
+    for (
+        size_t index = 0;
+        index < region_count;
+        ++index
+    ) {
+        if (
+            regions[index].type !=
+            MEMORY_REGION_USABLE
+        ) {
+            continue;
+        }
+
+        if (
+            UINT64_MAX - usable_bytes <
+            regions[index].length
+        ) {
+            kernel_panic(
+                "Usable memory byte count overflow"
+            );
+        }
+
+        usable_bytes +=
+            regions[index].length;
+    }
+
+    return usable_bytes;
+}
+
 static const char *memory_region_type_name(enum memory_region_type type)
 {
     switch (type) {

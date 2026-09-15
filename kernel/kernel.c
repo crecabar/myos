@@ -3,13 +3,15 @@
 #include <stdint.h>
 
 #include "arch/x86_64/arch.h"
+#include "arch/x86_64/cpu.h"
 #include "arch/x86_64/paging.h"
 #include "arch/x86_64/rtc.h"
 #include "arch/x86_64/serial.h"
 #include "boot/boot.h"
+#include "config/boot_config.h"
 #include "core/panic.h"
 #include "diagnostics/diagnostics.h"
-
+#include "init/boot_banner.h"
 #include "init/display.h"
 #include "memory/memory.h"
 #include "scheduler/scheduler.h"
@@ -20,6 +22,7 @@
 
 #if MYOS_KERNEL_TESTS
 #include "arch/x86_64/tests/interrupt_wait_test.h"
+#include "tests/boot_config_test.h"
 #include "tests/elf64_test.h"
 #include "tests/framebuffer_test.h"
 #include "tests/process_lifecycle_test.h"
@@ -28,8 +31,6 @@
 #include "tests/user_processes.h"
 #endif
 
-#include "version.h"
-
 
 _Noreturn void kernel_main(void)
 {
@@ -37,12 +38,16 @@ _Noreturn void kernel_main(void)
     diagnostics_init();
 
     diagnostics_write("\x1b[2J\x1b[H");
-    diagnostics_write(MYOS_VERSION_STRING"\n\n");
 
     struct boot_info boot_info;
     boot_init(&boot_info);
 
-    diagnostics_write("[boot] Environment initialized\n");
+    struct kernel_boot_config boot_config;
+
+    boot_config_parse(
+        boot_info.command_line,
+        &boot_config
+    );
 
     memory_init(
         boot_info.direct_map_offset,
@@ -50,18 +55,34 @@ _Noreturn void kernel_main(void)
         boot_info.memory_region_count
     );
 
-    memory_dump_summary();
-
     if (!paging_init()) {
         kernel_panic("Unable to initialize paging");
     }
 
-    diagnostics_write("[paging] MyOS address space active\n");
-
     struct kernel_display display;
     display_init(&display, &boot_info.framebuffer);
 
-    diagnostics_write("[display] Console initialized\n");
+    struct cpu_info cpu;
+    cpu_info_read(&cpu);
+
+    struct smbios_system_info system;
+
+    smbios_system_info_read(
+        boot_info.smbios_entry_32,
+        boot_info.smbios_entry_64,
+        &system
+    );
+
+    enum boot_mode boot_mode =
+    boot_config.mode == KERNEL_BOOT_MODE_TEST
+        ? BOOT_MODE_TEST
+        : BOOT_MODE_NORMAL;
+
+    boot_banner_print(
+        &cpu,
+        &system,
+        boot_mode
+    );
 
     arch_init();
     diagnostics_write("[arch] x86-64 initialized\n");
@@ -85,17 +106,30 @@ _Noreturn void kernel_main(void)
     }
 
 #if MYOS_RUNTIME_DIAGNOSTICS
+    diagnostics_write(
+        "\n--- kernel runtime test suite ---\n"
+    );
     runtime_diagnostics_run();
 #endif
 
 #if MYOS_KERNEL_TESTS
-    elf64_test_run();
-    interrupt_wait_test_run();
-    framebuffer_test_run();
-    process_memory_test_run();
-    process_lifecycle_test_run();
-    scheduler_slot_test_run();
-    user_process_tests_prepare();
+    if (
+        boot_config.mode ==
+        KERNEL_BOOT_MODE_TEST
+    ) {
+        diagnostics_write(
+            "\n--- kernel test suite ---\n"
+        );
+
+        boot_config_test_run();
+        elf64_test_run();
+        interrupt_wait_test_run();
+        framebuffer_test_run();
+        process_memory_test_run();
+        process_lifecycle_test_run();
+        scheduler_slot_test_run();
+        user_process_tests_prepare();
+    }
 #endif
 
     diagnostics_write("[kernel] Starting scheduler\n");

@@ -37,6 +37,21 @@ static volatile struct limine_memmap_request memmap_request = {
     .response = NULL,
 };
 
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_smbios_request smbios_request = {
+    .id = LIMINE_SMBIOS_REQUEST_ID,
+    .revision = 0,
+    .response = NULL,
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_executable_cmdline_request
+    executable_cmdline_request = {
+        .id = LIMINE_EXECUTABLE_CMDLINE_REQUEST_ID,
+        .revision = 0,
+        .response = NULL,
+    };
+
 __attribute__((used, section(".limine_requests_end")))
 static volatile uint64_t limine_requests_end_marker[] =
     LIMINE_REQUESTS_END_MARKER;
@@ -72,6 +87,9 @@ static enum memory_region_type memory_region_type_from_limine(uint64_t limine_ty
 
 void boot_init(struct boot_info *boot_info)
 {
+    boot_info->smbios_entry_32 = NULL;
+    boot_info->smbios_entry_64 = NULL;
+
     if (boot_info == NULL) {
         kernel_panic(
             "boot_init received NULL boot_info"
@@ -133,6 +151,23 @@ void boot_init(struct boot_info *boot_info)
         kernel_panic(
             "Unsupported framebuffer color layout"
         );
+    }
+
+    if (smbios_request.response != NULL) {
+        boot_info->smbios_entry_32 =
+            smbios_request.response->entry_32;
+
+        boot_info->smbios_entry_64 =
+            smbios_request.response->entry_64;
+    }
+
+    boot_info->command_line = NULL;
+
+    if (
+        executable_cmdline_request.response != NULL
+    ) {
+        boot_info->command_line =
+            executable_cmdline_request.response->cmdline;
     }
 
     boot_info->framebuffer.address =

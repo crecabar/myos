@@ -246,12 +246,19 @@ $(LIMINE_HEADER): $(LIMINE_PROTOCOL_FETCH_SCRIPT)
 # ISO image
 # -----------------------------------------------------------------------------
 
-ISO_ROOT          := $(BUILD_DIR)/iso-root
-ISO_IMAGE         := $(BUILD_DIR)/myos.iso
-ISO_KERNEL        := $(ISO_ROOT)/boot/kernel.elf
-ISO_LIMINE_CONF   := $(ISO_ROOT)/limine.conf
-ISO_BOOTX64       := $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
+ISO_ROOT           := $(BUILD_DIR)/iso-root
+ISO_IMAGE          := $(BUILD_DIR)/myos.iso
+ISO_KERNEL         := $(ISO_ROOT)/boot/kernel.elf
+ISO_LIMINE_CONF    := $(ISO_ROOT)/limine.conf
+ISO_BOOTX64        := $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
 ISO_LIMINE_UEFI_CD := $(ISO_ROOT)/limine-uefi-cd.bin
+
+TEST_ISO_ROOT           := $(BUILD_DIR)/iso-test-root
+TEST_ISO_IMAGE          := $(BUILD_DIR)/myos-test.iso
+TEST_ISO_KERNEL         := $(TEST_ISO_ROOT)/boot/kernel.elf
+TEST_ISO_LIMINE_CONF    := $(TEST_ISO_ROOT)/limine.conf
+TEST_ISO_BOOTX64        := $(TEST_ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
+TEST_ISO_LIMINE_UEFI_CD := $(TEST_ISO_ROOT)/limine-uefi-cd.bin
 
 .PHONY: iso
 
@@ -285,6 +292,35 @@ $(ISO_IMAGE): \
 		-no-emul-boot \
 		-o $(ISO_IMAGE) \
 		$(ISO_ROOT)
+
+$(TEST_ISO_ROOT):
+	mkdir -p $(TEST_ISO_ROOT)/boot
+	mkdir -p $(TEST_ISO_ROOT)/EFI/BOOT
+
+$(TEST_ISO_KERNEL): $(KERNEL_ELF) | $(TEST_ISO_ROOT)
+	cp $(KERNEL_ELF) $(TEST_ISO_KERNEL)
+
+$(TEST_ISO_LIMINE_CONF): limine-test.conf | $(TEST_ISO_ROOT)
+	cp limine-test.conf $(TEST_ISO_LIMINE_CONF)
+
+$(TEST_ISO_BOOTX64): $(LIMINE_EFI) | $(TEST_ISO_ROOT)
+	cp $(LIMINE_EFI) $(TEST_ISO_BOOTX64)
+
+$(TEST_ISO_LIMINE_UEFI_CD): $(LIMINE_UEFI_CD) | $(TEST_ISO_ROOT)
+	cp $(LIMINE_UEFI_CD) $(TEST_ISO_LIMINE_UEFI_CD)
+
+$(TEST_ISO_IMAGE): \
+	$(TEST_ISO_KERNEL) \
+	$(TEST_ISO_LIMINE_CONF) \
+	$(TEST_ISO_BOOTX64) \
+	$(TEST_ISO_LIMINE_UEFI_CD)
+	$(XORRISO) \
+		-as mkisofs \
+		-R -r -J \
+		-b limine-uefi-cd.bin \
+		-no-emul-boot \
+		-o $(TEST_ISO_IMAGE) \
+		$(TEST_ISO_ROOT)
 
 # -----------------------------------------------------------------------------
 # USB boot image
@@ -408,7 +444,7 @@ run: $(ISO_IMAGE)
 		-no-shutdown \
 		-serial stdio
 
-run-qemu-tests: $(ISO_IMAGE)
+run-qemu-tests: $(TEST_ISO_IMAGE)
 	@set +e; \
 	$(QEMU) \
 		-machine q35 \
@@ -416,7 +452,7 @@ run-qemu-tests: $(ISO_IMAGE)
 		-m 512M \
 		-smp 1 \
 		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
-		-cdrom $(ISO_IMAGE) \
+		-cdrom $(TEST_ISO_IMAGE) \
 		-boot d \
 		-vga none \
 		-device VGA,edid=on,xres=1920,yres=1200 \
