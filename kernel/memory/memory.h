@@ -58,4 +58,11 @@ void memory_dump_summary(void);
 
 uint64_t physical_free_frame_count(void);
 
+/**
+ * Returns the total number of bytes reported as usable physical memory.
+ *
+ * @return Total usable physical-memory bytes.
+ */
+uint64_t memory_usable_byte_count(void);
+
 #endif
