@@ -1669,6 +1669,216 @@ static void process_memory_test_shared_reclaim_boundary(void)
     );
 }
 
+static void process_memory_test_zero_across_page_boundary(void)
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct process_memory memory;
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic(
+            "Unable to create process memory zero test address space"
+        );
+    }
+
+    const uint64_t base_address =
+        0x0000000000500000ULL;
+
+    if (!process_memory_allocate_pages(
+        &memory,
+        base_address,
+        2,
+        true
+    )) {
+        kernel_panic(
+            "Unable to allocate process memory zero test pages"
+        );
+    }
+
+    const uint64_t test_address =
+        base_address + 0xFF0ULL;
+
+    uint8_t source[32];
+
+    for (
+        size_t index = 0;
+        index < sizeof(source);
+        ++index
+    ) {
+        source[index] = 0xA5;
+    }
+
+    if (!process_memory_write(
+        &memory,
+        test_address,
+        source,
+        sizeof(source)
+    )) {
+        kernel_panic(
+            "Unable to initialize process memory zero test range"
+        );
+    }
+
+    if (!process_memory_zero(
+        &memory,
+        test_address + 8,
+        16
+    )) {
+        kernel_panic(
+            "Process memory zero failed across page boundary"
+        );
+    }
+
+    uint8_t result[32];
+
+    if (!process_memory_read(
+        &memory,
+        test_address,
+        result,
+        sizeof(result)
+    )) {
+        kernel_panic(
+            "Unable to read process memory zero test range"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < sizeof(result);
+        ++index
+    ) {
+        uint8_t expected =
+            index >= 8 && index < 24
+                ? 0
+                : 0xA5;
+
+        if (result[index] != expected) {
+            kernel_panic(
+                "Process memory zero boundary contents are incorrect"
+            );
+        }
+    }
+
+    /*
+     * Verify the zero operation did not alter the mapping permissions or
+     * replace either backing page.
+     */
+    struct paging_translation first_translation;
+    struct paging_translation second_translation;
+
+    if (!paging_translate_address_space(
+        &memory.address_space,
+        base_address,
+        &first_translation
+    )) {
+        kernel_panic(
+            "Unable to translate first process memory zero test page"
+        );
+    }
+
+    if (!paging_translate_address_space(
+        &memory.address_space,
+        base_address + 0x1000ULL,
+        &second_translation
+    )) {
+        kernel_panic(
+            "Unable to translate second process memory zero test page"
+        );
+    }
+
+    if (
+        first_translation.page_size !=
+        PAGING_PAGE_SIZE_4K
+    ) {
+        kernel_panic(
+            "First process memory zero test page is not 4 KiB"
+        );
+    }
+
+    if (
+        second_translation.page_size !=
+        PAGING_PAGE_SIZE_4K
+    ) {
+        kernel_panic(
+            "Second process memory zero test page is not 4 KiB"
+        );
+    }
+
+    if (
+        (
+            first_translation.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) == 0
+    ) {
+        kernel_panic(
+            "Process memory zero changed first page write permission"
+        );
+    }
+
+    if (
+        (
+            second_translation.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) == 0
+    ) {
+        kernel_panic(
+            "Process memory zero changed second page write permission"
+        );
+    }
+
+    if (
+        (
+            first_translation.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) == 0
+    ) {
+        kernel_panic(
+            "Process memory zero changed first page execute permission"
+        );
+    }
+
+    if (
+        (
+            second_translation.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) == 0
+    ) {
+        kernel_panic(
+            "Process memory zero changed second page execute permission"
+        );
+    }
+
+    if (!process_memory_release_pages(
+        &memory,
+        base_address,
+        2
+    )) {
+        kernel_panic(
+            "Unable to release process memory zero test pages"
+        );
+    }
+
+    if (!process_memory_destroy(&memory)) {
+        kernel_panic(
+            "Unable to destroy process memory zero test address space"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "Process memory zero test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[process] User memory zero-fill boundary test passed\n"
+    );
+}
+
 void process_memory_test_run(void)
 {
     process_memory_test_user_range_policy();
@@ -1680,6 +1890,7 @@ void process_memory_test_run(void)
     process_memory_test_paging_1g_huge_guard();
     process_memory_test_paging_2m_huge_guard();
     process_memory_test_paging_unmap_absent_leaf();
+    process_memory_test_zero_across_page_boundary();
 
     struct process_memory memory;
     struct process_layout layout;
