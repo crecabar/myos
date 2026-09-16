@@ -44,3 +44,4 @@ void display_init(
         &display->console
     );
 }
+ 
