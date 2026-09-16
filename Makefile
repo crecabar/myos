@@ -7,24 +7,38 @@ include config.mk
 # Toolchain
 # -----------------------------------------------------------------------------
 
-LLVM_PREFIX := $(shell brew --prefix llvm@21 2>/dev/null)
-LLD_PREFIX  := $(shell brew --prefix lld@21 2>/dev/null)
-QEMU_PREFIX := $(shell brew --prefix qemu 2>/dev/null)
+HOST_OS := $(shell uname -s)
 
-CLANG        := $(LLVM_PREFIX)/bin/clang
-LD_LLD       := $(LLD_PREFIX)/bin/ld.lld
-LLVM_READELF := $(LLVM_PREFIX)/bin/llvm-readelf
-LLVM_OBJDUMP := $(LLVM_PREFIX)/bin/llvm-objdump
-LLVM_NM      := $(LLVM_PREFIX)/bin/llvm-nm
+ifeq ($(HOST_OS),Darwin)
+LLVM_PREFIX  ?= $(shell brew --prefix llvm@21 2>/dev/null)
+LLD_PREFIX   ?= $(shell brew --prefix lld@21 2>/dev/null)
+QEMU_PREFIX  ?= $(shell brew --prefix qemu 2>/dev/null)
+QEMU_FIRMWARE ?= $(QEMU_PREFIX)/share/qemu/edk2-x86_64-code.fd
+QEMU_DISPLAY  ?= cocoa,show-cursor=on
+else ifeq ($(HOST_OS),Linux)
+LLVM_PREFIX  ?= /usr/lib/llvm21
+LLD_PREFIX   ?= /usr/lib/llvm21
+QEMU_PREFIX  ?= /usr
+QEMU_FIRMWARE ?= /usr/share/edk2/x64/OVMF_CODE.4m.fd
+QEMU_DISPLAY  ?= gtk,show-cursor=on
+else
+$(error Unsupported host operating system: $(HOST_OS))
+endif
 
-QEMU    := qemu-system-x86_64
-GDB     := gdb
-XORRISO := xorriso
-BEAR 	:= bear
-SGDISK       	:= sgdisk
-MTOOLS_FORMAT 	:= mformat
-MTOOLS_MKDIR  	:= mmd
-MTOOLS_COPY   	:= mcopy
+CLANG        ?= $(LLVM_PREFIX)/bin/clang
+LD_LLD       ?= $(LLD_PREFIX)/bin/ld.lld
+LLVM_READELF ?= $(LLVM_PREFIX)/bin/llvm-readelf
+LLVM_OBJDUMP ?= $(LLVM_PREFIX)/bin/llvm-objdump
+LLVM_NM      ?= $(LLVM_PREFIX)/bin/llvm-nm
+
+QEMU    ?= qemu-system-x86_64
+GDB     ?= gdb
+XORRISO ?= xorriso
+BEAR    ?= bear
+SGDISK        ?= sgdisk
+MTOOLS_FORMAT ?= mformat
+MTOOLS_MKDIR  ?= mmd
+MTOOLS_COPY   ?= mcopy
 
 QEMU_TEST_EXIT_PORT          := 0xF4
 QEMU_TEST_EXIT_SUCCESS_VALUE := 0x10
@@ -423,7 +437,6 @@ usb-image-diagnostics:
 # QEMU
 # -----------------------------------------------------------------------------
 
-QEMU_FIRMWARE := $(QEMU_PREFIX)/share/qemu/edk2-x86_64-code.fd
 QEMU_DEBUG_PID := $(BUILD_DIR)/qemu-debug.pid
 
 .PHONY: run run-usb run-usb-diagnostics debug debug-stop run-qemu-tests
@@ -439,7 +452,7 @@ run: $(ISO_IMAGE)
 		-boot d \
 		-vga none \
 		-device VGA,edid=on,xres=1920,yres=1200 \
-		-display cocoa,show-cursor=on \
+		-display $(QEMU_DISPLAY) \
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio
@@ -488,7 +501,7 @@ run-usb: $(USB_IMAGE)
 		-device usb-storage,bus=xhci.0,drive=myos-usb,bootindex=1 \
 		-vga none \
 		-device VGA,edid=on,xres=1920,yres=1200 \
-		-display cocoa,show-cursor=on \
+		-display $(QEMU_DISPLAY) \
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio
@@ -511,7 +524,7 @@ debug: $(ISO_IMAGE)
 		-boot d \
 		-vga none \
 		-device VGA,edid=on,xres=1920,yres=1200 \
-		-display cocoa,show-cursor=on \
+		-display $(QEMU_DISPLAY) \
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio \
@@ -598,12 +611,13 @@ snapshot:
 
 check-toolchain:
 	@echo "=== Checking MyOS toolchain ==="
-	@command -v brew >/dev/null 2>&1 || { echo "ERROR: Homebrew not found"; exit 1; }
+	@echo "Host OS: $(HOST_OS)"
 	@test -x "$(CLANG)" || { echo "ERROR: Clang not found at $(CLANG)"; exit 1; }
 	@test -x "$(LD_LLD)" || { echo "ERROR: LLD not found at $(LD_LLD)"; exit 1; }
 	@test -x "$(LLVM_READELF)" || { echo "ERROR: llvm-readelf not found"; exit 1; }
 	@test -x "$(LLVM_OBJDUMP)" || { echo "ERROR: llvm-objdump not found"; exit 1; }
 	@test -x "$(LLVM_NM)" || { echo "ERROR: llvm-nm not found"; exit 1; }
+	@test -f "$(QEMU_FIRMWARE)" || { echo "ERROR: QEMU firmware not found at $(QEMU_FIRMWARE)"; exit 1; }
 	@command -v $(QEMU) >/dev/null 2>&1 || { echo "ERROR: QEMU not found"; exit 1; }
 	@command -v $(GDB) >/dev/null 2>&1 || { echo "ERROR: GDB not found"; exit 1; }
 	@command -v $(XORRISO) >/dev/null 2>&1 || { echo "ERROR: xorriso not found"; exit 1; }
@@ -626,6 +640,9 @@ check-toolchain:
 	@echo
 	@echo "-- QEMU --"
 	@$(QEMU) --version | head -n 1
+	@echo
+	@echo "-- QEMU firmware --"
+	@echo "$(QEMU_FIRMWARE)"
 	@echo
 	@echo "-- GDB --"
 	@$(GDB) --version | head -n 1
@@ -652,9 +669,8 @@ compdb:
 	@rm -f $(COMPDB_TMP)
 	@$(MAKE) clean
 	@mkdir -p $(BUILD_DIR)
-	PATH="$(LLVM_PREFIX)/bin:$$PATH" \
-		$(BEAR) -o $(COMPDB_TMP) -- \
-		$(MAKE) CLANG=clang all
+	@$(BEAR) -o $(COMPDB_TMP) -- \
+		$(MAKE) CLANG="$(CLANG)" all
 	@mv $(COMPDB_TMP) $(COMPDB)
 	@echo
 	@echo "Compilation database created:"
