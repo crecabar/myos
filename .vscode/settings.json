@@ -1,0 +1,16 @@
+{
+  "clangd.path": "/usr/lib/llvm21/bin/clangd",
+  "clangd.arguments": [
+    "--compile-commands-dir=build",
+    "--background-index",
+    "--clang-tidy",
+    "--completion-style=detailed",
+    "--header-insertion=never"
+  ],
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "files.associations": {
+    "*.h": "c",
+    "*.S": "asm"
+  }
+}
+
