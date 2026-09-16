@@ -316,6 +316,69 @@ bool process_memory_write(
     return true;
 }
 
+bool process_memory_zero(
+    struct process_memory *memory,
+    uint64_t virtual_address,
+    size_t size)
+{
+    if (memory == NULL) return false;
+
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        size
+    )) {
+        return false;
+    }
+
+    if (size == 0) {
+        return true;
+    }
+
+    size_t remaining = size;
+    uint64_t current_virtual_address = virtual_address;
+
+    while (remaining > 0) {
+        struct paging_translation translation;
+
+        if (!paging_translate_address_space(
+            &memory->address_space,
+            current_virtual_address,
+            &translation
+        )) {
+            return false;
+        }
+
+        if (translation.page_size != PAGING_PAGE_SIZE_4K) {
+            return false;
+        }
+
+        uint64_t page_offset =
+            current_virtual_address & 0xfffULL;
+
+        size_t page_remaining =
+            (size_t) (4096ULL - page_offset);
+
+        size_t chunk_size =
+            remaining < page_remaining
+                ? remaining
+                : page_remaining;
+
+        uint8_t *destination =
+            memory_physical_to_virtual(
+                translation.physical_address
+            );
+
+        for (size_t index = 0; index < chunk_size; ++index) {
+            destination[index] = 0;
+        }
+
+        current_virtual_address += chunk_size;
+        remaining -= chunk_size;
+    }
+
+    return true;
+}
+
 bool process_memory_read(
     const struct process_memory *memory,
     uint64_t virtual_address,

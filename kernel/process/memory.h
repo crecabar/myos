@@ -265,6 +265,25 @@ bool process_memory_write(
 );
 
 /**
+ * Fills mapped process memory with zero bytes.
+ *
+ * The destination range must already be completely mapped. Process page
+ * permissions are not modified, allowing the kernel to initialize read-only
+ * or executable user mappings safely before execution begins.
+ *
+ * @param memory Process memory containing the destination mapping.
+ * @param virtual_address First process virtual address to clear.
+ * @param size Number of bytes to clear.
+ *
+ * @return true when the complete range was cleared; false otherwise.
+ */
+bool process_memory_zero(
+    struct process_memory *memory,
+    uint64_t virtual_address,
+    size_t size
+);
+
+/**
  * Copies bytes from a process virtual address into a kernel buffer.
  *
  * The complete source range must be mapped in the process address space and

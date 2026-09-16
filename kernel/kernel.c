@@ -24,6 +24,7 @@
 #include "arch/x86_64/tests/interrupt_wait_test.h"
 #include "tests/boot_config_test.h"
 #include "tests/elf64_test.h"
+#include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
 #include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
@@ -123,6 +124,7 @@ _Noreturn void kernel_main(void)
 
         boot_config_test_run();
         elf64_test_run();
+        elf64_loader_test_run();
         interrupt_wait_test_run();
         framebuffer_test_run();
         process_memory_test_run();
