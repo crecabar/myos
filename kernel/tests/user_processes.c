@@ -9,6 +9,7 @@
 
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../elf/elf64.h"
 #include "../memory/memory.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
@@ -24,9 +25,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define USER_PROCESS_TEST_COUNT 7
+#define USER_PROCESS_TEST_COUNT 8
 #define USER_PROCESS_LIFECYCLE_STRESS_CYCLES 12
 #define USER_PROCESS_LIFECYCLE_STRESS_PID_BASE 100
+
+extern const uint8_t process_elf_entry_fixture_start[];
+extern const uint8_t process_elf_entry_fixture_end[];
 
 struct user_process_fixture {
     struct process_memory memory;
@@ -52,6 +56,11 @@ static void user_process_test_prepare(
     struct user_process_fixture *fixture,
     uint64_t id,
     const struct user_program *program
+);
+
+static void user_process_elf_test_prepare(
+    struct user_process_fixture *fixture,
+    uint64_t id
 );
 
 static void user_process_tests_prepare_standard(void);
@@ -138,6 +147,12 @@ static void user_process_tests_prepare_standard(void)
         user_program_malicious_x87()
     );
 
+    user_process_elf_test_prepare(
+        &fixtures[7],
+        8
+    );
+
+
     user_process_tests_dump();
 }
 
@@ -178,6 +193,106 @@ static void user_process_test_prepare(
 
     if (!scheduler_add(&fixture->process)) {
         kernel_panic("Unable to schedule user test process");
+    }
+}
+
+static void user_process_elf_test_prepare(
+    struct user_process_fixture *fixture,
+    uint64_t id)
+{
+    if (fixture == NULL) {
+        kernel_panic(
+            "ELF user test received null fixture"
+        );
+    }
+
+    uintptr_t image_start =
+        (uintptr_t)
+        process_elf_entry_fixture_start;
+
+    uintptr_t image_end =
+        (uintptr_t)
+        process_elf_entry_fixture_end;
+
+    if (image_end <= image_start) {
+        kernel_panic(
+            "ELF user test fixture has invalid bounds"
+        );
+    }
+
+    uintptr_t image_size_value =
+        image_end -
+        image_start;
+
+    if (image_size_value > SIZE_MAX) {
+        kernel_panic(
+            "ELF user test fixture is too large"
+        );
+    }
+
+    size_t image_size =
+        (size_t) image_size_value;
+
+    struct elf64_image image;
+
+    if (!elf64_parse(
+        process_elf_entry_fixture_start,
+        image_size,
+        &image
+    )) {
+        kernel_panic(
+            "Unable to parse ELF user test image"
+        );
+    }
+
+    const char *argv[] = {
+        "elf-entry",
+        "argument",
+    };
+
+    const char *envp[] = {
+        "TERM=myos",
+    };
+
+    if (!process_memory_create(
+        &fixture->memory
+    )) {
+        kernel_panic(
+            "Unable to create ELF user test address space"
+        );
+    }
+
+    if (!process_layout_create_elf64(
+        &fixture->memory,
+        &image,
+        2,
+        argv,
+        1,
+        envp,
+        &fixture->layout
+    )) {
+        kernel_panic(
+            "Unable to create ELF user test layout"
+        );
+    }
+
+    if (!process_init(
+        &fixture->process,
+        id,
+        &fixture->memory,
+        &fixture->layout
+    )) {
+        kernel_panic(
+            "Unable to initialize ELF user test process"
+        );
+    }
+
+    if (!scheduler_add(
+        &fixture->process
+    )) {
+        kernel_panic(
+            "Unable to schedule ELF user test process"
+        );
     }
 }
 
@@ -370,6 +485,7 @@ static bool user_process_standard_result_valid(
         case 0:
         case 1:
         case 5:
+        case 7:
             return
                 process->termination_reason ==
                     PROCESS_TERMINATION_EXITED &&
