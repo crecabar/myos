@@ -11,6 +11,7 @@
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64.h"
 #include "../memory/memory.h"
+#include "../process/create.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/process.h"
@@ -45,6 +46,8 @@ static struct user_process_fixture lifecycle_stress_fixture;
 static size_t lifecycle_stress_cycle;
 static uint64_t lifecycle_stress_free_frame_baseline;
 
+static struct process_instance *elf_test_instance;
+
 static bool standard_process_completed[
     USER_PROCESS_TEST_COUNT
 ];
@@ -59,7 +62,6 @@ static void user_process_test_prepare(
 );
 
 static void user_process_elf_test_prepare(
-    struct user_process_fixture *fixture,
     uint64_t id
 );
 
@@ -147,10 +149,7 @@ static void user_process_tests_prepare_standard(void)
         user_program_malicious_x87()
     );
 
-    user_process_elf_test_prepare(
-        &fixtures[7],
-        8
-    );
+    user_process_elf_test_prepare(8);
 
 
     user_process_tests_dump();
@@ -196,16 +195,8 @@ static void user_process_test_prepare(
     }
 }
 
-static void user_process_elf_test_prepare(
-    struct user_process_fixture *fixture,
-    uint64_t id)
+static void user_process_elf_test_prepare(uint64_t id)
 {
-    if (fixture == NULL) {
-        kernel_panic(
-            "ELF user test received null fixture"
-        );
-    }
-
     uintptr_t image_start =
         (uintptr_t)
         process_elf_entry_fixture_start;
@@ -230,8 +221,7 @@ static void user_process_elf_test_prepare(
         );
     }
 
-    size_t image_size =
-        (size_t) image_size_value;
+    size_t image_size = (size_t) image_size_value;
 
     struct elf64_image image;
 
@@ -254,44 +244,18 @@ static void user_process_elf_test_prepare(
         "TERM=myos",
     };
 
-    if (!process_memory_create(
-        &fixture->memory
-    )) {
-        kernel_panic(
-            "Unable to create ELF user test address space"
-        );
-    }
-
-    if (!process_layout_create_elf64(
-        &fixture->memory,
+    elf_test_instance = process_create_elf64(
+        id,
         &image,
         2,
         argv,
         1,
-        envp,
-        &fixture->layout
-    )) {
-        kernel_panic(
-            "Unable to create ELF user test layout"
-        );
-    }
+        envp
+    );
 
-    if (!process_init(
-        &fixture->process,
-        id,
-        &fixture->memory,
-        &fixture->layout
-    )) {
+    if (elf_test_instance == NULL) {
         kernel_panic(
-            "Unable to initialize ELF user test process"
-        );
-    }
-
-    if (!scheduler_add(
-        &fixture->process
-    )) {
-        kernel_panic(
-            "Unable to schedule ELF user test process"
+            "Unable to dynamically create ELF user test process"
         );
     }
 }
@@ -421,6 +385,53 @@ static void user_process_standard_terminated(
     }
 
     size_t index = USER_PROCESS_TEST_COUNT;
+
+    if (
+        elf_test_instance != NULL &&
+        process == &elf_test_instance->process
+    ) {
+        if (
+            process->termination_reason !=
+                PROCESS_TERMINATION_EXITED ||
+            process->exit_status != 0
+        ) {
+            kernel_panic(
+                "Dynamic ELF user process produced unexpected result"
+            );
+        }
+
+        if (!process_release_terminated(
+            elf_test_instance
+        )) {
+            kernel_panic(
+                "Unable to release dynamic ELF user process"
+            );
+        }
+
+        elf_test_instance = NULL;
+
+        standard_process_completed[7] = true;
+        ++standard_process_completed_count;
+
+        if (
+            standard_process_completed_count <
+            USER_PROCESS_TEST_COUNT
+        ) {
+            return;
+        }
+
+        scheduler_set_terminated_handler(NULL);
+
+        diagnostics_write(
+            "[test] Kernel test suite passed\n"
+        );
+
+#if MYOS_QEMU_TEST_EXIT
+        qemu_test_exit_success();
+#endif
+
+        return;
+    }
 
     for (size_t candidate = 0;
          candidate < USER_PROCESS_TEST_COUNT;

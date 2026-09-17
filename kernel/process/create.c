@@ -62,3 +62,26 @@ struct process_instance *process_create_elf64(
 
     return instance;
 }
+
+bool process_release_terminated(
+    struct process_instance *instance)
+{
+    if (instance == NULL) return false;
+
+    if (
+        instance->process.state !=
+        PROCESS_STATE_TERMINATED
+    ) {
+        return false;
+    }
+
+    if (!process_reclaim_resources(
+        &instance->process
+    )) {
+        return false;
+    }
+
+    kfree(instance);
+
+    return true;
+}

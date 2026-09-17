@@ -54,4 +54,23 @@ struct process_instance *process_create_elf64(
     const char *const envp[]
 );
 
+/**
+ * Releases a dynamically allocated terminated process instance.
+ *
+ * The scheduler must already have detached its borrowed registration before
+ * this function is called.
+ *
+ * Process-owned executable resources are reclaimed first. The lifecycle
+ * storage allocated by process_create_elf64() is then returned to the kernel
+ * heap.
+ *
+ * @param instance Detached terminated dynamic process instance.
+ *
+ * @return true when all process resources and lifecycle storage were released;
+ * false when the instance is invalid or cannot be reclaimed safely.
+ */
+bool process_release_terminated(
+    struct process_instance *instance
+);
+
 #endif

@@ -467,8 +467,7 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
-    struct process_instance *dynamic_instance =
-    process_create_elf64(
+    struct process_instance *dynamic_instance = process_create_elf64(
         PROCESS_ELF_LIFECYCLE_TEST_PID + 2,
         &image,
         2,
@@ -503,8 +502,7 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
-    dynamic_instance->process.state =
-    PROCESS_STATE_TERMINATED;
+    dynamic_instance->process.state = PROCESS_STATE_TERMINATED;
 
     if (!scheduler_unregister_terminated(
         &dynamic_instance->process
@@ -514,15 +512,13 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
-    if (!process_reclaim_resources(
-        &dynamic_instance->process
+    if (!process_release_terminated(
+        dynamic_instance
     )) {
         kernel_panic(
-            "Unable to reclaim dynamic ELF lifecycle process"
+            "Unable to release dynamic ELF lifecycle process"
         );
     }
-
-    kfree(dynamic_instance);
 
     struct process_instance instance;
 
