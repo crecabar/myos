@@ -34,6 +34,7 @@ bool process_layout_create(
 
     layout->code_base = PROCESS_LAYOUT_CODE_BASE;
     layout->entry_point = PROCESS_LAYOUT_CODE_BASE;
+    layout->initial_rsp = layout->stack.stack_top;
 
     return true;
 }
@@ -61,6 +62,7 @@ bool process_layout_destroy(
 
     layout->code_base = 0;
     layout->entry_point = 0;
+    layout->initial_rsp = 0;
 
     return true;
 }

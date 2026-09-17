@@ -37,7 +37,8 @@
  *
  * The layout defines and manages the lifetime of the user mappings created for
  * its executable code and stack inside a borrowed process_memory address
- * space.
+ * space. It also records the initial user instruction and stack pointers used
+ * when the process begins execution.
  *
  * The layout does not own the process_memory object itself. That memory object
  * must remain alive until all mappings managed by the layout have been
@@ -46,6 +47,7 @@
 struct process_layout {
     uint64_t code_base;
     uint64_t entry_point;
+    uint64_t initial_rsp;
     struct process_stack stack;
 };
 

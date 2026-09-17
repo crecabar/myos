@@ -580,6 +580,79 @@ bool elf64_load_image_validate(
     return true;
 }
 
+bool elf64_entry_point_validate(
+    const struct elf64_image *image)
+{
+    if (
+        image == NULL ||
+        image->data == NULL
+    ) {
+        return false;
+    }
+
+    if (!elf64_load_image_validate(image)) {
+        return false;
+    }
+
+    for (
+        size_t index = 0;
+        index < image->program_header_count;
+        ++index
+    ) {
+        struct elf64_program_header program_header;
+
+        if (!elf64_program_header_get(
+            image,
+            index,
+            &program_header
+        )) {
+            return false;
+        }
+
+        if (
+            program_header.type !=
+            ELF64_PROGRAM_TYPE_LOAD
+        ) {
+            continue;
+        }
+
+        struct elf64_load_segment segment;
+
+        if (!elf64_load_segment_validate(
+            image,
+            &program_header,
+            &segment
+        )) {
+            return false;
+        }
+
+        if (!segment.executable) {
+            continue;
+        }
+
+        uint64_t segment_end;
+
+        if (!elf64_loader_add_u64(
+            segment.virtual_address,
+            segment.memory_size,
+            &segment_end
+        )) {
+            return false;
+        }
+
+        if (
+            image->entry_point >=
+                segment.virtual_address &&
+            image->entry_point <
+                segment_end
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool elf64_load_image(
     const struct elf64_image *image,
     struct process_memory *memory)

@@ -77,6 +77,25 @@ bool elf64_load_image_validate(
 );
 
 /**
+ * Validates the ELF64 entry point for MyOS userspace execution.
+ *
+ * The entry point must lie inside the semantic memory range of a valid
+ * executable PT_LOAD segment. Page-alignment padding outside the original
+ * segment memory range is not considered executable program content even when
+ * it belongs to an executable mapped page.
+ *
+ * This function performs no allocation and does not modify process memory.
+ *
+ * @param image Previously parsed ELF64 image.
+ *
+ * @return true when e_entry belongs to a valid executable PT_LOAD segment;
+ * false otherwise.
+ */
+bool elf64_entry_point_validate(
+    const struct elf64_image *image
+);
+
+/**
  * Loads all ELF64 PT_LOAD segments into an existing empty process address
  * space.
  *
