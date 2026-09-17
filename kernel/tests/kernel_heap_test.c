@@ -26,14 +26,9 @@ static void kernel_heap_test_zero_size(void)
 
 static void kernel_heap_test_alignment_and_overlap(void)
 {
-    void *first =
-        kmalloc(1);
-
-    void *second =
-        kmalloc(17);
-
-    void *third =
-        kmalloc(31);
+    void *first = kmalloc(1);
+    void *second = kmalloc(17);
+    void *third = kmalloc(31);
 
     if (
         first == NULL ||
@@ -55,14 +50,9 @@ static void kernel_heap_test_alignment_and_overlap(void)
         );
     }
 
-    uintptr_t first_start =
-        (uintptr_t) first;
-
-    uintptr_t second_start =
-        (uintptr_t) second;
-
-    uintptr_t third_start =
-        (uintptr_t) third;
+    uintptr_t first_start = (uintptr_t) first;
+    uintptr_t second_start = (uintptr_t) second;
+    uintptr_t third_start = (uintptr_t) third;
 
     if (
         second_start <= first_start ||
@@ -81,15 +71,16 @@ static void kernel_heap_test_alignment_and_overlap(void)
             "Kernel heap allocations overlap"
         );
     }
+
+    kfree(third);
+    kfree(second);
+    kfree(first);
 }
 
 static void kernel_heap_test_contents(void)
 {
-    uint8_t *first =
-        kmalloc(64);
-
-    uint8_t *second =
-        kmalloc(64);
+    uint8_t *first = kmalloc(64);
+    uint8_t *second = kmalloc(64);
 
     if (
         first == NULL ||
@@ -100,41 +91,27 @@ static void kernel_heap_test_contents(void)
         );
     }
 
-    for (
-        size_t index = 0;
-        index < 64;
-        ++index
-    ) {
-        first[index] =
-            (uint8_t) index;
-
-        second[index] =
-            (uint8_t) (0xFFU - index);
+    for (size_t index = 0; index < 64; ++index) {
+        first[index] = (uint8_t) index;
+        second[index] = (uint8_t) (0xFFU - index);
     }
 
-    for (
-        size_t index = 0;
-        index < 64;
-        ++index
-    ) {
-        if (
-            first[index] !=
-            (uint8_t) index
-        ) {
+    for (size_t index = 0; index < 64; ++index) {
+        if (first[index] != (uint8_t) index) {
             kernel_panic(
                 "Kernel heap first allocation contents were corrupted"
             );
         }
 
-        if (
-            second[index] !=
-            (uint8_t) (0xFFU - index)
-        ) {
+        if (second[index] != (uint8_t) (0xFFU - index)) {
             kernel_panic(
                 "Kernel heap second allocation contents were corrupted"
             );
         }
     }
+
+    kfree(second);
+    kfree(first);
 }
 
 static void kernel_heap_test_page_growth(void)
@@ -143,7 +120,6 @@ static void kernel_heap_test_page_growth(void)
         physical_free_frame_count();
 
     void *allocations[64];
-
     size_t allocation_count = 0;
 
     while (
@@ -205,6 +181,23 @@ static void kernel_heap_test_page_growth(void)
                 "Kernel heap growth allocation lost alignment"
             );
         }
+    }
+
+    while (allocation_count > 0) {
+        --allocation_count;
+
+        kfree(
+            allocations[allocation_count]
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (free_after != free_before) {
+        kernel_panic(
+            "Kernel heap failed to reclaim backing page"
+        );
     }
 }
 
@@ -289,6 +282,289 @@ static void kernel_heap_test_coalescing(void)
     kfree(guard);
 }
 
+static void kernel_heap_test_lifetime_statistics(void)
+{
+    struct kernel_heap_stats before;
+
+    if (!kernel_heap_stats_get(&before)) {
+        kernel_panic(
+            "Kernel heap failed to collect baseline statistics"
+        );
+    }
+
+    void *first = kmalloc(1);
+    void *second = kmalloc(17);
+    void *third = kmalloc(64);
+
+    if (
+        first == NULL ||
+        second == NULL ||
+        third == NULL
+    ) {
+        kernel_panic(
+            "Kernel heap lifetime statistics allocation failed"
+        );
+    }
+
+    struct kernel_heap_stats allocated;
+
+    if (!kernel_heap_stats_get(&allocated)) {
+        kernel_panic(
+            "Kernel heap failed to collect allocated statistics"
+        );
+    }
+
+    if (
+        allocated.allocated_block_count !=
+        before.allocated_block_count + 3
+    ) {
+        kernel_panic(
+            "Kernel heap allocated block statistics mismatch"
+        );
+    }
+
+    if (
+        allocated.allocated_bytes !=
+        before.allocated_bytes + 112
+    ) {
+        kernel_panic(
+            "Kernel heap allocated byte statistics mismatch"
+        );
+    }
+
+    kfree(second);
+    kfree(first);
+    kfree(third);
+
+    struct kernel_heap_stats after;
+
+    if (!kernel_heap_stats_get(&after)) {
+        kernel_panic(
+            "Kernel heap failed to collect final statistics"
+        );
+    }
+
+    if (
+        after.page_count !=
+        before.page_count ||
+        after.allocated_block_count !=
+        before.allocated_block_count ||
+        after.allocated_bytes !=
+        before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Kernel heap allocation lifetime accounting leaked"
+        );
+    }
+}
+
+static void kernel_heap_test_stress(void)
+{
+    struct kernel_heap_stats before;
+
+    if (!kernel_heap_stats_get(&before)) {
+        kernel_panic(
+            "Kernel heap failed to collect stress baseline"
+        );
+    }
+
+    for (size_t cycle = 0; cycle < 128; ++cycle) {
+        uint8_t *first = kmalloc(32);
+        uint8_t *second = kmalloc(96);
+        uint8_t *third = kmalloc(160);
+        uint8_t *fourth = kmalloc(48);
+
+        if (
+            first == NULL ||
+            second == NULL ||
+            third == NULL ||
+            fourth == NULL
+        ) {
+            kernel_panic(
+                "Kernel heap stress allocation failed"
+            );
+        }
+
+        for (size_t index = 0; index < 32; ++index) {
+            first[index] = (uint8_t) (cycle + index);
+        }
+
+        for (size_t index = 0; index < 96; ++index) {
+            second[index] = (uint8_t) (0xA5U ^ index);
+        }
+
+        for (size_t index = 0; index < 160; ++index) {
+            third[index] = (uint8_t) (cycle ^ index);
+        }
+
+        for (size_t index = 0; index < 48; ++index) {
+            fourth[index] = (uint8_t) (0x5AU + index);
+        }
+
+        for (size_t index = 0; index < 32; ++index) {
+            if (first[index] != (uint8_t) (cycle + index)) {
+                kernel_panic(
+                    "Kernel heap stress first allocation corrupted"
+                );
+            }
+        }
+
+        for (size_t index = 0; index < 96; ++index) {
+            if (second[index] != (uint8_t) (0xA5U ^ index)) {
+                kernel_panic(
+                    "Kernel heap stress second allocation corrupted"
+                );
+            }
+        }
+
+        for (size_t index = 0; index < 160; ++index) {
+            if (third[index] != (uint8_t) (cycle ^ index)) {
+                kernel_panic(
+                    "Kernel heap stress third allocation corrupted"
+                );
+            }
+        }
+
+        for (size_t index = 0; index < 48; ++index) {
+            if (fourth[index] != (uint8_t) (0x5AU + index)) {
+                kernel_panic(
+                    "Kernel heap stress fourth allocation corrupted"
+                );
+            }
+        }
+
+        /*
+         * Deliberately free out of allocation order so both forward and
+         * backward coalescing paths are exercised repeatedly.
+         */
+        kfree(second);
+        kfree(fourth);
+        kfree(first);
+        kfree(third);
+    }
+
+    struct kernel_heap_stats after;
+
+    if (!kernel_heap_stats_get(&after)) {
+        kernel_panic(
+            "Kernel heap failed to collect stress result"
+        );
+    }
+
+    if (
+        after.page_count !=
+        before.page_count ||
+        after.allocated_block_count !=
+        before.allocated_block_count ||
+        after.allocated_bytes !=
+        before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Kernel heap stress test leaked allocations"
+        );
+    }
+}
+
+static void kernel_heap_test_multiple_page_reclaim(void)
+{
+    struct kernel_heap_stats before;
+
+    if (!kernel_heap_stats_get(
+        &before
+    )) {
+        kernel_panic(
+            "Kernel heap failed to collect multi-page baseline"
+        );
+    }
+
+    uint64_t frames_before =
+        physical_free_frame_count();
+
+    void *allocations[48];
+
+    for (
+        size_t index = 0;
+        index < 48;
+        ++index
+    ) {
+        allocations[index] =
+            kmalloc(256);
+
+        if (allocations[index] == NULL) {
+            kernel_panic(
+                "Kernel heap multi-page allocation failed"
+            );
+        }
+    }
+
+    struct kernel_heap_stats expanded;
+
+    if (!kernel_heap_stats_get(
+        &expanded
+    )) {
+        kernel_panic(
+            "Kernel heap failed to collect expanded statistics"
+        );
+    }
+
+    if (
+        expanded.page_count <
+        before.page_count + 2
+    ) {
+        kernel_panic(
+            "Kernel heap multi-page test did not grow enough"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < 48;
+        index += 2
+    ) {
+        kfree(
+            allocations[index]
+        );
+    }
+
+    for (
+        size_t index = 1;
+        index < 48;
+        index += 2
+    ) {
+        kfree(
+            allocations[index]
+        );
+    }
+
+    struct kernel_heap_stats after;
+
+    if (!kernel_heap_stats_get(
+        &after
+    )) {
+        kernel_panic(
+            "Kernel heap failed to collect reclaimed statistics"
+        );
+    }
+
+    if (
+        after.page_count !=
+        before.page_count
+    ) {
+        kernel_panic(
+            "Kernel heap did not reclaim temporary pages"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        frames_before
+    ) {
+        kernel_panic(
+            "Kernel heap leaked physical backing frames"
+        );
+    }
+}
+
 void kernel_heap_test_run(void)
 {
     kernel_heap_test_zero_size();
@@ -297,6 +573,9 @@ void kernel_heap_test_run(void)
     kernel_heap_test_page_growth();
     kernel_heap_test_reuse();
     kernel_heap_test_coalescing();
+    kernel_heap_test_lifetime_statistics();
+    kernel_heap_test_stress();
+    kernel_heap_test_multiple_page_reclaim();
 
     diagnostics_write(
         "[heap] Minimal kernel heap test passed\n"

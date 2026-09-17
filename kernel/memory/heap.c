@@ -78,6 +78,14 @@ static struct kernel_heap_block *kernel_heap_block_coalesce(
     struct kernel_heap_block *block
 );
 
+static bool kernel_heap_page_is_completely_free(
+    const struct kernel_heap_page *page
+);
+
+static void kernel_heap_page_reclaim(
+    struct kernel_heap_page *page
+);
+
 static bool kernel_heap_align_up(
     size_t value,
     size_t alignment,
@@ -547,6 +555,94 @@ static struct kernel_heap_block *kernel_heap_block_coalesce(
     return block;
 }
 
+static bool kernel_heap_page_is_completely_free(
+    const struct kernel_heap_page *page)
+{
+    if (
+        page == NULL ||
+        page->first_block == NULL
+    ) {
+        return false;
+    }
+
+    const struct kernel_heap_block *block =
+        page->first_block;
+
+    if (!block->free) {
+        return false;
+    }
+
+    if (
+        block->previous != NULL ||
+        block->next != NULL
+    ) {
+        return false;
+    }
+
+    return
+        block->size ==
+        kernel_heap_page_payload_capacity();
+}
+
+static void kernel_heap_page_reclaim(
+    struct kernel_heap_page *page)
+{
+    if (page == NULL) {
+        return;
+    }
+
+    /*
+     * Keep one permanent backing page so the initialized heap always
+     * retains a valid base arena.
+     */
+    if (page == kernel_heap_first_page) {
+        return;
+    }
+
+    if (!kernel_heap_page_is_completely_free(page)) {
+        return;
+    }
+
+    struct kernel_heap_page *previous =
+        kernel_heap_first_page;
+
+    while (
+        previous != NULL &&
+        previous->next != page
+    ) {
+        previous =
+            previous->next;
+    }
+
+    if (previous == NULL) {
+        kernel_panic(
+            "Kernel heap page is not linked"
+        );
+    }
+
+    struct kernel_heap_page *next =
+        page->next;
+
+    uint64_t physical_address =
+        page->physical_address;
+
+    previous->next =
+        next;
+
+    if (kernel_heap_last_page == page) {
+        kernel_heap_last_page =
+            previous;
+    }
+
+    if (!physical_free_frame(
+        physical_address
+    )) {
+        kernel_panic(
+            "Kernel heap failed to release backing frame"
+        );
+    }
+}
+
 bool kernel_heap_init(void)
 {
     if (kernel_heap_initialized) {
@@ -655,10 +751,98 @@ void kfree(void *pointer)
         );
     }
 
-    block->free =
-        true;
+    struct kernel_heap_page *page = NULL;
+
+    for (
+        struct kernel_heap_page *current =
+            kernel_heap_first_page;
+        current != NULL;
+        current = current->next
+    ) {
+        if (kernel_heap_block_belongs_to_page(
+            current,
+            block
+        )) {
+            page = current;
+            break;
+        }
+    }
+
+    if (page == NULL) {
+        kernel_panic(
+            "Kernel heap allocation page not found"
+        );
+    }
+
+    block->free = true;
 
     (void) kernel_heap_block_coalesce(
         block
     );
+
+    if (
+        page != kernel_heap_first_page &&
+        kernel_heap_page_is_completely_free(
+            page
+        )
+    ) {
+        kernel_heap_page_reclaim(
+            page
+        );
+    }
+}
+
+bool kernel_heap_stats_get(struct kernel_heap_stats *stats)
+{
+    if (!kernel_heap_initialized || stats == NULL) {
+        return false;
+    }
+
+    struct kernel_heap_stats result = {0};
+
+    for (
+        struct kernel_heap_page *page = kernel_heap_first_page;
+        page != NULL;
+        page = page->next
+    ) {
+        if (result.page_count == SIZE_MAX) {
+            return false;
+        }
+
+        ++result.page_count;
+
+        for (
+            struct kernel_heap_block *block = page->first_block;
+            block != NULL;
+            block = block->next
+        ) {
+            if (block->free) {
+                if (result.free_block_count == SIZE_MAX) {
+                    return false;
+                }
+
+                if (result.free_bytes > SIZE_MAX - block->size) {
+                    return false;
+                }
+
+                ++result.free_block_count;
+                result.free_bytes += block->size;
+            } else {
+                if (result.allocated_block_count == SIZE_MAX) {
+                    return false;
+                }
+
+                if (result.allocated_bytes > SIZE_MAX - block->size) {
+                    return false;
+                }
+
+                ++result.allocated_block_count;
+                result.allocated_bytes += block->size;
+            }
+        }
+    }
+
+    *stats = result;
+
+    return true;
 }

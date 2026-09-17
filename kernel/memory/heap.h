@@ -15,11 +15,26 @@
 #include <stddef.h>
 
 /**
+ * Describes the current state of the kernel heap.
+ *
+ * Statistics are calculated by walking the current heap page and block lists.
+ * They describe allocator-visible payload bytes and do not include page or
+ * block metadata overhead.
+ */
+struct kernel_heap_stats {
+    size_t page_count;
+    size_t allocated_block_count;
+    size_t free_block_count;
+    size_t allocated_bytes;
+    size_t free_bytes;
+};
+
+/**
  * Initializes the kernel heap.
  *
  * The heap begins with one physical frame obtained from the physical memory
- * allocator. Additional pages may be allocated lazily by kmalloc() when the
- * current page no longer has enough space.
+ * allocator. Additional pages are allocated lazily by kmalloc() when no
+ * existing free block can satisfy an allocation.
  *
  * Initialization may only occur once.
  *
@@ -35,7 +50,8 @@ bool kernel_heap_init(void);
  * backing page. Requests that cannot fit within the usable payload of one
  * heap page are rejected.
  *
- * The initial allocator is monotonic: allocated memory is not yet reusable.
+ * Free blocks are reused using first-fit allocation. Blocks may be split when
+ * the unused remainder can represent another allocation block.
  *
  * @param size Number of bytes to allocate.
  *
@@ -59,5 +75,17 @@ void *kmalloc(size_t size);
  * @param pointer Allocation returned by kmalloc(), or NULL.
  */
 void kfree(void *pointer);
+
+/**
+ * Collects current kernel heap statistics.
+ *
+ * The heap is walked without modifying allocator state.
+ *
+ * @param stats Receives the current heap statistics.
+ *
+ * @return true when statistics were collected successfully; false when the
+ *         heap is not initialized, stats is NULL, or accounting overflows.
+ */
+bool kernel_heap_stats_get(struct kernel_heap_stats *stats);
 
 #endif
