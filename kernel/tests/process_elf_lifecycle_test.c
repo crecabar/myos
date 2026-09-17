@@ -11,11 +11,14 @@
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64.h"
 #include "../memory/memory.h"
+#include "../memory/heap.h"
+#include "../process/create.h"
 #include "../process/image.h"
 #include "../process/instance.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/process.h"
+#include "../scheduler/scheduler.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -463,6 +466,63 @@ void process_elf_lifecycle_test_run(void)
             "Discarded ELF process instance leaked physical frames"
         );
     }
+
+    struct process_instance *dynamic_instance =
+    process_create_elf64(
+        PROCESS_ELF_LIFECYCLE_TEST_PID + 2,
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    if (dynamic_instance == NULL) {
+        kernel_panic(
+            "Unable to dynamically create ELF process"
+        );
+    }
+
+    if (
+        dynamic_instance->process.state !=
+        PROCESS_STATE_READY
+    ) {
+        kernel_panic(
+            "Dynamically created ELF process is not ready"
+        );
+    }
+
+    if (
+        dynamic_instance->process.memory !=
+        &dynamic_instance->image.memory ||
+        dynamic_instance->process.layout !=
+        &dynamic_instance->image.layout
+    ) {
+        kernel_panic(
+            "Dynamic ELF process ownership links are incorrect"
+        );
+    }
+
+    dynamic_instance->process.state =
+    PROCESS_STATE_TERMINATED;
+
+    if (!scheduler_unregister_terminated(
+        &dynamic_instance->process
+    )) {
+        kernel_panic(
+            "Unable to unregister dynamic ELF lifecycle process"
+        );
+    }
+
+    if (!process_reclaim_resources(
+        &dynamic_instance->process
+    )) {
+        kernel_panic(
+            "Unable to reclaim dynamic ELF lifecycle process"
+        );
+    }
+
+    kfree(dynamic_instance);
 
     struct process_instance instance;
 
