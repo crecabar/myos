@@ -43,6 +43,21 @@ struct elf64_load_segment {
 };
 
 /**
+ * Represents the process mappings created from one ELF64 image.
+ *
+ * The segment array is dynamically allocated by elf64_load_image() and owns
+ * only loader metadata. The mapped process pages themselves remain owned by
+ * the process memory object until released through elf64_unload_image().
+ *
+ * The descriptor remains valid independently of the original ELF image
+ * buffer.
+ */
+struct elf64_loaded_image {
+    struct elf64_load_segment *segments;
+    size_t segment_count;
+};
+
+/**
  * Validates one ELF64 PT_LOAD segment for MyOS userspace loading.
  *
  * This function performs no allocation and does not modify process memory.
@@ -116,13 +131,36 @@ bool elf64_entry_point_validate(
  * @param image Previously parsed ELF64 image.
  * @param memory Empty process address space that receives the loadable
  *        segments.
+ * @param loaded_image
  *
  * @return true when every PT_LOAD segment was loaded successfully; false
  * otherwise.
  */
-bool elf64_load_image(
+ bool elf64_load_image(
     const struct elf64_image *image,
-    struct process_memory *memory
+    struct process_memory *memory,
+    struct elf64_loaded_image *loaded_image
+);
+
+/**
+ * Releases every process mapping owned by a loaded ELF64 image.
+ *
+ * All recorded PT_LOAD mappings are released and the dynamically allocated
+ * segment metadata is returned to the kernel heap.
+ *
+ * The descriptor is cleared before the function returns. Cleanup of remaining
+ * segments is attempted even if releasing one segment fails.
+ *
+ * @param memory Process address space containing the loaded image.
+ * @param loaded_image Loaded-image descriptor produced by elf64_load_image().
+ *
+ * @return true when every mapping was released successfully; false when the
+ *         arguments are invalid or at least one segment could not be fully
+ *         released.
+ */
+bool elf64_unload_image(
+    struct process_memory *memory,
+    struct elf64_loaded_image *loaded_image
 );
 
 #endif

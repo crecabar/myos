@@ -1114,9 +1114,12 @@ static void elf64_loader_test_image_mapping(void)
         );
     }
 
+    struct elf64_loaded_image loaded_image = {0};
+
     if (!elf64_load_image(
         &image,
-        &memory
+        &memory,
+        &loaded_image
     )) {
         kernel_panic(
             "ELF64 loader failed to map valid image"
@@ -1294,13 +1297,49 @@ static void elf64_loader_test_image_mapping(void)
         );
     }
 
-    if (!process_memory_release_pages(
+    if (
+        loaded_image.segment_count !=
+        image.load_segment_count
+    ) {
+        kernel_panic(
+            "ELF64 loaded image segment count is incorrect"
+        );
+    }
+
+    if (
+        loaded_image.segments == NULL
+    ) {
+        kernel_panic(
+            "ELF64 loaded image metadata is missing"
+        );
+    }
+
+    if (
+        loaded_image.segments[0].mapping_start !=
+        ELF64_LOADER_TEST_VADDR ||
+        loaded_image.segments[1].mapping_start !=
+        ELF64_LOADER_TEST_VADDR + 0x1000
+    ) {
+        kernel_panic(
+            "ELF64 loaded image segment metadata is incorrect"
+        );
+    }
+
+    if (!elf64_unload_image(
         &memory,
-        ELF64_LOADER_TEST_VADDR,
-        2
+        &loaded_image
     )) {
         kernel_panic(
-            "Unable to release ELF64 loader test mappings"
+            "Unable to unload ELF64 loader test image"
+        );
+    }
+
+    if (
+        loaded_image.segments != NULL ||
+        loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "ELF64 unloaded image descriptor was not cleared"
         );
     }
 
@@ -1395,12 +1434,24 @@ static void elf64_loader_test_image_rollback_existing_mapping(void)
         );
     }
 
+    struct elf64_loaded_image loaded_image = {0};
+
     if (elf64_load_image(
         &image,
-        &memory
+        &memory,
+        &loaded_image
     )) {
         kernel_panic(
             "ELF64 loader accepted conflicting process mapping"
+        );
+    }
+
+    if (
+        loaded_image.segments != NULL ||
+        loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "ELF64 failed load retained ownership metadata"
         );
     }
 
@@ -1567,12 +1618,24 @@ static void elf64_loader_test_partial_segment_rollback(void)
         );
     }
 
+    struct elf64_loaded_image loaded_image = {0};
+
     if (elf64_load_image(
         &image,
-        &memory
+        &memory,
+        &loaded_image
     )) {
         kernel_panic(
             "ELF64 loader accepted partially conflicting segment"
+        );
+    }
+
+    if (
+        loaded_image.segments != NULL ||
+        loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "ELF64 partial rollback retained ownership metadata"
         );
     }
 
@@ -1733,9 +1796,12 @@ static void elf64_loader_test_unaligned_image_mapping(void)
         );
     }
 
+    struct elf64_loaded_image loaded_image = {0};
+
     if (!elf64_load_image(
         &image,
-        &memory
+        &memory,
+        &loaded_image
     )) {
         kernel_panic(
             "ELF64 loader rejected valid unaligned image"
@@ -1798,13 +1864,38 @@ static void elf64_loader_test_unaligned_image_mapping(void)
         }
     }
 
-    if (!process_memory_release_pages(
+    if (
+        loaded_image.segment_count !=
+        image.load_segment_count
+    ) {
+        kernel_panic(
+            "ELF64 unaligned loaded segment count is incorrect"
+        );
+    }
+
+    if (
+        loaded_image.segments == NULL
+    ) {
+        kernel_panic(
+            "ELF64 unaligned loaded image metadata is missing"
+        );
+    }
+
+    if (!elf64_unload_image(
         &memory,
-        ELF64_LOADER_TEST_VADDR,
-        2
+        &loaded_image
     )) {
         kernel_panic(
-            "Unable to release ELF64 unaligned image mappings"
+            "Unable to unload ELF64 unaligned image"
+        );
+    }
+
+    if (
+        loaded_image.segments != NULL ||
+        loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "ELF64 unaligned image descriptor was not cleared"
         );
     }
 
@@ -1828,6 +1919,70 @@ static void elf64_loader_test_unaligned_image_mapping(void)
     );
 }
 
+static void elf64_loader_test_reject_owned_descriptor(void)
+{
+    uint8_t bytes[ELF64_LOADER_TEST_IMAGE_SIZE];
+
+    elf64_loader_test_build_two_segment_image(
+        bytes,
+        sizeof(bytes),
+        false
+    );
+
+    struct elf64_image image;
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 owned-descriptor fixture failed to parse"
+        );
+    }
+
+    struct process_memory memory;
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic(
+            "Unable to create ELF64 owned-descriptor address space"
+        );
+    }
+
+    struct elf64_load_segment sentinel_segment;
+
+    struct elf64_loaded_image loaded_image = {
+        .segments = &sentinel_segment,
+        .segment_count = 1,
+    };
+
+    if (elf64_load_image(
+        &image,
+        &memory,
+        &loaded_image
+    )) {
+        kernel_panic(
+            "ELF64 loader accepted non-empty output descriptor"
+        );
+    }
+
+    if (
+        loaded_image.segments !=
+        &sentinel_segment ||
+        loaded_image.segment_count != 1
+    ) {
+        kernel_panic(
+            "ELF64 loader modified rejected output descriptor"
+        );
+    }
+
+    if (!process_memory_destroy(&memory)) {
+        kernel_panic(
+            "Unable to destroy ELF64 owned-descriptor address space"
+        );
+    }
+}
+
 void elf64_loader_test_run(void)
 {
     elf64_loader_test_valid_rx();
@@ -1842,6 +1997,7 @@ void elf64_loader_test_run(void)
     elf64_loader_test_unaligned_segment();
     elf64_loader_test_image_validation();
     elf64_loader_test_entry_point_validation();
+    elf64_loader_test_reject_owned_descriptor();
     elf64_loader_test_image_mapping();
     elf64_loader_test_image_rollback_existing_mapping();
     elf64_loader_test_partial_segment_rollback();
