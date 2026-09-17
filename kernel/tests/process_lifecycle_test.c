@@ -82,6 +82,33 @@ void process_lifecycle_test_run(void)
     }
 
     if (
+        layout.kind !=
+        PROCESS_LAYOUT_KIND_LEGACY
+    ) {
+        kernel_panic(
+            "Legacy process layout has incorrect ownership kind"
+        );
+    }
+
+    if (
+        layout.loaded_image.segments != NULL ||
+        layout.loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "Legacy process layout unexpectedly owns an ELF image"
+        );
+    }
+
+    if (
+        layout.initial_rsp !=
+        layout.stack.stack_top
+    ) {
+        kernel_panic(
+            "Legacy process layout initial RSP does not match stack top"
+        );
+    }
+
+    if (
         layout.initial_rsp !=
         layout.stack.stack_top
     ) {
@@ -238,13 +265,16 @@ void process_lifecycle_test_run(void)
     }
 
     if (
+        layout.kind != PROCESS_LAYOUT_KIND_NONE ||
         layout.code_base != 0 ||
         layout.entry_point != 0 ||
         layout.initial_rsp != 0 ||
         layout.stack.guard_address != 0 ||
         layout.stack.base_address != 0 ||
         layout.stack.stack_top != 0 ||
-        layout.stack.page_count != 0
+        layout.stack.page_count != 0 ||
+        layout.loaded_image.segments != NULL ||
+        layout.loaded_image.segment_count != 0
     ) {
         kernel_panic(
             "Lifecycle reclaim left layout resources initialized"
