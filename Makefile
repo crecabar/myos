@@ -467,7 +467,12 @@ $(USB_IMAGE): \
 	@echo "Bootable USB image created:"
 	@echo "  $(USB_IMAGE)"
 
-.PHONY: usb-image-diagnostics
+.PHONY: usb-image-tests usb-image-diagnostics
+
+usb-image-tests:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		usb-image
 
 usb-image-diagnostics:
 	$(MAKE) \
@@ -480,8 +485,9 @@ usb-image-diagnostics:
 # -----------------------------------------------------------------------------
 
 QEMU_DEBUG_PID := $(BUILD_DIR)/qemu-debug.pid
+QEMU_DISPLAY_RESOLUTION := "xres=1280,yres=1024"
 
-.PHONY: run run-usb run-usb-diagnostics debug debug-stop run-qemu-tests
+.PHONY: run run-usb run-usb-tests run-usb-diagnostics debug debug-stop run-qemu-tests
 
 run: $(ISO_IMAGE)
 	$(QEMU) \
@@ -493,7 +499,7 @@ run: $(ISO_IMAGE)
 		-cdrom $(ISO_IMAGE) \
 		-boot d \
 		-vga none \
-		-device VGA,edid=on,xres=1920,yres=1200 \
+		-device VGA,edid=on,$(QEMU_DISPLAY_RESOLUTION) \
 		-display $(QEMU_DISPLAY) \
 		-no-reboot \
 		-no-shutdown \
@@ -510,7 +516,7 @@ run-qemu-tests: $(TEST_ISO_IMAGE)
 		-cdrom $(TEST_ISO_IMAGE) \
 		-boot d \
 		-vga none \
-		-device VGA,edid=on,xres=1920,yres=1200 \
+		-device VGA,edid=on,$(QEMU_DISPLAY_RESOLUTION) \
 		-display none \
 		-monitor none \
 		-no-reboot \
@@ -542,11 +548,16 @@ run-usb: $(USB_IMAGE)
 		-drive if=none,format=raw,readonly=on,file=$(USB_IMAGE),id=myos-usb \
 		-device usb-storage,bus=xhci.0,drive=myos-usb,bootindex=1 \
 		-vga none \
-		-device VGA,edid=on,xres=1920,yres=1200 \
+		-device VGA,edid=on,$(QEMU_DISPLAY_RESOLUTION) \
 		-display $(QEMU_DISPLAY) \
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio
+
+run-usb-tests:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		run-usb
 
 run-usb-diagnostics:
 	$(MAKE) \
@@ -565,7 +576,7 @@ debug: $(ISO_IMAGE)
 		-cdrom $(ISO_IMAGE) \
 		-boot d \
 		-vga none \
-		-device VGA,edid=on,xres=1920,yres=1200 \
+		-device VGA,edid=on,$(QEMU_DISPLAY_RESOLUTION) \
 		-display $(QEMU_DISPLAY) \
 		-no-reboot \
 		-no-shutdown \

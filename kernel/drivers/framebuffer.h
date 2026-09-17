@@ -59,6 +59,23 @@ void framebuffer_fill_rect(
 );
 
 /**
+ * Copies a rectangle within the visible framebuffer.
+ *
+ * Source and destination rectangles are clipped to the visible framebuffer.
+ * Overlapping copies preserve the original source contents with memmove-like
+ * semantics. Empty, fully out-of-bounds, or invalid requests perform no writes.
+ */
+void framebuffer_copy_rect(
+    struct framebuffer *framebuffer,
+    uint64_t source_x,
+    uint64_t source_y,
+    uint64_t destination_x,
+    uint64_t destination_y,
+    uint64_t width,
+    uint64_t height
+);
+
+/**
  * Draws an 8x8 glyph using bounded framebuffer rectangle primitives.
  *
  * Glyph blocks extending outside the visible framebuffer are clipped.

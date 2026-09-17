@@ -177,6 +177,125 @@ void framebuffer_fill_rect(
     }
 }
 
+void framebuffer_copy_rect(
+    struct framebuffer *framebuffer,
+    uint64_t source_x,
+    uint64_t source_y,
+    uint64_t destination_x,
+    uint64_t destination_y,
+    uint64_t width,
+    uint64_t height)
+{
+    if (!framebuffer_geometry_valid(framebuffer)) {
+        return;
+    }
+
+    if (width == 0 || height == 0) {
+        return;
+    }
+
+    if (
+        source_x >= framebuffer->width ||
+        source_y >= framebuffer->height ||
+        destination_x >= framebuffer->width ||
+        destination_y >= framebuffer->height
+    ) {
+        return;
+    }
+
+    uint64_t source_available_width =
+        framebuffer->width - source_x;
+
+    uint64_t destination_available_width =
+        framebuffer->width - destination_x;
+
+    uint64_t source_available_height =
+        framebuffer->height - source_y;
+
+    uint64_t destination_available_height =
+        framebuffer->height - destination_y;
+
+    uint64_t clipped_width = width;
+
+    if (clipped_width > source_available_width) {
+        clipped_width = source_available_width;
+    }
+
+    if (clipped_width > destination_available_width) {
+        clipped_width = destination_available_width;
+    }
+
+    uint64_t clipped_height = height;
+
+    if (clipped_height > source_available_height) {
+        clipped_height = source_available_height;
+    }
+
+    if (clipped_height > destination_available_height) {
+        clipped_height = destination_available_height;
+    }
+
+    uint8_t *base =
+        (uint8_t *) framebuffer->address;
+
+    bool copy_rows_backward =
+        destination_y > source_y &&
+        destination_y - source_y < clipped_height;
+
+    for (uint64_t row_index = 0;
+         row_index < clipped_height;
+         ++row_index) {
+
+        uint64_t row =
+            copy_rows_backward
+            ? clipped_height - 1 - row_index
+            : row_index;
+
+        uint64_t source_row_offset =
+            (source_y + row) * framebuffer->pitch;
+
+        uint64_t destination_row_offset =
+            (destination_y + row) * framebuffer->pitch;
+
+        uint32_t *source =
+            (uint32_t *) (
+                base +
+                source_row_offset +
+                source_x * FRAMEBUFFER_BYTES_PER_PIXEL
+            );
+
+        uint32_t *destination =
+            (uint32_t *) (
+                base +
+                destination_row_offset +
+                destination_x * FRAMEBUFFER_BYTES_PER_PIXEL
+            );
+
+        bool copy_columns_backward =
+            source_y == destination_y &&
+            destination_x > source_x &&
+            destination_x - source_x < clipped_width;
+
+        if (copy_columns_backward) {
+            for (uint64_t column = clipped_width;
+                 column > 0;
+                 --column) {
+                destination[column - 1] =
+                    source[column - 1];
+            }
+
+            continue;
+        }
+
+        for (uint64_t column = 0;
+             column < clipped_width;
+             ++column) {
+            destination[column] =
+                source[column];
+        }
+    }
+}
+
 uint32_t framebuffer_make_color(
     const struct framebuffer *framebuffer,
     uint8_t red,

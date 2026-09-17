@@ -37,7 +37,7 @@ void display_init(
         8,
         4,
         white,
-        2
+        1
     );
 
     diagnostics_attach_console(
