@@ -80,9 +80,7 @@ bool process_release_terminated(
         return false;
     }
 
-    if (!process_reclaim_resources(
-        &instance->process
-    )) {
+    if (!process_reclaim_resources(&instance->process)) {
         return false;
     }
 
