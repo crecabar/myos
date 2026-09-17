@@ -404,12 +404,63 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
-    if (
-        physical_free_frame_count() !=
-        image_free_before
-    ) {
+    if (physical_free_frame_count() != image_free_before) {
         kernel_panic(
             "Owned ELF process image leaked physical frames"
+        );
+    }
+
+    uint64_t discard_free_before =
+        physical_free_frame_count();
+
+    struct process_instance discarded_instance;
+
+    if (!process_instance_prepare_elf64(
+        &discarded_instance,
+        PROCESS_ELF_LIFECYCLE_TEST_PID + 1,
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to prepare discardable ELF process instance"
+        );
+    }
+
+    if (
+        discarded_instance.process.state !=
+        PROCESS_STATE_READY
+    ) {
+        kernel_panic(
+            "Discardable ELF process instance is not ready"
+        );
+    }
+
+    if (!process_instance_discard(
+        &discarded_instance
+    )) {
+        kernel_panic(
+            "Unable to discard ELF process instance"
+        );
+    }
+
+    if (
+        discarded_instance.process.memory != NULL ||
+        discarded_instance.process.layout != NULL
+    ) {
+        kernel_panic(
+            "Discarded ELF process retained borrowed references"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        discard_free_before
+    ) {
+        kernel_panic(
+            "Discarded ELF process instance leaked physical frames"
         );
     }
 
