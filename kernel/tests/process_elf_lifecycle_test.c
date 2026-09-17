@@ -11,6 +11,7 @@
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64.h"
 #include "../memory/memory.h"
+#include "../process/image.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/process.h"
@@ -349,6 +350,68 @@ void process_elf_lifecycle_test_run(void)
     const char *envp[] = {
         "TERM=myos",
     };
+
+    uint64_t image_free_before =
+        physical_free_frame_count();
+
+    struct process_image owned_image;
+
+    if (!process_image_create_elf64(
+        &owned_image,
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to create owned ELF process image"
+        );
+    }
+
+    if (
+        owned_image.layout.kind !=
+        PROCESS_LAYOUT_KIND_ELF64
+    ) {
+        kernel_panic(
+            "Owned ELF process image has incorrect layout kind"
+        );
+    }
+
+    if (
+        owned_image.layout.entry_point !=
+        image.entry_point
+    ) {
+        kernel_panic(
+            "Owned ELF process image has incorrect entry point"
+        );
+    }
+
+    if (
+        owned_image.memory.address_space.pml4_physical == 0 ||
+        owned_image.memory.address_space.pml4_virtual == NULL
+    ) {
+        kernel_panic(
+            "Owned ELF process image has no address space"
+        );
+    }
+
+    if (!process_image_destroy(
+        &owned_image
+    )) {
+        kernel_panic(
+            "Unable to destroy owned ELF process image"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        image_free_before
+    ) {
+        kernel_panic(
+            "Owned ELF process image leaked physical frames"
+        );
+    }
 
     struct process_memory memory;
 
