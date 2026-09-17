@@ -13,6 +13,7 @@
 #include "diagnostics/diagnostics.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
+#include "memory/heap.h"
 #include "memory/memory.h"
 #include "scheduler/scheduler.h"
 
@@ -26,6 +27,7 @@
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
+#include "tests/kernel_heap_test.h"
 #include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
 #include "tests/scheduler_slot_test.h"
@@ -58,6 +60,10 @@ _Noreturn void kernel_main(void)
 
     if (!paging_init()) {
         kernel_panic("Unable to initialize paging");
+    }
+
+    if (!kernel_heap_init()) {
+        kernel_panic("Unable to initialize kernel heap");
     }
 
     struct kernel_display display;
@@ -127,6 +133,7 @@ _Noreturn void kernel_main(void)
         elf64_loader_test_run();
         interrupt_wait_test_run();
         framebuffer_test_run();
+        kernel_heap_test_run();
         process_memory_test_run();
         process_lifecycle_test_run();
         scheduler_slot_test_run();
