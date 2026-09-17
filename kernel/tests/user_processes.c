@@ -61,9 +61,7 @@ static void user_process_test_prepare(
     const struct user_program *program
 );
 
-static void user_process_elf_test_prepare(
-    uint64_t id
-);
+static void user_process_elf_test_prepare(void);
 
 static void user_process_tests_prepare_standard(void);
 
@@ -149,7 +147,7 @@ static void user_process_tests_prepare_standard(void)
         user_program_malicious_x87()
     );
 
-    user_process_elf_test_prepare(8);
+    user_process_elf_test_prepare();
 
 
     user_process_tests_dump();
@@ -195,7 +193,7 @@ static void user_process_test_prepare(
     }
 }
 
-static void user_process_elf_test_prepare(uint64_t id)
+static void user_process_elf_test_prepare(void)
 {
     uintptr_t image_start =
         (uintptr_t)
@@ -245,7 +243,6 @@ static void user_process_elf_test_prepare(uint64_t id)
     };
 
     elf_test_instance = process_create_elf64(
-        id,
         &image,
         2,
         argv,

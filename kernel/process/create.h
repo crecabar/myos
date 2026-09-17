@@ -35,7 +35,6 @@
  * lifecycle layer. The scheduler stores only a borrowed pointer to its embedded
  * process descriptor.
  *
- * @param id Process identifier.
  * @param elf Parsed ELF64 executable.
  * @param argc Number of argv strings.
  * @param argv Argument strings, or NULL when argc is zero.
@@ -46,7 +45,6 @@
  * succeed; NULL otherwise.
  */
 struct process_instance *process_create_elf64(
-    uint64_t id,
     const struct elf64_image *elf,
     size_t argc,
     const char *const argv[],

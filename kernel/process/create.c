@@ -6,6 +6,7 @@
  */
 
 #include "create.h"
+#include "pid.h"
 
 #include "../core/panic.h"
 #include "../memory/heap.h"
@@ -14,13 +15,18 @@
 #include <stddef.h>
 
 struct process_instance *process_create_elf64(
-    uint64_t id,
     const struct elf64_image *elf,
     size_t argc,
     const char *const argv[],
     size_t envc,
     const char *const envp[])
 {
+    uint64_t id;
+
+    if (!process_pid_allocate(&id)) {
+        return NULL;
+    }
+
     if (elf == NULL) return NULL;
 
     struct process_instance *instance =

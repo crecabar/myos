@@ -468,7 +468,6 @@ void process_elf_lifecycle_test_run(void)
     }
 
     struct process_instance *dynamic_instance = process_create_elf64(
-        PROCESS_ELF_LIFECYCLE_TEST_PID + 2,
         &image,
         2,
         argv,
@@ -556,7 +555,6 @@ void process_elf_lifecycle_test_run(void)
 
     struct process_instance *failed_instance =
         process_create_elf64(
-            PROCESS_ELF_LIFECYCLE_TEST_PID + 3,
             &image,
             2,
             argv,
