@@ -66,6 +66,18 @@ static void framebuffer_test_expect_region(
     uint32_t color
 );
 
+static void framebuffer_test_fill_visible_row(
+    uint64_t row,
+    uint32_t color
+);
+
+static void framebuffer_test_expect_visible_row(
+    uint64_t row,
+    uint32_t color
+);
+
+static void framebuffer_test_expect_guards_and_padding(void);
+
 void framebuffer_test_run(void)
 {
     struct framebuffer framebuffer =
@@ -261,11 +273,192 @@ void framebuffer_test_run(void)
 
     framebuffer_test_expect_unchanged();
 
-    framebuffer.pitch =
-        valid_pitch;
+    framebuffer.pitch = valid_pitch;
+
+    /*
+     * A non-overlapping horizontal copy must reproduce the source pixels
+     * without modifying scanline padding or surrounding guard storage.
+     */
+    framebuffer_test_reset();
+
+    framebuffer_test_storage[
+        FRAMEBUFFER_TEST_GUARD_WORDS + 0
+    ] = 0x11111111U;
+
+    framebuffer_test_storage[
+        FRAMEBUFFER_TEST_GUARD_WORDS + 1
+    ] = 0x22222222U;
+
+    framebuffer_copy_rect(
+        &framebuffer,
+        0,
+        0,
+        2,
+        0,
+        2,
+        1
+    );
+
+    if (
+        framebuffer_test_storage[
+            FRAMEBUFFER_TEST_GUARD_WORDS + 2
+        ] != 0x11111111U ||
+        framebuffer_test_storage[
+            FRAMEBUFFER_TEST_GUARD_WORDS + 3
+        ] != 0x22222222U
+    ) {
+        kernel_panic(
+            "Framebuffer rectangle copy produced incorrect pixels"
+        );
+    }
+
+    framebuffer_test_expect_guards_and_padding();
+
+    /*
+     * Upward overlap is the exact operation required by console scrolling.
+     * Rows 1 and 2 become rows 0 and 1 respectively.
+     */
+    framebuffer_test_reset();
+
+    framebuffer_test_fill_visible_row(
+        0,
+        0x11111111U
+    );
+
+    framebuffer_test_fill_visible_row(
+        1,
+        0x22222222U
+    );
+
+    framebuffer_test_fill_visible_row(
+        2,
+        0x33333333U
+    );
+
+    framebuffer_copy_rect(
+        &framebuffer,
+        0,
+        1,
+        0,
+        0,
+        FRAMEBUFFER_TEST_WIDTH,
+        2
+    );
+
+    framebuffer_test_expect_visible_row(
+        0,
+        0x22222222U
+    );
+
+    framebuffer_test_expect_visible_row(
+        1,
+        0x33333333U
+    );
+
+    framebuffer_test_expect_visible_row(
+        2,
+        0x33333333U
+    );
+
+    framebuffer_test_expect_guards_and_padding();
+
+    /*
+     * Downward overlap requires reverse row traversal so the first source
+     * row is not overwritten before it is copied.
+     */
+    framebuffer_test_reset();
+
+    framebuffer_test_fill_visible_row(
+        0,
+        0x11111111U
+    );
+
+    framebuffer_test_fill_visible_row(
+        1,
+        0x22222222U
+    );
+
+    framebuffer_test_fill_visible_row(
+        2,
+        0x33333333U
+    );
+
+    framebuffer_copy_rect(
+        &framebuffer,
+        0,
+        0,
+        0,
+        1,
+        FRAMEBUFFER_TEST_WIDTH,
+        2
+    );
+
+    framebuffer_test_expect_visible_row(
+        0,
+        0x11111111U
+    );
+
+    framebuffer_test_expect_visible_row(
+        1,
+        0x11111111U
+    );
+
+    framebuffer_test_expect_visible_row(
+        2,
+        0x22222222U
+    );
+
+    framebuffer_test_expect_guards_and_padding();
+
+    /*
+     * Rectangle copies extending beyond the visible source and destination
+     * boundaries must clip without overflow or touching row padding.
+     */
+    framebuffer_test_reset();
+
+    framebuffer_test_storage[
+        FRAMEBUFFER_TEST_GUARD_WORDS +
+        FRAMEBUFFER_TEST_ROW_WORDS +
+        2
+    ] = 0x11111111U;
+
+    framebuffer_test_storage[
+        FRAMEBUFFER_TEST_GUARD_WORDS +
+        FRAMEBUFFER_TEST_ROW_WORDS +
+        3
+    ] = 0x22222222U;
+
+    framebuffer_copy_rect(
+        &framebuffer,
+        2,
+        1,
+        0,
+        2,
+        UINT64_MAX,
+        UINT64_MAX
+    );
+
+    if (
+        framebuffer_test_storage[
+            FRAMEBUFFER_TEST_GUARD_WORDS +
+            2 * FRAMEBUFFER_TEST_ROW_WORDS +
+            0
+        ] != 0x11111111U ||
+        framebuffer_test_storage[
+            FRAMEBUFFER_TEST_GUARD_WORDS +
+            2 * FRAMEBUFFER_TEST_ROW_WORDS +
+            1
+        ] != 0x22222222U
+    ) {
+        kernel_panic(
+            "Framebuffer rectangle copy clipping produced incorrect pixels"
+        );
+    }
+
+    framebuffer_test_expect_guards_and_padding();
 
     diagnostics_write(
-        "[framebuffer] Bounds and clipping test passed\n"
+        "[framebuffer] Bounds, clipping and rectangle-copy tests passed\n"
     );
 }
 
@@ -391,6 +584,115 @@ static void framebuffer_test_expect_region(
         if (framebuffer_test_storage[index] != expected) {
             kernel_panic(
                 "Framebuffer clipping test produced unexpected memory writes"
+            );
+        }
+    }
+}
+
+static void framebuffer_test_fill_visible_row(
+    uint64_t row,
+    uint32_t color)
+{
+    if (row >= FRAMEBUFFER_TEST_HEIGHT) {
+        kernel_panic(
+            "Framebuffer test attempted to fill invalid row"
+        );
+    }
+
+    size_t row_start =
+        FRAMEBUFFER_TEST_GUARD_WORDS +
+        row * FRAMEBUFFER_TEST_ROW_WORDS;
+
+    for (uint64_t column = 0;
+         column < FRAMEBUFFER_TEST_WIDTH;
+         ++column) {
+        framebuffer_test_storage[
+            row_start + column
+        ] = color;
+    }
+}
+
+static void framebuffer_test_expect_visible_row(
+    uint64_t row,
+    uint32_t color)
+{
+    if (row >= FRAMEBUFFER_TEST_HEIGHT) {
+        kernel_panic(
+            "Framebuffer test attempted to inspect invalid row"
+        );
+    }
+
+    size_t row_start =
+        FRAMEBUFFER_TEST_GUARD_WORDS +
+        row * FRAMEBUFFER_TEST_ROW_WORDS;
+
+    for (uint64_t column = 0;
+         column < FRAMEBUFFER_TEST_WIDTH;
+         ++column) {
+        if (
+            framebuffer_test_storage[
+                row_start + column
+            ] != color
+        ) {
+            kernel_panic(
+                "Framebuffer rectangle copy produced incorrect row"
+            );
+        }
+    }
+}
+
+static void framebuffer_test_expect_guards_and_padding(void)
+{
+    for (size_t index = 0;
+         index < FRAMEBUFFER_TEST_GUARD_WORDS;
+         ++index) {
+        if (
+            framebuffer_test_storage[index] !=
+            FRAMEBUFFER_TEST_SENTINEL
+        ) {
+            kernel_panic(
+                "Framebuffer rectangle copy modified leading guard"
+            );
+        }
+    }
+
+    for (uint64_t row = 0;
+         row < FRAMEBUFFER_TEST_HEIGHT;
+         ++row) {
+
+        size_t row_start =
+            FRAMEBUFFER_TEST_GUARD_WORDS +
+            row * FRAMEBUFFER_TEST_ROW_WORDS;
+
+        for (uint64_t column =
+                 FRAMEBUFFER_TEST_VISIBLE_ROW_WORDS;
+             column < FRAMEBUFFER_TEST_ROW_WORDS;
+             ++column) {
+            if (
+                framebuffer_test_storage[
+                    row_start + column
+                ] != FRAMEBUFFER_TEST_SENTINEL
+            ) {
+                kernel_panic(
+                    "Framebuffer rectangle copy modified row padding"
+                );
+            }
+        }
+    }
+
+    size_t trailing_guard_start =
+        FRAMEBUFFER_TEST_GUARD_WORDS +
+        FRAMEBUFFER_TEST_FRAME_WORDS;
+
+    for (size_t index = trailing_guard_start;
+         index < FRAMEBUFFER_TEST_STORAGE_WORDS;
+         ++index) {
+        if (
+            framebuffer_test_storage[index] !=
+            FRAMEBUFFER_TEST_SENTINEL
+        ) {
+            kernel_panic(
+                "Framebuffer rectangle copy modified trailing guard"
             );
         }
     }

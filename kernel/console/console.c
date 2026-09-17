@@ -213,25 +213,17 @@ static void console_scroll(struct console *console)
     struct framebuffer *framebuffer =
         console->framebuffer;
 
-    uint8_t *base =
-        (uint8_t *) framebuffer->address;
-
-    for (uint64_t y = console->origin_y;
-         y + line_height < framebuffer->height;
-         ++y) {
-
-        uint8_t *destination =
-            base + y * framebuffer->pitch;
-
-        uint8_t *source =
-            base + (y + line_height) * framebuffer->pitch;
-
-        for (uint64_t byte = 0;
-             byte < framebuffer->pitch;
-             ++byte) {
-            destination[byte] = source[byte];
-        }
-    }
+    framebuffer_copy_rect(
+        framebuffer,
+        0,
+        console->origin_y + line_height,
+        0,
+        console->origin_y,
+        framebuffer->width,
+        framebuffer->height -
+            console->origin_y -
+            line_height
+    );
 
     framebuffer_fill_rect(
         framebuffer,
