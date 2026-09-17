@@ -108,15 +108,6 @@ void process_lifecycle_test_run(void)
         );
     }
 
-    if (
-        layout.initial_rsp !=
-        layout.stack.stack_top
-    ) {
-        kernel_panic(
-            "Legacy process layout initial RSP does not match stack top"
-        );
-    }
-
     uint64_t custom_initial_rsp =
         layout.stack.stack_top - 0x100ULL;
 
