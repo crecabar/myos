@@ -12,10 +12,10 @@
 #include "../elf/elf64.h"
 #include "../memory/memory.h"
 #include "../process/image.h"
+#include "../process/instance.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/process.h"
-
 #include <stddef.h>
 #include <stdint.h>
 
@@ -413,32 +413,28 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
-    struct process_memory memory;
+    struct process_instance instance;
 
-    if (!process_memory_create(&memory)) {
-        kernel_panic(
-            "Unable to create ELF lifecycle process memory"
-        );
-    }
-
-    struct process_layout layout;
-
-    if (!process_layout_create_elf64(
-        &memory,
+    if (!process_instance_prepare_elf64(
+        &instance,
+        PROCESS_ELF_LIFECYCLE_TEST_PID,
         &image,
         2,
         argv,
         1,
-        envp,
-        &layout
+        envp
     )) {
         kernel_panic(
-            "Unable to create ELF-backed process layout"
+            "Unable to prepare ELF-backed process instance"
         );
     }
 
+    struct process_memory *memory = &instance.image.memory;
+    struct process_layout *layout = &instance.image.layout;
+    struct process *process = &instance.process;
+
     if (
-        layout.kind !=
+        layout->kind !=
         PROCESS_LAYOUT_KIND_ELF64
     ) {
         kernel_panic(
@@ -446,14 +442,14 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
-    if (layout.code_base != 0) {
+    if (layout->code_base != 0) {
         kernel_panic(
             "ELF process layout retained legacy code base"
         );
     }
 
     if (
-        layout.entry_point !=
+        layout->entry_point !=
         image.entry_point
     ) {
         kernel_panic(
@@ -462,10 +458,10 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        layout.initial_rsp <
-        layout.stack.base_address ||
-        layout.initial_rsp >=
-        layout.stack.stack_top
+        layout->initial_rsp <
+        layout->stack.base_address ||
+        layout->initial_rsp >=
+        layout->stack.stack_top
     ) {
         kernel_panic(
             "ELF process initial RSP is outside user stack"
@@ -473,7 +469,7 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        (layout.initial_rsp & 0xFULL) != 0
+        (layout->initial_rsp & 0xFULL) != 0
     ) {
         kernel_panic(
             "ELF process initial RSP is not 16-byte aligned"
@@ -481,8 +477,8 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        layout.loaded_image.segments == NULL ||
-        layout.loaded_image.segment_count != 1
+        layout->loaded_image.segments == NULL ||
+        layout->loaded_image.segment_count != 1
     ) {
         kernel_panic(
             "ELF process layout ownership metadata is incorrect"
@@ -490,11 +486,11 @@ void process_elf_lifecycle_test_run(void)
     }
 
     uint64_t stack_cursor =
-        layout.initial_rsp;
+        layout->initial_rsp;
 
     uint64_t argc =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -508,7 +504,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t argv0 =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -516,7 +512,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t argv1 =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -524,7 +520,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t argv_null =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -532,7 +528,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t envp0 =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -540,7 +536,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t envp_null =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -554,64 +550,51 @@ void process_elf_lifecycle_test_run(void)
     }
 
     process_elf_lifecycle_test_expect_string(
-        &memory,
+        memory,
         argv0,
         "hello"
     );
 
     process_elf_lifecycle_test_expect_string(
-        &memory,
+        memory,
         argv1,
         "world"
     );
 
     process_elf_lifecycle_test_expect_string(
-        &memory,
+        memory,
         envp0,
         "TERM=myos"
     );
 
-    struct process process;
-
-    if (!process_init(
-        &process,
-        PROCESS_ELF_LIFECYCLE_TEST_PID,
-        &memory,
-        &layout
-    )) {
-        kernel_panic(
-            "Unable to initialize ELF lifecycle process"
-        );
-    }
-
     if (
-        process.context.rip !=
-        image.entry_point
-    ) {
+    process->context.rip !=
+    image.entry_point
+) {
         kernel_panic(
             "ELF process context RIP is incorrect"
         );
-    }
+}
 
     if (
-        process.context.rsp !=
-        layout.initial_rsp
+        process->context.rsp !=
+        layout->initial_rsp
     ) {
         kernel_panic(
             "ELF process context RSP is incorrect"
         );
     }
 
-    process.state =
+    process->state =
         PROCESS_STATE_TERMINATED;
 
-    process.termination_reason =
+    process->termination_reason =
         PROCESS_TERMINATION_EXITED;
 
-    process.exit_status = 0;
+    process->exit_status = 0;
 
     if (!process_reclaim_resources(
-        &process
+        process
     )) {
         kernel_panic(
             "Unable to reclaim ELF lifecycle process resources"
@@ -619,8 +602,8 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        process.memory != NULL ||
-        process.layout != NULL
+        process->memory != NULL ||
+        process->layout != NULL
     ) {
         kernel_panic(
             "ELF lifecycle process retained reclaimed references"
@@ -628,16 +611,16 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        layout.kind != PROCESS_LAYOUT_KIND_NONE ||
-        layout.code_base != 0 ||
-        layout.entry_point != 0 ||
-        layout.initial_rsp != 0 ||
-        layout.stack.guard_address != 0 ||
-        layout.stack.base_address != 0 ||
-        layout.stack.stack_top != 0 ||
-        layout.stack.page_count != 0 ||
-        layout.loaded_image.segments != NULL ||
-        layout.loaded_image.segment_count != 0
+        layout->kind != PROCESS_LAYOUT_KIND_NONE ||
+        layout->code_base != 0 ||
+        layout->entry_point != 0 ||
+        layout->initial_rsp != 0 ||
+        layout->stack.guard_address != 0 ||
+        layout->stack.base_address != 0 ||
+        layout->stack.stack_top != 0 ||
+        layout->stack.page_count != 0 ||
+        layout->loaded_image.segments != NULL ||
+        layout->loaded_image.segment_count != 0
     ) {
         kernel_panic(
             "ELF lifecycle layout retained reclaimed resources"
@@ -645,9 +628,9 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        memory.address_space.pml4_physical != 0 ||
-        memory.address_space.pml4_virtual != NULL ||
-        memory.address_space.kernel_half_shared
+        memory->address_space.pml4_physical != 0 ||
+        memory->address_space.pml4_virtual != NULL ||
+        memory->address_space.kernel_half_shared
     ) {
         kernel_panic(
             "ELF lifecycle address space remained alive"
