@@ -58,6 +58,45 @@ bool process_stack_create(
 );
 
 /**
+ * Builds the initial userspace execution stack.
+ *
+ * The initial MyOS userspace stack contains, in ascending virtual-address
+ * order, argc, argv pointers, a null argv terminator, envp pointers, and a
+ * null envp terminator. Argument and environment strings are copied into the
+ * upper portion of the mapped stack.
+ *
+ * The returned initial stack pointer is 16-byte aligned.
+ *
+ * This initial ABI deliberately does not provide an auxiliary vector yet.
+ *
+ * The stack mappings must already have been created through
+ * process_stack_create(). Their mappings and permissions are not changed.
+ *
+ * A zero argument or environment count permits the corresponding pointer
+ * array to be NULL. Every string referenced by a non-empty array must be
+ * non-NULL and null-terminated.
+ *
+ * @param memory Borrowed process memory containing the stack mappings.
+ * @param stack Existing mapped user stack.
+ * @param argc Number of argument strings.
+ * @param argv Kernel-accessible argument string pointers.
+ * @param envc Number of environment strings.
+ * @param envp Kernel-accessible environment string pointers.
+ * @param initial_rsp Receives the initial aligned user stack pointer.
+ *
+ * @return true when the complete initial stack was built; false otherwise.
+ */
+bool process_stack_build_initial(
+    struct process_memory *memory,
+    const struct process_stack *stack,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[],
+    uint64_t *initial_rsp
+);
+
+/**
  * Releases all mapped pages managed by a user stack.
  *
  * The supplied process memory is borrowed and remains alive after this

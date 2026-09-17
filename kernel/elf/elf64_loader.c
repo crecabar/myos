@@ -7,6 +7,7 @@
 
 #include "elf64_loader.h"
 
+#include "../memory/heap.h"
 #include "../process/memory.h"
 
 #include <stddef.h>
@@ -580,13 +581,12 @@ bool elf64_load_image_validate(
     return true;
 }
 
-bool elf64_load_image(
-    const struct elf64_image *image,
-    struct process_memory *memory)
+bool elf64_entry_point_validate(
+    const struct elf64_image *image)
 {
     if (
         image == NULL ||
-        memory == NULL
+        image->data == NULL
     ) {
         return false;
     }
@@ -594,9 +594,6 @@ bool elf64_load_image(
     if (!elf64_load_image_validate(image)) {
         return false;
     }
-
-    size_t failure_index =
-        image->program_header_count;
 
     for (
         size_t index = 0;
@@ -610,7 +607,111 @@ bool elf64_load_image(
             index,
             &program_header
         )) {
-            failure_index = index;
+            return false;
+        }
+
+        if (
+            program_header.type !=
+            ELF64_PROGRAM_TYPE_LOAD
+        ) {
+            continue;
+        }
+
+        struct elf64_load_segment segment;
+
+        if (!elf64_load_segment_validate(
+            image,
+            &program_header,
+            &segment
+        )) {
+            return false;
+        }
+
+        if (!segment.executable) {
+            continue;
+        }
+
+        uint64_t segment_end;
+
+        if (!elf64_loader_add_u64(
+            segment.virtual_address,
+            segment.memory_size,
+            &segment_end
+        )) {
+            return false;
+        }
+
+        if (
+            image->entry_point >=
+                segment.virtual_address &&
+            image->entry_point <
+                segment_end
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool elf64_load_image(
+    const struct elf64_image *image,
+    struct process_memory *memory,
+    struct elf64_loaded_image *loaded_image)
+{
+    if (
+        image == NULL ||
+        memory == NULL ||
+        loaded_image == NULL
+    ) {
+        return false;
+    }
+
+    if (
+        loaded_image->segments != NULL ||
+        loaded_image->segment_count != 0
+    ) {
+        return false;
+    }
+
+    if (!elf64_load_image_validate(image)) {
+        return false;
+    }
+
+    if (image->load_segment_count == 0) {
+        return false;
+    }
+
+    size_t segment_count =
+        (size_t) image->load_segment_count;
+
+    size_t metadata_size =
+        segment_count *
+        sizeof(struct elf64_load_segment);
+
+    struct elf64_load_segment *segments =
+        kmalloc(metadata_size);
+
+    if (segments == NULL) {
+        return false;
+    }
+
+    size_t loaded_segment_count = 0;
+    bool loaded_all = true;
+
+    for (
+        size_t index = 0;
+        index < image->program_header_count;
+        ++index
+    ) {
+        struct elf64_program_header program_header;
+
+        if (!elf64_program_header_get(
+            image,
+            index,
+            &program_header
+        )) {
+            loaded_all = false;
             break;
         }
 
@@ -628,7 +729,7 @@ bool elf64_load_image(
             &program_header,
             &segment
         )) {
-            failure_index = index;
+            loaded_all = false;
             break;
         }
 
@@ -636,7 +737,7 @@ bool elf64_load_image(
             memory,
             &segment
         )) {
-            failure_index = index;
+            loaded_all = false;
             break;
         }
 
@@ -650,58 +751,113 @@ bool elf64_load_image(
                 &segment
             );
 
-            failure_index = index;
+            loaded_all = false;
             break;
         }
+
+        if (
+            loaded_segment_count >=
+            segment_count
+        ) {
+            (void) elf64_loader_segment_release(
+                memory,
+                &segment
+            );
+
+            loaded_all = false;
+            break;
+        }
+
+        segments[loaded_segment_count] =
+            segment;
+
+        ++loaded_segment_count;
     }
 
     if (
-        failure_index ==
-        image->program_header_count
+        loaded_all &&
+        loaded_segment_count ==
+        segment_count
     ) {
+        loaded_image->segments =
+            segments;
+
+        loaded_image->segment_count =
+            loaded_segment_count;
+
         return true;
     }
 
     for (
-        size_t remaining = failure_index;
+        size_t remaining =
+            loaded_segment_count;
         remaining > 0;
         --remaining
     ) {
         size_t index =
             remaining - 1;
 
-        struct elf64_program_header program_header;
-
-        if (!elf64_program_header_get(
-            image,
-            index,
-            &program_header
-        )) {
-            continue;
-        }
-
-        if (
-            program_header.type !=
-            ELF64_PROGRAM_TYPE_LOAD
-        ) {
-            continue;
-        }
-
-        struct elf64_load_segment segment;
-
-        if (!elf64_load_segment_validate(
-            image,
-            &program_header,
-            &segment
-        )) {
-            continue;
-        }
-
         (void) elf64_loader_segment_release(
             memory,
-            &segment
+            &segments[index]
         );
     }
 
+    kfree(segments);
+
     return false;
+}
+
+bool elf64_unload_image(
+    struct process_memory *memory,
+    struct elf64_loaded_image *loaded_image)
+{
+    if (
+        memory == NULL ||
+        loaded_image == NULL
+    ) {
+        return false;
+    }
+
+    if (
+        loaded_image->segments == NULL &&
+        loaded_image->segment_count == 0
+    ) {
+        return true;
+    }
+
+    if (
+        loaded_image->segments == NULL ||
+        loaded_image->segment_count == 0
+    ) {
+        return false;
+    }
+
+    bool released_all = true;
+
+    for (
+        size_t remaining =
+            loaded_image->segment_count;
+        remaining > 0;
+        --remaining
+    ) {
+        size_t index =
+            remaining - 1;
+
+        if (!elf64_loader_segment_release(
+            memory,
+            &loaded_image->segments[index]
+        )) {
+            released_all = false;
+        }
+    }
+
+    kfree(
+        loaded_image->segments
+    );
+
+    loaded_image->segments = NULL;
+    loaded_image->segment_count = 0;
+
+    return released_all;
 }

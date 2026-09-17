@@ -28,6 +28,7 @@
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
 #include "tests/kernel_heap_test.h"
+#include "tests/process_elf_lifecycle_test.h"
 #include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
 #include "tests/scheduler_slot_test.h"
@@ -136,6 +137,7 @@ _Noreturn void kernel_main(void)
         kernel_heap_test_run();
         process_memory_test_run();
         process_lifecycle_test_run();
+        process_elf_lifecycle_test_run();
         scheduler_slot_test_run();
         user_process_tests_prepare();
     }

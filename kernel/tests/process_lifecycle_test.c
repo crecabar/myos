@@ -81,6 +81,58 @@ void process_lifecycle_test_run(void)
         );
     }
 
+    if (
+        layout.kind !=
+        PROCESS_LAYOUT_KIND_LEGACY
+    ) {
+        kernel_panic(
+            "Legacy process layout has incorrect ownership kind"
+        );
+    }
+
+    if (
+        layout.loaded_image.segments != NULL ||
+        layout.loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "Legacy process layout unexpectedly owns an ELF image"
+        );
+    }
+
+    if (
+        layout.initial_rsp !=
+        layout.stack.stack_top
+    ) {
+        kernel_panic(
+            "Legacy process layout initial RSP does not match stack top"
+        );
+    }
+
+    uint64_t custom_initial_rsp =
+        layout.stack.stack_top - 0x100ULL;
+
+    if (
+        custom_initial_rsp <
+        layout.stack.base_address ||
+        custom_initial_rsp >=
+        layout.stack.stack_top
+    ) {
+        kernel_panic(
+            "Lifecycle test custom initial RSP is outside user stack"
+        );
+    }
+
+    if (
+        (custom_initial_rsp & 0xFULL) != 0
+    ) {
+        kernel_panic(
+            "Lifecycle test custom initial RSP is not 16-byte aligned"
+        );
+    }
+
+    layout.initial_rsp =
+        custom_initial_rsp;
+
     struct process process;
 
     if (!process_init(
@@ -91,6 +143,24 @@ void process_lifecycle_test_run(void)
     )) {
         kernel_panic(
             "Unable to initialize lifecycle test process"
+        );
+    }
+
+    if (
+        process.context.rip !=
+        layout.entry_point
+    ) {
+        kernel_panic(
+            "Process context did not inherit layout entry point"
+        );
+    }
+
+    if (
+        process.context.rsp !=
+        custom_initial_rsp
+    ) {
+        kernel_panic(
+            "Process context did not inherit layout initial RSP"
         );
     }
 
@@ -186,12 +256,16 @@ void process_lifecycle_test_run(void)
     }
 
     if (
+        layout.kind != PROCESS_LAYOUT_KIND_NONE ||
         layout.code_base != 0 ||
         layout.entry_point != 0 ||
+        layout.initial_rsp != 0 ||
         layout.stack.guard_address != 0 ||
         layout.stack.base_address != 0 ||
         layout.stack.stack_top != 0 ||
-        layout.stack.page_count != 0
+        layout.stack.page_count != 0 ||
+        layout.loaded_image.segments != NULL ||
+        layout.loaded_image.segment_count != 0
     ) {
         kernel_panic(
             "Lifecycle reclaim left layout resources initialized"

@@ -1879,6 +1879,401 @@ static void process_memory_test_zero_across_page_boundary(void)
     );
 }
 
+static void process_memory_test_initial_user_stack(void)
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct process_memory memory;
+    struct process_stack stack;
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic(
+            "Unable to create initial user stack test address space"
+        );
+    }
+
+    if (!process_stack_create(
+        &memory,
+        &stack,
+        PROCESS_LAYOUT_STACK_TOP,
+        PROCESS_LAYOUT_STACK_PAGES
+    )) {
+        kernel_panic(
+            "Unable to create initial user stack test mapping"
+        );
+    }
+
+    static const char *const argv[] = {
+        "hello",
+        "world",
+    };
+
+    static const char *const envp[] = {
+        "TERM=myos",
+    };
+
+    uint64_t initial_rsp = 0;
+
+    if (!process_stack_build_initial(
+        &memory,
+        &stack,
+        2,
+        argv,
+        1,
+        envp,
+        &initial_rsp
+    )) {
+        kernel_panic(
+            "Unable to build initial user stack"
+        );
+    }
+
+    if (
+        (initial_rsp & 0xFULL) != 0
+    ) {
+        kernel_panic(
+            "Initial user stack pointer is not 16-byte aligned"
+        );
+    }
+
+    if (
+        initial_rsp <
+        stack.base_address ||
+        initial_rsp >=
+        stack.stack_top
+    ) {
+        kernel_panic(
+            "Initial user stack pointer is outside stack mapping"
+        );
+    }
+
+    uint64_t metadata[6];
+
+    if (!process_memory_read(
+        &memory,
+        initial_rsp,
+        metadata,
+        sizeof(metadata)
+    )) {
+        kernel_panic(
+            "Unable to read initial user stack metadata"
+        );
+    }
+
+    if (metadata[0] != 2) {
+        kernel_panic(
+            "Initial user stack argc is incorrect"
+        );
+    }
+
+    uint64_t argv0_address =
+        metadata[1];
+
+    uint64_t argv1_address =
+        metadata[2];
+
+    if (metadata[3] != 0) {
+        kernel_panic(
+            "Initial user stack argv terminator is not null"
+        );
+    }
+
+    uint64_t envp0_address =
+        metadata[4];
+
+    if (metadata[5] != 0) {
+        kernel_panic(
+            "Initial user stack envp terminator is not null"
+        );
+    }
+
+    if (
+        argv0_address <
+        stack.base_address ||
+        argv0_address >=
+        stack.stack_top
+    ) {
+        kernel_panic(
+            "Initial user stack argv[0] pointer is outside stack"
+        );
+    }
+
+    if (
+        argv1_address <
+        stack.base_address ||
+        argv1_address >=
+        stack.stack_top
+    ) {
+        kernel_panic(
+            "Initial user stack argv[1] pointer is outside stack"
+        );
+    }
+
+    if (
+        envp0_address <
+        stack.base_address ||
+        envp0_address >=
+        stack.stack_top
+    ) {
+        kernel_panic(
+            "Initial user stack envp[0] pointer is outside stack"
+        );
+    }
+
+    char argv0_value[sizeof("hello")];
+    char argv1_value[sizeof("world")];
+    char envp0_value[sizeof("TERM=myos")];
+
+    if (!process_memory_read(
+        &memory,
+        argv0_address,
+        argv0_value,
+        sizeof(argv0_value)
+    )) {
+        kernel_panic(
+            "Unable to read initial user stack argv[0]"
+        );
+    }
+
+    if (!process_memory_read(
+        &memory,
+        argv1_address,
+        argv1_value,
+        sizeof(argv1_value)
+    )) {
+        kernel_panic(
+            "Unable to read initial user stack argv[1]"
+        );
+    }
+
+    if (!process_memory_read(
+        &memory,
+        envp0_address,
+        envp0_value,
+        sizeof(envp0_value)
+    )) {
+        kernel_panic(
+            "Unable to read initial user stack envp[0]"
+        );
+    }
+
+    static const char expected_argv0[] =
+        "hello";
+
+    static const char expected_argv1[] =
+        "world";
+
+    static const char expected_envp0[] =
+        "TERM=myos";
+
+    for (
+        size_t index = 0;
+        index < sizeof(expected_argv0);
+        ++index
+    ) {
+        if (
+            argv0_value[index] !=
+            expected_argv0[index]
+        ) {
+            kernel_panic(
+                "Initial user stack argv[0] contents are incorrect"
+            );
+        }
+    }
+
+    for (
+        size_t index = 0;
+        index < sizeof(expected_argv1);
+        ++index
+    ) {
+        if (
+            argv1_value[index] !=
+            expected_argv1[index]
+        ) {
+            kernel_panic(
+                "Initial user stack argv[1] contents are incorrect"
+            );
+        }
+    }
+
+    for (
+        size_t index = 0;
+        index < sizeof(expected_envp0);
+        ++index
+    ) {
+        if (
+            envp0_value[index] !=
+            expected_envp0[index]
+        ) {
+            kernel_panic(
+                "Initial user stack envp[0] contents are incorrect"
+            );
+        }
+    }
+
+    if (!process_stack_destroy(
+        &memory,
+        &stack
+    )) {
+        kernel_panic(
+            "Unable to destroy initial user stack test mapping"
+        );
+    }
+
+    if (!process_memory_destroy(
+        &memory
+    )) {
+        kernel_panic(
+            "Unable to destroy initial user stack test address space"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "Initial user stack test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[process] Initial user stack test passed\n"
+    );
+}
+
+static void process_memory_test_initial_user_stack_oversized(void)
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct process_memory memory;
+    struct process_stack stack;
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic(
+            "Unable to create oversized user stack test address space"
+        );
+    }
+
+    if (!process_stack_create(
+        &memory,
+        &stack,
+        PROCESS_LAYOUT_STACK_TOP,
+        PROCESS_LAYOUT_STACK_PAGES
+    )) {
+        kernel_panic(
+            "Unable to create oversized user stack test mapping"
+        );
+    }
+
+    const uint8_t sentinel = 0xA5;
+
+    if (!process_memory_write(
+        &memory,
+        stack.base_address,
+        &sentinel,
+        sizeof(sentinel)
+    )) {
+        kernel_panic(
+            "Unable to initialize oversized user stack sentinel"
+        );
+    }
+
+    static char oversized_argument[
+        PROCESS_LAYOUT_STACK_PAGES * 4096U + 1U
+    ];
+
+    for (
+        size_t index = 0;
+        index < sizeof(oversized_argument) - 1;
+        ++index
+    ) {
+        oversized_argument[index] = 'A';
+    }
+
+    oversized_argument[
+        sizeof(oversized_argument) - 1
+    ] = '\0';
+
+    const char *const argv[] = {
+        oversized_argument,
+    };
+
+    uint64_t initial_rsp =
+        UINT64_MAX;
+
+    if (process_stack_build_initial(
+        &memory,
+        &stack,
+        1,
+        argv,
+        0,
+        NULL,
+        &initial_rsp
+    )) {
+        kernel_panic(
+            "Initial user stack accepted oversized argument data"
+        );
+    }
+
+    if (initial_rsp != UINT64_MAX) {
+        kernel_panic(
+            "Rejected initial user stack modified output RSP"
+        );
+    }
+
+    uint8_t observed_sentinel = 0;
+
+    if (!process_memory_read(
+        &memory,
+        stack.base_address,
+        &observed_sentinel,
+        sizeof(observed_sentinel)
+    )) {
+        kernel_panic(
+            "Unable to read oversized user stack sentinel"
+        );
+    }
+
+    if (observed_sentinel != sentinel) {
+        kernel_panic(
+            "Rejected initial user stack modified stack memory"
+        );
+    }
+
+    if (!process_stack_destroy(
+        &memory,
+        &stack
+    )) {
+        kernel_panic(
+            "Unable to destroy oversized user stack mapping"
+        );
+    }
+
+    if (!process_memory_destroy(
+        &memory
+    )) {
+        kernel_panic(
+            "Unable to destroy oversized user stack address space"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "Oversized initial user stack test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[process] Oversized initial user stack rejection test passed\n"
+    );
+}
+
 void process_memory_test_run(void)
 {
     process_memory_test_user_range_policy();
@@ -1891,6 +2286,8 @@ void process_memory_test_run(void)
     process_memory_test_paging_2m_huge_guard();
     process_memory_test_paging_unmap_absent_leaf();
     process_memory_test_zero_across_page_boundary();
+    process_memory_test_initial_user_stack();
+    process_memory_test_initial_user_stack_oversized();
 
     struct process_memory memory;
     struct process_layout layout;

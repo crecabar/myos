@@ -77,6 +77,7 @@ static void elf64_loader_test_wx(void);
 static void elf64_loader_test_zero_memory_size(void);
 static void elf64_loader_test_unaligned_segment(void);
 static void elf64_loader_test_image_validation(void);
+static void elf64_loader_test_entry_point_validation(void);
 static void elf64_loader_test_image_mapping(void);
 static void elf64_loader_test_image_rollback_existing_mapping(void);
 static void elf64_loader_test_partial_segment_rollback(void);
@@ -801,6 +802,277 @@ static void elf64_loader_test_image_validation(void)
     }
 }
 
+static void elf64_loader_test_entry_point_validation(void)
+{
+    uint8_t bytes[ELF64_LOADER_TEST_IMAGE_SIZE];
+
+    struct elf64_image image;
+
+    /*
+     * Entry exactly at the start of the executable PT_LOAD.
+     */
+    elf64_loader_test_build_two_segment_image(
+        bytes,
+        sizeof(bytes),
+        false
+    );
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 entry-point start fixture failed to parse"
+        );
+    }
+
+    if (!elf64_entry_point_validate(
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 loader rejected entry at executable segment start"
+        );
+    }
+
+    /*
+     * Entry inside the executable PT_LOAD.
+     */
+    elf64_loader_test_write_u64(
+        bytes + ELF64_LOADER_TEST_HEADER_ENTRY_OFFSET,
+        ELF64_LOADER_TEST_VADDR + 0x200
+    );
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 entry-point interior fixture failed to parse"
+        );
+    }
+
+    if (!elf64_entry_point_validate(
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 loader rejected entry inside executable segment"
+        );
+    }
+
+    /*
+     * The executable segment's semantic memory interval ends at +0x1000.
+     * The second PT_LOAD begins there, but it is RW rather than executable.
+     */
+    elf64_loader_test_write_u64(
+        bytes + ELF64_LOADER_TEST_HEADER_ENTRY_OFFSET,
+        ELF64_LOADER_TEST_VADDR + 0x1000
+    );
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 entry-point segment-end fixture failed to parse"
+        );
+    }
+
+    if (elf64_entry_point_validate(
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 loader accepted entry at executable segment end"
+        );
+    }
+
+    /*
+     * Entry strictly inside the second RW PT_LOAD.
+     */
+    elf64_loader_test_write_u64(
+        bytes + ELF64_LOADER_TEST_HEADER_ENTRY_OFFSET,
+        ELF64_LOADER_TEST_VADDR + 0x1100
+    );
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 entry-point non-executable fixture failed to parse"
+        );
+    }
+
+    if (elf64_entry_point_validate(
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 loader accepted entry inside non-executable segment"
+        );
+    }
+
+    /*
+     * Move the executable segment forward inside its mapped page.
+     *
+     * Effective page:
+     *
+     *   0x400000 ----------------------------- 0x401000
+     *             0x400123 ======== 0x400623
+     *
+     * Addresses before 0x400123 and after 0x400623 are mapped as part of
+     * the executable page but are not part of the PT_LOAD semantic range.
+     */
+    elf64_loader_test_build_two_segment_image(
+        bytes,
+        sizeof(bytes),
+        false
+    );
+
+    uint8_t *first_program_header =
+        bytes +
+        ELF64_LOADER_TEST_PROGRAM_HEADER_OFFSET;
+
+    elf64_loader_test_write_u64(
+        first_program_header +
+        ELF64_LOADER_TEST_PROGRAM_FILE_OFFSET_OFFSET,
+        0x1123
+    );
+
+    elf64_loader_test_write_u64(
+        first_program_header +
+        ELF64_LOADER_TEST_PROGRAM_VIRTUAL_ADDRESS_OFFSET,
+        ELF64_LOADER_TEST_VADDR + 0x123
+    );
+
+    elf64_loader_test_write_u64(
+        first_program_header +
+        ELF64_LOADER_TEST_PROGRAM_FILE_SIZE_OFFSET,
+        0x200
+    );
+
+    elf64_loader_test_write_u64(
+        first_program_header +
+        ELF64_LOADER_TEST_PROGRAM_MEMORY_SIZE_OFFSET,
+        0x500
+    );
+
+    /*
+     * Entry in leading page-alignment padding.
+     */
+    elf64_loader_test_write_u64(
+        bytes + ELF64_LOADER_TEST_HEADER_ENTRY_OFFSET,
+        ELF64_LOADER_TEST_VADDR + 0x100
+    );
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 entry-point leading-padding fixture failed to parse"
+        );
+    }
+
+    if (elf64_entry_point_validate(
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 loader accepted entry in leading page padding"
+        );
+    }
+
+    /*
+     * Entry in trailing page-alignment padding.
+     *
+     * Semantic segment end is 0x400623.
+     */
+    elf64_loader_test_write_u64(
+        bytes + ELF64_LOADER_TEST_HEADER_ENTRY_OFFSET,
+        ELF64_LOADER_TEST_VADDR + 0x700
+    );
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 entry-point trailing-padding fixture failed to parse"
+        );
+    }
+
+    if (elf64_entry_point_validate(
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 loader accepted entry in trailing page padding"
+        );
+    }
+
+    /*
+     * Entry outside every PT_LOAD segment.
+     */
+    elf64_loader_test_write_u64(
+        bytes + ELF64_LOADER_TEST_HEADER_ENTRY_OFFSET,
+        ELF64_LOADER_TEST_VADDR + 0x3000
+    );
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 entry-point outside-image fixture failed to parse"
+        );
+    }
+
+    if (elf64_entry_point_validate(
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 loader accepted entry outside all PT_LOAD segments"
+        );
+    }
+
+    /*
+     * A valid-looking entry point must not make an otherwise invalid image
+     * executable. Build overlapping PT_LOAD mappings while leaving e_entry
+     * at the beginning of the first RX segment.
+     */
+    elf64_loader_test_build_two_segment_image(
+        bytes,
+        sizeof(bytes),
+        true
+    );
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 entry-point invalid-image fixture failed to parse"
+        );
+    }
+
+    if (elf64_entry_point_validate(
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 loader accepted entry from invalid load image"
+        );
+    }
+
+    diagnostics_write(
+        "[elf64] Entry-point validation test passed\n"
+    );
+}
+
 static void elf64_loader_test_image_mapping(void)
 {
     uint8_t bytes[ELF64_LOADER_TEST_IMAGE_SIZE];
@@ -842,9 +1114,12 @@ static void elf64_loader_test_image_mapping(void)
         );
     }
 
+    struct elf64_loaded_image loaded_image = {0};
+
     if (!elf64_load_image(
         &image,
-        &memory
+        &memory,
+        &loaded_image
     )) {
         kernel_panic(
             "ELF64 loader failed to map valid image"
@@ -1022,13 +1297,49 @@ static void elf64_loader_test_image_mapping(void)
         );
     }
 
-    if (!process_memory_release_pages(
+    if (
+        loaded_image.segment_count !=
+        image.load_segment_count
+    ) {
+        kernel_panic(
+            "ELF64 loaded image segment count is incorrect"
+        );
+    }
+
+    if (
+        loaded_image.segments == NULL
+    ) {
+        kernel_panic(
+            "ELF64 loaded image metadata is missing"
+        );
+    }
+
+    if (
+        loaded_image.segments[0].mapping_start !=
+        ELF64_LOADER_TEST_VADDR ||
+        loaded_image.segments[1].mapping_start !=
+        ELF64_LOADER_TEST_VADDR + 0x1000
+    ) {
+        kernel_panic(
+            "ELF64 loaded image segment metadata is incorrect"
+        );
+    }
+
+    if (!elf64_unload_image(
         &memory,
-        ELF64_LOADER_TEST_VADDR,
-        2
+        &loaded_image
     )) {
         kernel_panic(
-            "Unable to release ELF64 loader test mappings"
+            "Unable to unload ELF64 loader test image"
+        );
+    }
+
+    if (
+        loaded_image.segments != NULL ||
+        loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "ELF64 unloaded image descriptor was not cleared"
         );
     }
 
@@ -1123,12 +1434,24 @@ static void elf64_loader_test_image_rollback_existing_mapping(void)
         );
     }
 
+    struct elf64_loaded_image loaded_image = {0};
+
     if (elf64_load_image(
         &image,
-        &memory
+        &memory,
+        &loaded_image
     )) {
         kernel_panic(
             "ELF64 loader accepted conflicting process mapping"
+        );
+    }
+
+    if (
+        loaded_image.segments != NULL ||
+        loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "ELF64 failed load retained ownership metadata"
         );
     }
 
@@ -1295,12 +1618,24 @@ static void elf64_loader_test_partial_segment_rollback(void)
         );
     }
 
+    struct elf64_loaded_image loaded_image = {0};
+
     if (elf64_load_image(
         &image,
-        &memory
+        &memory,
+        &loaded_image
     )) {
         kernel_panic(
             "ELF64 loader accepted partially conflicting segment"
+        );
+    }
+
+    if (
+        loaded_image.segments != NULL ||
+        loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "ELF64 partial rollback retained ownership metadata"
         );
     }
 
@@ -1461,9 +1796,12 @@ static void elf64_loader_test_unaligned_image_mapping(void)
         );
     }
 
+    struct elf64_loaded_image loaded_image = {0};
+
     if (!elf64_load_image(
         &image,
-        &memory
+        &memory,
+        &loaded_image
     )) {
         kernel_panic(
             "ELF64 loader rejected valid unaligned image"
@@ -1526,13 +1864,38 @@ static void elf64_loader_test_unaligned_image_mapping(void)
         }
     }
 
-    if (!process_memory_release_pages(
+    if (
+        loaded_image.segment_count !=
+        image.load_segment_count
+    ) {
+        kernel_panic(
+            "ELF64 unaligned loaded segment count is incorrect"
+        );
+    }
+
+    if (
+        loaded_image.segments == NULL
+    ) {
+        kernel_panic(
+            "ELF64 unaligned loaded image metadata is missing"
+        );
+    }
+
+    if (!elf64_unload_image(
         &memory,
-        ELF64_LOADER_TEST_VADDR,
-        2
+        &loaded_image
     )) {
         kernel_panic(
-            "Unable to release ELF64 unaligned image mappings"
+            "Unable to unload ELF64 unaligned image"
+        );
+    }
+
+    if (
+        loaded_image.segments != NULL ||
+        loaded_image.segment_count != 0
+    ) {
+        kernel_panic(
+            "ELF64 unaligned image descriptor was not cleared"
         );
     }
 
@@ -1556,6 +1919,70 @@ static void elf64_loader_test_unaligned_image_mapping(void)
     );
 }
 
+static void elf64_loader_test_reject_owned_descriptor(void)
+{
+    uint8_t bytes[ELF64_LOADER_TEST_IMAGE_SIZE];
+
+    elf64_loader_test_build_two_segment_image(
+        bytes,
+        sizeof(bytes),
+        false
+    );
+
+    struct elf64_image image;
+
+    if (!elf64_parse(
+        bytes,
+        sizeof(bytes),
+        &image
+    )) {
+        kernel_panic(
+            "ELF64 owned-descriptor fixture failed to parse"
+        );
+    }
+
+    struct process_memory memory;
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic(
+            "Unable to create ELF64 owned-descriptor address space"
+        );
+    }
+
+    struct elf64_load_segment sentinel_segment;
+
+    struct elf64_loaded_image loaded_image = {
+        .segments = &sentinel_segment,
+        .segment_count = 1,
+    };
+
+    if (elf64_load_image(
+        &image,
+        &memory,
+        &loaded_image
+    )) {
+        kernel_panic(
+            "ELF64 loader accepted non-empty output descriptor"
+        );
+    }
+
+    if (
+        loaded_image.segments !=
+        &sentinel_segment ||
+        loaded_image.segment_count != 1
+    ) {
+        kernel_panic(
+            "ELF64 loader modified rejected output descriptor"
+        );
+    }
+
+    if (!process_memory_destroy(&memory)) {
+        kernel_panic(
+            "Unable to destroy ELF64 owned-descriptor address space"
+        );
+    }
+}
+
 void elf64_loader_test_run(void)
 {
     elf64_loader_test_valid_rx();
@@ -1569,6 +1996,8 @@ void elf64_loader_test_run(void)
     elf64_loader_test_zero_memory_size();
     elf64_loader_test_unaligned_segment();
     elf64_loader_test_image_validation();
+    elf64_loader_test_entry_point_validation();
+    elf64_loader_test_reject_owned_descriptor();
     elf64_loader_test_image_mapping();
     elf64_loader_test_image_rollback_existing_mapping();
     elf64_loader_test_partial_segment_rollback();

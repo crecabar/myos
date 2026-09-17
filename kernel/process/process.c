@@ -14,6 +14,19 @@ bool process_init(
     if (memory == NULL) return false;
     if (layout == NULL) return false;
 
+    if (
+        layout->initial_rsp <
+        layout->stack.base_address ||
+        layout->initial_rsp >
+        layout->stack.stack_top
+    ) {
+        return false;
+    }
+
+    if ((layout->initial_rsp & 0xFULL) != 0) {
+        return false;
+    }
+
     process->id = id;
     process->state = PROCESS_STATE_READY;
     process->termination_reason = PROCESS_TERMINATION_NONE;
@@ -39,7 +52,7 @@ bool process_init(
     process->context.rax = 0;
 
     process->context.rip = layout->entry_point;
-    process->context.rsp = layout->stack.stack_top;
+    process->context.rsp = layout->initial_rsp;
     process->context.rflags = 0x202; //0x002 = reserved, mandatory; 0x200 = IF, interrupt enable flag
 
     return true;

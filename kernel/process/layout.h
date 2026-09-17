@@ -11,10 +11,12 @@
 #ifndef MYOS_PROCESS_LAYOUT_H
 #define MYOS_PROCESS_LAYOUT_H
 
+#include "../elf/elf64_loader.h"
 #include "memory.h"
 #include "stack.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /**
@@ -33,20 +35,35 @@
 #define PROCESS_LAYOUT_STACK_PAGES 4
 
 /**
+ * Identifies the mapping ownership model used by a process layout.
+ */
+enum process_layout_kind {
+    PROCESS_LAYOUT_KIND_NONE = 0,
+    PROCESS_LAYOUT_KIND_LEGACY,
+    PROCESS_LAYOUT_KIND_ELF64,
+};
+
+/**
  * Represents the minimal virtual address-space layout of a process.
  *
  * The layout defines and manages the lifetime of the user mappings created for
  * its executable code and stack inside a borrowed process_memory address
- * space.
+ * space. It also records the initial user instruction and stack pointers used
+ * when the process begins execution.
  *
  * The layout does not own the process_memory object itself. That memory object
  * must remain alive until all mappings managed by the layout have been
  * released through process_layout_destroy().
  */
-struct process_layout {
+ struct process_layout {
+    enum process_layout_kind kind;
+
     uint64_t code_base;
     uint64_t entry_point;
+    uint64_t initial_rsp;
+
     struct process_stack stack;
+    struct elf64_loaded_image loaded_image;
 };
 
 /**
@@ -71,6 +88,44 @@ struct process_layout {
  */
 bool process_layout_create(
     struct process_memory *memory,
+    struct process_layout *layout
+);
+
+/**
+ * Creates a process virtual memory layout from an ELF64 executable image.
+ *
+ * ELF64 PT_LOAD mappings are loaded into the borrowed process address space.
+ * A writable, non-executable user stack is then created and initialized with
+ * the minimal MyOS process-entry ABI containing argc, argv and envp.
+ *
+ * The ELF entry point must belong to the semantic range of an executable
+ * PT_LOAD segment.
+ *
+ * On success, the layout owns both the loaded ELF mappings and the user stack.
+ * The original ELF image buffer remains borrowed and need not remain alive
+ * after this function returns.
+ *
+ * On failure, every mapping and metadata resource created by this operation is
+ * released before returning.
+ *
+ * @param memory Borrowed process memory in which mappings are created.
+ * @param image Parsed ELF64 executable image.
+ * @param argc Number of argv strings.
+ * @param argv Argument strings, or NULL when argc is zero.
+ * @param envc Number of environment strings.
+ * @param envp Environment strings, or NULL when envc is zero.
+ * @param layout Layout descriptor to initialize.
+ *
+ * @return true when the complete ELF64 process layout was created; false
+ * otherwise.
+ */
+bool process_layout_create_elf64(
+    struct process_memory *memory,
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[],
     struct process_layout *layout
 );
 

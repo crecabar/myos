@@ -89,6 +89,41 @@ BUILD_DIR := build
 CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 
 # -----------------------------------------------------------------------------
+# Userspace test images
+# -----------------------------------------------------------------------------
+
+USER_TEST_BUILD_DIR := $(BUILD_DIR)/user-tests
+
+ELF_ENTRY_SOURCE        := user/tests/elf_entry.S
+ELF_ENTRY_LINKER_SCRIPT := user/tests/elf_entry.ld
+ELF_ENTRY_OBJECT        := $(USER_TEST_BUILD_DIR)/elf_entry.o
+ELF_ENTRY_ELF           := $(USER_TEST_BUILD_DIR)/elf_entry.elf
+
+ELF_ENTRY_CFLAGS := \
+	--target=$(TARGET) \
+	-ffreestanding \
+	-fno-stack-protector \
+	-fno-common \
+	-mno-red-zone \
+	-mgeneral-regs-only \
+	-O0 \
+	-g
+
+$(USER_TEST_BUILD_DIR):
+	mkdir -p $(USER_TEST_BUILD_DIR)
+
+$(ELF_ENTRY_OBJECT): $(ELF_ENTRY_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(ELF_ENTRY_ELF): $(ELF_ENTRY_OBJECT) $(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(ELF_ENTRY_OBJECT)
+
+# -----------------------------------------------------------------------------
 # Kernel
 # -----------------------------------------------------------------------------
 
@@ -149,6 +184,9 @@ KERNEL_C_OBJS := \
 
 KERNEL_ASM_OBJS := \
 	$(patsubst %.S,$(KERNEL_OBJ_DIR)/asm/%.o,$(KERNEL_ASM_SOURCES))
+
+PROCESS_ELF_ENTRY_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_elf_entry_fixture.o
 
 KERNEL_OBJS := \
 	$(KERNEL_C_OBJS) \
@@ -232,6 +270,10 @@ $(KERNEL_OBJ_DIR)/asm/%.o: %.S $(CONFIG_STAMP) | $(LIMINE_HEADER)
 		-MT $@ \
 		-c $< \
 		-o $@
+
+ifeq ($(MYOS_KERNEL_TESTS),1)
+$(PROCESS_ELF_ENTRY_FIXTURE_OBJ): $(ELF_ENTRY_ELF)
+endif
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
 	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJS)
