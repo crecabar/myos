@@ -11,10 +11,15 @@
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64.h"
 #include "../memory/memory.h"
+#include "../memory/heap.h"
+#include "../process/create.h"
+#include "../process/image.h"
+#include "../process/instance.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
+#include "../process/pid.h"
 #include "../process/process.h"
-
+#include "../scheduler/scheduler.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -350,32 +355,370 @@ void process_elf_lifecycle_test_run(void)
         "TERM=myos",
     };
 
-    struct process_memory memory;
+    uint64_t image_free_before =
+        physical_free_frame_count();
 
-    if (!process_memory_create(&memory)) {
-        kernel_panic(
-            "Unable to create ELF lifecycle process memory"
-        );
-    }
+    struct process_image owned_image;
 
-    struct process_layout layout;
-
-    if (!process_layout_create_elf64(
-        &memory,
+    if (!process_image_create_elf64(
+        &owned_image,
         &image,
         2,
         argv,
         1,
-        envp,
-        &layout
+        envp
     )) {
         kernel_panic(
-            "Unable to create ELF-backed process layout"
+            "Unable to create owned ELF process image"
         );
     }
 
     if (
-        layout.kind !=
+        owned_image.layout.kind !=
+        PROCESS_LAYOUT_KIND_ELF64
+    ) {
+        kernel_panic(
+            "Owned ELF process image has incorrect layout kind"
+        );
+    }
+
+    if (
+        owned_image.layout.entry_point !=
+        image.entry_point
+    ) {
+        kernel_panic(
+            "Owned ELF process image has incorrect entry point"
+        );
+    }
+
+    if (
+        owned_image.memory.address_space.pml4_physical == 0 ||
+        owned_image.memory.address_space.pml4_virtual == NULL
+    ) {
+        kernel_panic(
+            "Owned ELF process image has no address space"
+        );
+    }
+
+    if (!process_image_destroy(
+        &owned_image
+    )) {
+        kernel_panic(
+            "Unable to destroy owned ELF process image"
+        );
+    }
+
+    if (physical_free_frame_count() != image_free_before) {
+        kernel_panic(
+            "Owned ELF process image leaked physical frames"
+        );
+    }
+
+    uint64_t discard_free_before =
+        physical_free_frame_count();
+
+    struct process_instance discarded_instance;
+
+    if (!process_instance_prepare_elf64(
+        &discarded_instance,
+        PROCESS_ELF_LIFECYCLE_TEST_PID + 1,
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to prepare discardable ELF process instance"
+        );
+    }
+
+    if (
+        discarded_instance.process.state !=
+        PROCESS_STATE_READY
+    ) {
+        kernel_panic(
+            "Discardable ELF process instance is not ready"
+        );
+    }
+
+    if (!process_instance_discard(
+        &discarded_instance
+    )) {
+        kernel_panic(
+            "Unable to discard ELF process instance"
+        );
+    }
+
+    if (
+        discarded_instance.process.memory != NULL ||
+        discarded_instance.process.layout != NULL
+    ) {
+        kernel_panic(
+            "Discarded ELF process retained borrowed references"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        discard_free_before
+    ) {
+        kernel_panic(
+            "Discarded ELF process instance leaked physical frames"
+        );
+    }
+
+    uint64_t pid_probe_a;
+    uint64_t pid_probe_b;
+
+    if (!process_pid_allocate(
+        &pid_probe_a
+    )) {
+        kernel_panic(
+            "Unable to allocate PID rollback probe"
+        );
+    }
+
+    if (!process_pid_release(
+        pid_probe_a
+    )) {
+        kernel_panic(
+            "Unable to release PID rollback probe"
+        );
+    }
+
+    if (!process_pid_allocate(
+        &pid_probe_b
+    )) {
+        kernel_panic(
+            "Unable to reallocate PID rollback probe"
+        );
+    }
+
+    if (pid_probe_b != pid_probe_a) {
+        kernel_panic(
+            "PID rollback did not restore allocator capacity"
+        );
+    }
+
+    if (!process_pid_release(
+        pid_probe_b
+    )) {
+        kernel_panic(
+            "Unable to release reallocated PID rollback probe"
+        );
+    }
+
+    struct kernel_heap_stats dynamic_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &dynamic_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap state before dynamic process creation"
+        );
+    }
+
+    struct process_instance *dynamic_instance = process_create_elf64(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    if (dynamic_instance == NULL) {
+        kernel_panic(
+            "Unable to dynamically create ELF process"
+        );
+    }
+
+    if (
+        dynamic_instance->process.state !=
+        PROCESS_STATE_READY
+    ) {
+        kernel_panic(
+            "Dynamically created ELF process is not ready"
+        );
+    }
+
+    if (
+        dynamic_instance->process.memory !=
+        &dynamic_instance->image.memory ||
+        dynamic_instance->process.layout !=
+        &dynamic_instance->image.layout
+    ) {
+        kernel_panic(
+            "Dynamic ELF process ownership links are incorrect"
+        );
+    }
+
+    dynamic_instance->process.state = PROCESS_STATE_TERMINATED;
+
+    if (!scheduler_unregister_terminated(
+        &dynamic_instance->process
+    )) {
+        kernel_panic(
+            "Unable to unregister dynamic ELF lifecycle process"
+        );
+    }
+
+    if (!process_release_terminated(
+        dynamic_instance
+    )) {
+        kernel_panic(
+            "Unable to release dynamic ELF lifecycle process"
+        );
+    }
+
+    struct kernel_heap_stats dynamic_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &dynamic_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after dynamic process release"
+        );
+    }
+
+    if (
+        dynamic_heap_after.allocated_block_count !=
+            dynamic_heap_before.allocated_block_count ||
+        dynamic_heap_after.allocated_bytes !=
+            dynamic_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Dynamic ELF process leaked kernel heap allocations"
+        );
+    }
+
+    struct process scheduler_fillers[
+        SCHEDULER_MAX_PROCESSES
+    ];
+
+    uint64_t scheduler_failure_free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats scheduler_failure_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &scheduler_failure_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap state before scheduler rollback test"
+        );
+    }
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+
+        scheduler_fillers[index].id =
+            1000 + index;
+
+        scheduler_fillers[index].state =
+            PROCESS_STATE_READY;
+
+        scheduler_fillers[index].termination_reason =
+            PROCESS_TERMINATION_NONE;
+
+        scheduler_fillers[index].exit_status = 0;
+
+        scheduler_fillers[index].memory = NULL;
+        scheduler_fillers[index].layout = NULL;
+
+        if (!scheduler_add(
+            &scheduler_fillers[index]
+        )) {
+            kernel_panic(
+                "Unable to fill scheduler for process creation rollback test"
+            );
+        }
+    }
+
+    struct process_instance *failed_instance =
+        process_create_elf64(
+            &image,
+            2,
+            argv,
+            1,
+            envp
+        );
+
+    if (failed_instance != NULL) {
+        kernel_panic(
+            "Dynamic process creation succeeded with full scheduler"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        scheduler_failure_free_before
+    ) {
+        kernel_panic(
+            "Failed dynamic process creation leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats scheduler_failure_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &scheduler_failure_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after scheduler rollback test"
+        );
+    }
+
+    if (
+        scheduler_failure_heap_after.allocated_block_count !=
+            scheduler_failure_heap_before.allocated_block_count ||
+        scheduler_failure_heap_after.allocated_bytes !=
+            scheduler_failure_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Failed dynamic process creation leaked kernel heap allocations"
+        );
+    }
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+
+        scheduler_fillers[index].state =
+            PROCESS_STATE_TERMINATED;
+
+        if (!scheduler_unregister_terminated(
+            &scheduler_fillers[index]
+        )) {
+            kernel_panic(
+                "Unable to remove scheduler rollback test filler"
+            );
+        }
+    }
+
+    struct process_instance instance;
+
+    if (!process_instance_prepare_elf64(
+        &instance,
+        PROCESS_ELF_LIFECYCLE_TEST_PID,
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to prepare ELF-backed process instance"
+        );
+    }
+
+    struct process_memory *memory = &instance.image.memory;
+    struct process_layout *layout = &instance.image.layout;
+    struct process *process = &instance.process;
+
+    if (
+        layout->kind !=
         PROCESS_LAYOUT_KIND_ELF64
     ) {
         kernel_panic(
@@ -383,14 +726,14 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
-    if (layout.code_base != 0) {
+    if (layout->code_base != 0) {
         kernel_panic(
             "ELF process layout retained legacy code base"
         );
     }
 
     if (
-        layout.entry_point !=
+        layout->entry_point !=
         image.entry_point
     ) {
         kernel_panic(
@@ -399,10 +742,10 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        layout.initial_rsp <
-        layout.stack.base_address ||
-        layout.initial_rsp >=
-        layout.stack.stack_top
+        layout->initial_rsp <
+        layout->stack.base_address ||
+        layout->initial_rsp >=
+        layout->stack.stack_top
     ) {
         kernel_panic(
             "ELF process initial RSP is outside user stack"
@@ -410,7 +753,7 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        (layout.initial_rsp & 0xFULL) != 0
+        (layout->initial_rsp & 0xFULL) != 0
     ) {
         kernel_panic(
             "ELF process initial RSP is not 16-byte aligned"
@@ -418,8 +761,8 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        layout.loaded_image.segments == NULL ||
-        layout.loaded_image.segment_count != 1
+        layout->loaded_image.segments == NULL ||
+        layout->loaded_image.segment_count != 1
     ) {
         kernel_panic(
             "ELF process layout ownership metadata is incorrect"
@@ -427,11 +770,11 @@ void process_elf_lifecycle_test_run(void)
     }
 
     uint64_t stack_cursor =
-        layout.initial_rsp;
+        layout->initial_rsp;
 
     uint64_t argc =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -445,7 +788,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t argv0 =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -453,7 +796,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t argv1 =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -461,7 +804,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t argv_null =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -469,7 +812,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t envp0 =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -477,7 +820,7 @@ void process_elf_lifecycle_test_run(void)
 
     uint64_t envp_null =
         process_elf_lifecycle_test_read_u64(
-            &memory,
+            memory,
             stack_cursor
         );
 
@@ -491,38 +834,25 @@ void process_elf_lifecycle_test_run(void)
     }
 
     process_elf_lifecycle_test_expect_string(
-        &memory,
+        memory,
         argv0,
         "hello"
     );
 
     process_elf_lifecycle_test_expect_string(
-        &memory,
+        memory,
         argv1,
         "world"
     );
 
     process_elf_lifecycle_test_expect_string(
-        &memory,
+        memory,
         envp0,
         "TERM=myos"
     );
 
-    struct process process;
-
-    if (!process_init(
-        &process,
-        PROCESS_ELF_LIFECYCLE_TEST_PID,
-        &memory,
-        &layout
-    )) {
-        kernel_panic(
-            "Unable to initialize ELF lifecycle process"
-        );
-    }
-
     if (
-        process.context.rip !=
+        process->context.rip !=
         image.entry_point
     ) {
         kernel_panic(
@@ -531,24 +861,24 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        process.context.rsp !=
-        layout.initial_rsp
+        process->context.rsp !=
+        layout->initial_rsp
     ) {
         kernel_panic(
             "ELF process context RSP is incorrect"
         );
     }
 
-    process.state =
+    process->state =
         PROCESS_STATE_TERMINATED;
 
-    process.termination_reason =
+    process->termination_reason =
         PROCESS_TERMINATION_EXITED;
 
-    process.exit_status = 0;
+    process->exit_status = 0;
 
     if (!process_reclaim_resources(
-        &process
+        process
     )) {
         kernel_panic(
             "Unable to reclaim ELF lifecycle process resources"
@@ -556,8 +886,8 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        process.memory != NULL ||
-        process.layout != NULL
+        process->memory != NULL ||
+        process->layout != NULL
     ) {
         kernel_panic(
             "ELF lifecycle process retained reclaimed references"
@@ -565,16 +895,16 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        layout.kind != PROCESS_LAYOUT_KIND_NONE ||
-        layout.code_base != 0 ||
-        layout.entry_point != 0 ||
-        layout.initial_rsp != 0 ||
-        layout.stack.guard_address != 0 ||
-        layout.stack.base_address != 0 ||
-        layout.stack.stack_top != 0 ||
-        layout.stack.page_count != 0 ||
-        layout.loaded_image.segments != NULL ||
-        layout.loaded_image.segment_count != 0
+        layout->kind != PROCESS_LAYOUT_KIND_NONE ||
+        layout->code_base != 0 ||
+        layout->entry_point != 0 ||
+        layout->initial_rsp != 0 ||
+        layout->stack.guard_address != 0 ||
+        layout->stack.base_address != 0 ||
+        layout->stack.stack_top != 0 ||
+        layout->stack.page_count != 0 ||
+        layout->loaded_image.segments != NULL ||
+        layout->loaded_image.segment_count != 0
     ) {
         kernel_panic(
             "ELF lifecycle layout retained reclaimed resources"
@@ -582,9 +912,9 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
-        memory.address_space.pml4_physical != 0 ||
-        memory.address_space.pml4_virtual != NULL ||
-        memory.address_space.kernel_half_shared
+        memory->address_space.pml4_physical != 0 ||
+        memory->address_space.pml4_virtual != NULL ||
+        memory->address_space.kernel_half_shared
     ) {
         kernel_panic(
             "ELF lifecycle address space remained alive"
