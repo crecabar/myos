@@ -25,4 +25,17 @@
  */
 bool process_pid_allocate(uint64_t *pid);
 
+/**
+ * Rolls back the most recently allocated process identifier.
+ *
+ * This operation is valid only before the process using the identifier has
+ * been published. The supplied PID must be the immediately preceding
+ * allocation.
+ *
+ * @param pid Unpublished process identifier to return.
+ *
+ * @return true when the allocation was rolled back; false otherwise.
+ */
+bool process_pid_release(uint64_t pid);
+
 #endif

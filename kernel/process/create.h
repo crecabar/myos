@@ -27,8 +27,9 @@
  * A process identifier is allocated internally through the central process PID
  * allocator before lifecycle storage and executable resources are created.
  *
- * Process identifiers are currently monotonic and are not returned to the
- * allocator when later creation stages fail.
+ * Process identifiers are monotonic once a process has been published to the
+ * scheduler. An identifier allocated during a failed creation attempt is
+ * rolled back before returning.
  *
  * On failure, all resources acquired during this operation are released before
  * returning.

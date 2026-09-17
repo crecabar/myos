@@ -31,3 +31,26 @@ bool process_pid_allocate(uint64_t *pid)
 
     return true;
 }
+
+bool process_pid_release(uint64_t pid)
+{
+    if (pid == 0) return false;
+
+    if (next_process_pid == 0) {
+        if (pid != UINT64_MAX) {
+            return false;
+        }
+
+        next_process_pid = UINT64_MAX;
+
+        return true;
+    }
+
+    if (pid != next_process_pid - 1) {
+        return false;
+    }
+
+    next_process_pid = pid;
+
+    return true;
+}

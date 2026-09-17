@@ -33,6 +33,12 @@ struct process_instance *process_create_elf64(
         kmalloc(sizeof(*instance));
 
     if (instance == NULL) {
+        if (!process_pid_release(id)) {
+            kernel_panic(
+                "Unable to roll back process identifier allocation"
+            );
+        }
+
         return NULL;
     }
 
@@ -46,12 +52,17 @@ struct process_instance *process_create_elf64(
         envp
     )) {
         kfree(instance);
+
+        if (!process_pid_release(id)) {
+            kernel_panic(
+                "Unable to roll back process identifier allocation"
+            );
+        }
+
         return NULL;
     }
 
-    if (!scheduler_add(
-        &instance->process
-    )) {
+    if (!scheduler_add(&instance->process)) {
         if (!process_instance_discard(
             instance
         )) {
@@ -61,6 +72,13 @@ struct process_instance *process_create_elf64(
         }
 
         kfree(instance);
+
+        if (!process_pid_release(id)) {
+            kernel_panic(
+                "Unable to roll back process identifier allocation"
+            );
+        }
+
         return NULL;
     }
 

@@ -17,6 +17,7 @@
 #include "../process/instance.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
+#include "../process/pid.h"
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"
 #include <stddef.h>
@@ -464,6 +465,47 @@ void process_elf_lifecycle_test_run(void)
     ) {
         kernel_panic(
             "Discarded ELF process instance leaked physical frames"
+        );
+    }
+
+    uint64_t pid_probe_a;
+    uint64_t pid_probe_b;
+
+    if (!process_pid_allocate(
+        &pid_probe_a
+    )) {
+        kernel_panic(
+            "Unable to allocate PID rollback probe"
+        );
+    }
+
+    if (!process_pid_release(
+        pid_probe_a
+    )) {
+        kernel_panic(
+            "Unable to release PID rollback probe"
+        );
+    }
+
+    if (!process_pid_allocate(
+        &pid_probe_b
+    )) {
+        kernel_panic(
+            "Unable to reallocate PID rollback probe"
+        );
+    }
+
+    if (pid_probe_b != pid_probe_a) {
+        kernel_panic(
+            "PID rollback did not restore allocator capacity"
+        );
+    }
+
+    if (!process_pid_release(
+        pid_probe_b
+    )) {
+        kernel_panic(
+            "Unable to release reallocated PID rollback probe"
         );
     }
 
