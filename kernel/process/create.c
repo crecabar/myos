@@ -7,6 +7,7 @@
 
 #include "create.h"
 
+#include "../core/panic.h"
 #include "../memory/heap.h"
 #include "../scheduler/scheduler.h"
 
@@ -42,18 +43,16 @@ struct process_instance *process_create_elf64(
         return NULL;
     }
 
-    if (!scheduler_add(
-        &instance->process
-    )) {
-        if (!process_instance_discard(
-            instance
-        )) {
+    if (!scheduler_add(&instance->process)) {
+        if (!process_instance_discard(instance)) {
             /*
              * Failure here means the lifecycle invariants are inconsistent:
              * scheduler_add() acquired no ownership, yet the freshly prepared
              * READY instance could not be rolled back safely.
              */
-            return NULL;
+            kernel_panic(
+                "Unable to roll back unscheduled process instance"
+            );
         }
 
         kfree(instance);

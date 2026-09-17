@@ -520,6 +520,81 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    struct process scheduler_fillers[
+        SCHEDULER_MAX_PROCESSES
+    ];
+
+    uint64_t scheduler_failure_free_before =
+    physical_free_frame_count();
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+
+        scheduler_fillers[index].id =
+            1000 + index;
+
+        scheduler_fillers[index].state =
+            PROCESS_STATE_READY;
+
+        scheduler_fillers[index].termination_reason =
+            PROCESS_TERMINATION_NONE;
+
+        scheduler_fillers[index].exit_status = 0;
+
+        scheduler_fillers[index].memory = NULL;
+        scheduler_fillers[index].layout = NULL;
+
+        if (!scheduler_add(
+            &scheduler_fillers[index]
+        )) {
+            kernel_panic(
+                "Unable to fill scheduler for process creation rollback test"
+            );
+        }
+    }
+
+    struct process_instance *failed_instance =
+        process_create_elf64(
+            PROCESS_ELF_LIFECYCLE_TEST_PID + 3,
+            &image,
+            2,
+            argv,
+            1,
+            envp
+        );
+
+    if (failed_instance != NULL) {
+        kernel_panic(
+            "Dynamic process creation succeeded with full scheduler"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        scheduler_failure_free_before
+    ) {
+        kernel_panic(
+            "Failed dynamic process creation leaked physical frames"
+        );
+    }
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+
+        scheduler_fillers[index].state =
+            PROCESS_STATE_TERMINATED;
+
+        if (!scheduler_unregister_terminated(
+            &scheduler_fillers[index]
+        )) {
+            kernel_panic(
+                "Unable to remove scheduler rollback test filler"
+            );
+        }
+    }
+
     struct process_instance instance;
 
     if (!process_instance_prepare_elf64(
