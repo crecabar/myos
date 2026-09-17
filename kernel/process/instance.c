@@ -7,6 +7,8 @@
 
 #include "instance.h"
 
+#include "../core/panic.h"
+
 #include <stddef.h>
 
 bool process_instance_prepare_elf64(
@@ -41,7 +43,9 @@ bool process_instance_prepare_elf64(
         if (!process_image_destroy(
             &instance->image
         )) {
-            return false;
+            kernel_panic(
+                "Unable to roll back failed process instance preparation"
+            );
         }
 
         return false;

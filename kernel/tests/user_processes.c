@@ -26,7 +26,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define USER_PROCESS_LEGACY_TEST_COUNT 7
 #define USER_PROCESS_TEST_COUNT 8
+#define USER_PROCESS_ELF_TEST_INDEX 7
+
 #define USER_PROCESS_LIFECYCLE_STRESS_CYCLES 12
 #define USER_PROCESS_LIFECYCLE_STRESS_PID_BASE 100
 
@@ -39,7 +42,9 @@ struct user_process_fixture {
     struct process process;
 };
 
-static struct user_process_fixture fixtures[USER_PROCESS_TEST_COUNT];
+static struct user_process_fixture fixtures[
+    USER_PROCESS_LEGACY_TEST_COUNT
+];
 
 static struct user_process_fixture lifecycle_stress_fixture;
 
@@ -407,7 +412,10 @@ static void user_process_standard_terminated(
 
         elf_test_instance = NULL;
 
-        standard_process_completed[7] = true;
+        standard_process_completed[
+            USER_PROCESS_ELF_TEST_INDEX
+        ] = true;
+
         ++standard_process_completed_count;
 
         if (
@@ -431,7 +439,7 @@ static void user_process_standard_terminated(
     }
 
     for (size_t candidate = 0;
-         candidate < USER_PROCESS_TEST_COUNT;
+         candidate < USER_PROCESS_LEGACY_TEST_COUNT;
          ++candidate) {
         if (process == &fixtures[candidate].process) {
             index = candidate;
@@ -493,7 +501,6 @@ static bool user_process_standard_result_valid(
         case 0:
         case 1:
         case 5:
-        case 7:
             return
                 process->termination_reason ==
                     PROCESS_TERMINATION_EXITED &&
@@ -524,8 +531,13 @@ static void user_process_tests_dump(void)
 {
     diagnostics_write("\n--- Initial processes ---\n");
 
-    for (size_t index = 0; index < USER_PROCESS_TEST_COUNT; ++index) {
-        const struct user_process_fixture *fixture = &fixtures[index];
+    for (
+        size_t index = 0;
+        index < USER_PROCESS_LEGACY_TEST_COUNT;
+        ++index
+    ) {
+        const struct user_process_fixture *fixture =
+            &fixtures[index];
 
         diagnostics_printf(
             "PID %u:\n"
@@ -536,6 +548,19 @@ static void user_process_tests_dump(void)
             fixture->memory.address_space.pml4_physical,
             fixture->layout.entry_point,
             fixture->layout.stack.stack_top
+        );
+    }
+
+    if (elf_test_instance != NULL) {
+        diagnostics_printf(
+            "PID %u:\n"
+            "  CR3=%x\n"
+            "  RIP=%x\n"
+            "  RSP=%x\n",
+            elf_test_instance->process.id,
+            elf_test_instance->image.memory.address_space.pml4_physical,
+            elf_test_instance->image.layout.entry_point,
+            elf_test_instance->image.layout.initial_rsp
         );
     }
 

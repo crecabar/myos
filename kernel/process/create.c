@@ -21,13 +21,13 @@ struct process_instance *process_create_elf64(
     size_t envc,
     const char *const envp[])
 {
+    if (elf == NULL) return NULL;
+
     uint64_t id;
 
     if (!process_pid_allocate(&id)) {
         return NULL;
     }
-
-    if (elf == NULL) return NULL;
 
     struct process_instance *instance =
         kmalloc(sizeof(*instance));
@@ -49,13 +49,12 @@ struct process_instance *process_create_elf64(
         return NULL;
     }
 
-    if (!scheduler_add(&instance->process)) {
-        if (!process_instance_discard(instance)) {
-            /*
-             * Failure here means the lifecycle invariants are inconsistent:
-             * scheduler_add() acquired no ownership, yet the freshly prepared
-             * READY instance could not be rolled back safely.
-             */
+    if (!scheduler_add(
+        &instance->process
+    )) {
+        if (!process_instance_discard(
+            instance
+        )) {
             kernel_panic(
                 "Unable to roll back unscheduled process instance"
             );

@@ -467,6 +467,16 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    struct kernel_heap_stats dynamic_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &dynamic_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap state before dynamic process creation"
+        );
+    }
+
     struct process_instance *dynamic_instance = process_create_elf64(
         &image,
         2,
@@ -519,12 +529,43 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    struct kernel_heap_stats dynamic_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &dynamic_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after dynamic process release"
+        );
+    }
+
+    if (
+        dynamic_heap_after.allocated_block_count !=
+            dynamic_heap_before.allocated_block_count ||
+        dynamic_heap_after.allocated_bytes !=
+            dynamic_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Dynamic ELF process leaked kernel heap allocations"
+        );
+    }
+
     struct process scheduler_fillers[
         SCHEDULER_MAX_PROCESSES
     ];
 
     uint64_t scheduler_failure_free_before =
-    physical_free_frame_count();
+        physical_free_frame_count();
+
+    struct kernel_heap_stats scheduler_failure_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &scheduler_failure_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap state before scheduler rollback test"
+        );
+    }
 
     for (size_t index = 0;
          index < SCHEDULER_MAX_PROCESSES;
@@ -574,6 +615,27 @@ void process_elf_lifecycle_test_run(void)
     ) {
         kernel_panic(
             "Failed dynamic process creation leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats scheduler_failure_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &scheduler_failure_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after scheduler rollback test"
+        );
+    }
+
+    if (
+        scheduler_failure_heap_after.allocated_block_count !=
+            scheduler_failure_heap_before.allocated_block_count ||
+        scheduler_failure_heap_after.allocated_bytes !=
+            scheduler_failure_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Failed dynamic process creation leaked kernel heap allocations"
         );
     }
 
@@ -748,13 +810,13 @@ void process_elf_lifecycle_test_run(void)
     );
 
     if (
-    process->context.rip !=
-    image.entry_point
-) {
+        process->context.rip !=
+        image.entry_point
+    ) {
         kernel_panic(
             "ELF process context RIP is incorrect"
         );
-}
+    }
 
     if (
         process->context.rsp !=

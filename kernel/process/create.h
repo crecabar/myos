@@ -24,9 +24,11 @@
  * Lifecycle storage is allocated from the kernel heap. A complete ELF-backed
  * process instance is prepared and then registered with the scheduler.
  *
- * The supplied process identifier is currently borrowed from the caller's PID
- * allocation policy. Central PID allocation will be added before issue #44 is
- * considered complete.
+ * A process identifier is allocated internally through the central process PID
+ * allocator before lifecycle storage and executable resources are created.
+ *
+ * Process identifiers are currently monotonic and are not returned to the
+ * allocator when later creation stages fail.
  *
  * On failure, all resources acquired during this operation are released before
  * returning.

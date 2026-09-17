@@ -7,6 +7,8 @@
 
 #include "image.h"
 
+#include "../core/panic.h"
+
 #include <stddef.h>
 
 bool process_image_create_elf64(
@@ -33,8 +35,12 @@ bool process_image_create_elf64(
         envp,
         &image->layout
     )) {
-        if (!process_memory_destroy(&image->memory)) {
-            return false;
+        if (!process_memory_destroy(
+            &image->memory
+        )) {
+            kernel_panic(
+                "Unable to roll back failed process image creation"
+            );
         }
 
         return false;
