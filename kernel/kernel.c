@@ -7,6 +7,7 @@
 #include "arch/x86_64/paging.h"
 #include "arch/x86_64/rtc.h"
 #include "arch/x86_64/serial.h"
+#include "arch/x86_64/stack.h"
 #include "boot/boot.h"
 #include "config/boot_config.h"
 #include "core/panic.h"
@@ -36,6 +37,17 @@
 #include "tests/user_processes.h"
 #endif
 
+#define KERNEL_RUNTIME_STACK_SIZE 32768
+
+static struct boot_info kernel_boot_info;
+static struct kernel_boot_config kernel_boot_config;
+static struct kernel_display kernel_display;
+
+static uint8_t kernel_runtime_stack[
+    KERNEL_RUNTIME_STACK_SIZE
+] __attribute__((aligned(16)));
+
+static _Noreturn void kernel_main_continue(void);
 
 _Noreturn void kernel_main(void)
 {
@@ -44,20 +56,19 @@ _Noreturn void kernel_main(void)
 
     diagnostics_write("\x1b[2J\x1b[H");
 
-    struct boot_info boot_info;
-    boot_init(&boot_info);
-
-    struct kernel_boot_config boot_config;
+    boot_init(
+        &kernel_boot_info
+    );
 
     boot_config_parse(
-        boot_info.command_line,
-        &boot_config
+        kernel_boot_info.command_line,
+        &kernel_boot_config
     );
 
     memory_init(
-        boot_info.direct_map_offset,
-        boot_info.memory_regions,
-        boot_info.memory_region_count
+        kernel_boot_info.direct_map_offset,
+        kernel_boot_info.memory_regions,
+        kernel_boot_info.memory_region_count
     );
 
     if (!paging_init()) {
@@ -70,12 +81,24 @@ _Noreturn void kernel_main(void)
         );
     }
 
+    arch_stack_enter(
+        (uint64_t) &kernel_runtime_stack[
+            KERNEL_RUNTIME_STACK_SIZE
+        ],
+        kernel_main_continue
+    );
+}
+
+static _Noreturn void kernel_main_continue(void)
+{
     if (!kernel_heap_init()) {
         kernel_panic("Unable to initialize kernel heap");
     }
 
-    struct kernel_display display;
-    display_init(&display, &boot_info.framebuffer);
+    display_init(
+        &kernel_display,
+        &kernel_boot_info.framebuffer
+    );
 
     struct cpu_info cpu;
     cpu_info_read(&cpu);
@@ -83,15 +106,15 @@ _Noreturn void kernel_main(void)
     struct smbios_system_info system;
 
     smbios_system_info_read(
-        boot_info.smbios_entry_32,
-        boot_info.smbios_entry_64,
+        kernel_boot_info.smbios_entry_32,
+        kernel_boot_info.smbios_entry_64,
         &system
     );
 
     enum boot_mode boot_mode =
-    boot_config.mode == KERNEL_BOOT_MODE_TEST
-        ? BOOT_MODE_TEST
-        : BOOT_MODE_NORMAL;
+        kernel_boot_config.mode == KERNEL_BOOT_MODE_TEST
+            ? BOOT_MODE_TEST
+            : BOOT_MODE_NORMAL;
 
     boot_banner_print(
         &cpu,
@@ -129,7 +152,7 @@ _Noreturn void kernel_main(void)
 
 #if MYOS_KERNEL_TESTS
     if (
-        boot_config.mode ==
+        kernel_boot_config.mode ==
         KERNEL_BOOT_MODE_TEST
     ) {
         diagnostics_write(
@@ -152,5 +175,4 @@ _Noreturn void kernel_main(void)
 
     diagnostics_write("[kernel] Starting scheduler\n");
     scheduler_run();
-
 }
