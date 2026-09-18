@@ -67,6 +67,11 @@ static void runtime_dump_mapping_range(
     uint64_t end
 );
 
+static void runtime_dump_page_table_topology(
+    const char *name,
+    uint64_t virtual_address
+);
+
 static void runtime_dump_kernel_mapping_inventory(void);
 static void runtime_test_page_table_chain(void);
 static void runtime_test_kernel_address_space(void);
@@ -436,6 +441,129 @@ static void runtime_dump_mapping_range(
     );
 }
 
+static void runtime_dump_page_table_topology(
+    const char *name,
+    uint64_t virtual_address)
+{
+    struct paging_translation translation;
+
+    if (!paging_translate(
+        virtual_address,
+        &translation
+    )) {
+        diagnostics_printf(
+            "  %s VA=%x unmapped\n",
+            name,
+            virtual_address
+        );
+
+        return;
+    }
+
+    uint64_t pml4_physical =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            virtual_address
+        );
+
+    uint16_t pdpt_index =
+        paging_pdpt_index(
+            virtual_address
+        );
+
+    uint16_t pd_index =
+        paging_pd_index(
+            virtual_address
+        );
+
+    uint16_t pt_index =
+        paging_pt_index(
+            virtual_address
+        );
+
+    uint64_t pdpt_physical =
+        paging_entry_address(
+            translation.pml4_entry
+        );
+
+    diagnostics_printf(
+        "  %s\n"
+        "    VA=%x resolved PA=%x size=%s\n"
+        "    PML4 PA=%x index=%u entry=%x\n"
+        "    PDPT PA=%x index=%u entry=%x\n",
+        name,
+        virtual_address,
+        translation.physical_address,
+        runtime_page_size_name(
+            translation.page_size
+        ),
+        pml4_physical,
+        (uint64_t) pml4_index,
+        translation.pml4_entry,
+        pdpt_physical,
+        (uint64_t) pdpt_index,
+        translation.pdpt_entry
+    );
+
+    if (
+        translation.page_size ==
+        PAGING_PAGE_SIZE_1G
+    ) {
+        diagnostics_printf(
+            "    1G leaf PA=%x\n",
+            paging_entry_address(
+                translation.pdpt_entry
+            )
+        );
+
+        return;
+    }
+
+    uint64_t pd_physical =
+        paging_entry_address(
+            translation.pdpt_entry
+        );
+
+    diagnostics_printf(
+        "    PD PA=%x index=%u entry=%x\n",
+        pd_physical,
+        (uint64_t) pd_index,
+        translation.pd_entry
+    );
+
+    if (
+        translation.page_size ==
+        PAGING_PAGE_SIZE_2M
+    ) {
+        diagnostics_printf(
+            "    2M leaf PA=%x\n",
+            translation.pd_entry &
+                PAGE_ADDRESS_MASK_2M
+        );
+
+        return;
+    }
+
+    uint64_t pt_physical =
+        paging_entry_address(
+            translation.pd_entry
+        );
+
+    diagnostics_printf(
+        "    PT PA=%x index=%u entry=%x\n"
+        "    4K leaf PA=%x\n",
+        pt_physical,
+        (uint64_t) pt_index,
+        translation.pt_entry,
+        paging_entry_address(
+            translation.pt_entry
+        )
+    );
+}
+
 static void runtime_dump_kernel_mapping_inventory(void)
 {
     diagnostics_printf(
@@ -474,26 +602,59 @@ static void runtime_dump_kernel_mapping_inventory(void)
         (uint64_t) __bss_end
     );
 
+    uint64_t active_rsp =
+        read_rsp();
+
     runtime_dump_mapping_point(
         "active RSP",
-        read_rsp()
+        active_rsp
     );
+
+    uint64_t tss_rsp0 =
+        gdt_kernel_stack_top() - 1;
 
     runtime_dump_mapping_point(
         "TSS RSP0",
-        gdt_kernel_stack_top() - 1
+        tss_rsp0
     );
 
     uint64_t kernel_pml4_physical =
         paging_kernel_address_space()
             ->pml4_physical;
 
-    runtime_dump_mapping_point(
-        "direct-map PML4 frame",
+    uint64_t direct_map_pml4 =
         (uint64_t)
         memory_physical_to_virtual(
             kernel_pml4_physical
-        )
+        );
+
+    runtime_dump_mapping_point(
+        "direct-map PML4 frame",
+        direct_map_pml4
+    );
+
+    diagnostics_write(
+        "\n  Page-table topology:\n"
+    );
+
+    runtime_dump_page_table_topology(
+        ".text",
+        (uint64_t) __text_start
+    );
+
+    runtime_dump_page_table_topology(
+        "active RSP",
+        active_rsp
+    );
+
+    runtime_dump_page_table_topology(
+        "TSS RSP0",
+        tss_rsp0
+    );
+
+    runtime_dump_page_table_topology(
+        "direct-map PML4 frame",
+        direct_map_pml4
     );
 }
 
