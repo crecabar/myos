@@ -582,44 +582,6 @@ static bool paging_cache_flags(
     return false;
 }
 
-bool paging_map_mmio_page(
-    uint64_t physical_address,
-    volatile void **virtual_address)
-{
-    if (virtual_address == NULL) return false;
-
-    if ((physical_address & 0xFFFULL) != 0) {
-        return false;
-    }
-
-    uint64_t mapping_virtual =
-        (uint64_t) memory_physical_to_virtual(
-            physical_address
-        );
-
-    uint64_t flags =
-        PAGE_ENTRY_WRITABLE |
-        PAGE_ENTRY_WRITE_THROUGH |
-        PAGE_ENTRY_CACHE_DISABLE |
-        PAGE_ENTRY_NO_EXECUTE;
-
-    if (!paging_map_page_flags(
-        paging_kernel_address_space(),
-        mapping_virtual,
-        physical_address,
-        flags
-    )) {
-        return false;
-    }
-
-    paging_invalidate_page(mapping_virtual);
-
-    *virtual_address =
-        (volatile void *) mapping_virtual;
-
-    return true;
-}
-
 bool paging_unmap_page(
     struct paging_address_space *address_space,
     uint64_t virtual_address,

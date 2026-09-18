@@ -223,22 +223,6 @@ bool paging_map_kernel_device_page(
 );
 
 /**
- * Maps one physical MMIO page into the kernel direct-map region.
- *
- * The mapping is supervisor-only, writable, and configured for uncached
- * device access.
- *
- * @param physical_address 4 KiB-aligned physical MMIO page address.
- * @param virtual_address Receives the kernel virtual address of the mapping.
- *
- * @return true when the MMIO page is available to the kernel; false otherwise.
- */
-bool paging_map_mmio_page(
-    uint64_t physical_address,
-    volatile void **virtual_address
-);
-
-/**
  * Removes one 4 KiB page mapping from an address space.
  *
  * Unmapping is rejected if the walk encounters a huge-page mapping.
