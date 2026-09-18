@@ -605,7 +605,8 @@ run-tests:
 	$(MAKE) \
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=0 \
-		run
+		MYOS_QEMU_TEST_EXIT=1 \
+		run-qemu-tests
 
 test-qemu:
 	$(MAKE) \
@@ -624,7 +625,8 @@ run-diagnostics:
 	$(MAKE) \
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=1 \
-		run
+		MYOS_QEMU_TEST_EXIT=1 \
+		run-qemu-tests
 
 debug-diagnostics:
 	$(MAKE) \
