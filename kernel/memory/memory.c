@@ -97,6 +97,17 @@ void *memory_physical_to_virtual(uint64_t physical_address)
     return direct_map_physical_address(physical_address);
 }
 
+uint64_t memory_managed_physical_limit(void)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    return (managed_frame_count * MEMORY_FRAME_SIZE);
+}
+
 bool physical_alloc_frame(uint64_t *physical_address)
 {
     if (!memory_initialized) {

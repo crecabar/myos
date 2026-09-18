@@ -72,6 +72,8 @@ static void runtime_dump_device_mapping_inventory(
     const struct framebuffer *framebuffer
 );
 
+static void runtime_dump_direct_map_inventory(void);
+
 static bool runtime_translation_writable(
     const struct paging_translation *translation
 );
@@ -132,6 +134,12 @@ void runtime_diagnostics_run(
     );
 
     runtime_dump_kernel_mapping_inventory();
+
+    diagnostics_write(
+        "\n--- Direct-map inventory ---\n"
+    );
+
+    runtime_dump_direct_map_inventory();
 
     diagnostics_write(
         "\n--- Device mapping inventory ---\n"
@@ -501,6 +509,229 @@ static void runtime_dump_device_mapping_inventory(
             "I/O APIC mapping resolves to unexpected physical address"
         );
     }
+}
+
+static void runtime_dump_direct_map_inventory(void)
+{
+    uint64_t direct_map_base =
+        (uint64_t)
+        memory_physical_to_virtual(0);
+
+    uint64_t physical_limit =
+        memory_managed_physical_limit();
+
+    if (physical_limit == 0) {
+        kernel_panic(
+            "Direct-map managed physical span is empty"
+        );
+    }
+
+    if (
+        direct_map_base >
+        UINT64_MAX - physical_limit
+    ) {
+        kernel_panic(
+            "Direct-map virtual span overflows"
+        );
+    }
+
+    uint64_t direct_map_end =
+        direct_map_base +
+        physical_limit;
+
+    uint64_t pml4_physical =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint64_t *pml4 =
+        memory_physical_to_virtual(
+            pml4_physical
+        );
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            direct_map_base
+        );
+
+    uint64_t pml4_entry =
+        pml4[pml4_index];
+
+    if (
+        (pml4_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        kernel_panic(
+            "Direct-map PML4 branch is not present"
+        );
+    }
+
+    uint64_t pdpt_physical =
+        paging_entry_address(
+            pml4_entry
+        );
+
+    uint64_t *pdpt =
+        memory_physical_to_virtual(
+            pdpt_physical
+        );
+
+    uint64_t pdpt_entries = 0;
+    uint64_t pd_tables = 0;
+    uint64_t pt_tables = 0;
+
+    uint64_t leaf_1g = 0;
+    uint64_t leaf_2m = 0;
+    uint64_t leaf_4k = 0;
+
+    uint64_t mapped_bytes = 0;
+
+    for (
+        size_t pdpt_index = 0;
+        pdpt_index < 512;
+        ++pdpt_index
+    ) {
+        uint64_t pdpt_entry =
+            pdpt[pdpt_index];
+
+        if (
+            (pdpt_entry &
+             PAGE_ENTRY_PRESENT) == 0
+        ) {
+            continue;
+        }
+
+        ++pdpt_entries;
+
+        if (
+            (pdpt_entry &
+             PAGE_ENTRY_HUGE) != 0
+        ) {
+            ++leaf_1g;
+            mapped_bytes +=
+                1ULL << 30;
+
+            continue;
+        }
+
+        ++pd_tables;
+
+        uint64_t pd_physical =
+            paging_entry_address(
+                pdpt_entry
+            );
+
+        uint64_t *pd =
+            memory_physical_to_virtual(
+                pd_physical
+            );
+
+        for (
+            size_t pd_index = 0;
+            pd_index < 512;
+            ++pd_index
+        ) {
+            uint64_t pd_entry =
+                pd[pd_index];
+
+            if (
+                (pd_entry &
+                 PAGE_ENTRY_PRESENT) == 0
+            ) {
+                continue;
+            }
+
+            if (
+                (pd_entry &
+                 PAGE_ENTRY_HUGE) != 0
+            ) {
+                ++leaf_2m;
+                mapped_bytes +=
+                    1ULL << 21;
+
+                continue;
+            }
+
+            ++pt_tables;
+
+            uint64_t pt_physical =
+                paging_entry_address(
+                    pd_entry
+                );
+
+            uint64_t *pt =
+                memory_physical_to_virtual(
+                    pt_physical
+                );
+
+            for (
+                size_t pt_index = 0;
+                pt_index < 512;
+                ++pt_index
+            ) {
+                if (
+                    (pt[pt_index] &
+                     PAGE_ENTRY_PRESENT) == 0
+                ) {
+                    continue;
+                }
+
+                ++leaf_4k;
+                mapped_bytes +=
+                    MEMORY_FRAME_SIZE;
+            }
+        }
+    }
+
+    diagnostics_printf(
+        "Direct physical-memory map:\n"
+        "  base VA=%x\n"
+        "  managed physical limit=%x\n"
+        "  managed physical bytes=%u\n"
+        "  managed virtual end=%x\n"
+        "  PML4 index=%u\n"
+        "  branch entry=%x child PA=%x\n"
+        "  present PDPT entries=%u\n"
+        "  PD tables=%u\n"
+        "  PT tables=%u\n"
+        "  1G leaves=%u\n"
+        "  2M leaves=%u\n"
+        "  4K leaves=%u\n"
+        "  mapped bytes in branch=%u\n",
+        direct_map_base,
+        physical_limit,
+        physical_limit,
+        direct_map_end,
+        (uint64_t) pml4_index,
+        pml4_entry,
+        pdpt_physical,
+        pdpt_entries,
+        pd_tables,
+        pt_tables,
+        leaf_1g,
+        leaf_2m,
+        leaf_4k,
+        mapped_bytes
+    );
+
+    runtime_dump_mapping_point(
+        "direct-map first managed byte",
+        direct_map_base
+    );
+
+    runtime_dump_mapping_point(
+        "direct-map last managed byte",
+        direct_map_end - 1
+    );
+
+    runtime_dump_page_table_topology(
+        "direct-map first managed byte",
+        direct_map_base
+    );
+
+    runtime_dump_page_table_topology(
+        "direct-map last managed byte",
+        direct_map_end - 1
+    );
 }
 
 static bool runtime_translation_writable(

@@ -44,6 +44,14 @@ void memory_init(
  */
 void *memory_physical_to_virtual(uint64_t physical_address);
 
+/**
+ * Returns the exclusive upper bound of physical memory managed by the
+ * physical-frame allocator.
+ *
+ * @return Exclusive physical-address limit, aligned to the frame size.
+ */
+uint64_t memory_managed_physical_limit(void);
+
 bool physical_alloc_frame(uint64_t *physical_address);
 
 bool physical_free_frame(uint64_t physical_address);
