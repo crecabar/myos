@@ -105,6 +105,33 @@ bool paging_translate_address_space(
 
 bool paging_address_space_activate(const struct paging_address_space *address_space);
 
+/**
+ * Transfers one owned PML4 branch from one address space to another.
+ *
+ * The source entry must be present and mutable by the source address space.
+ * The destination entry must also be mutable by the destination address
+ * space. The source entry is cleared after the transfer.
+ *
+ * The previous destination entry is returned to the caller without being
+ * reclaimed. Ownership of that replaced branch therefore remains the
+ * caller's responsibility.
+ *
+ * This operation does not invalidate the TLB or reload CR3.
+ *
+ * @param destination Address space receiving the branch.
+ * @param source Address space relinquishing the branch.
+ * @param pml4_index PML4 entry to transfer.
+ * @param replaced_entry Receives the previous destination entry.
+ *
+ * @return true when ownership was transferred; false otherwise.
+ */
+bool paging_address_space_transfer_pml4_branch(
+    struct paging_address_space *destination,
+    struct paging_address_space *source,
+    uint16_t pml4_index,
+    uint64_t *replaced_entry
+);
+
 bool paging_create_empty_table(uint64_t *physical_address, uint64_t **virtual_address);
 
 bool paging_address_space_create(struct paging_address_space *address_space);

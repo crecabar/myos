@@ -670,6 +670,21 @@ static void runtime_dump_kernel_mapping_inventory(void)
             PAGE_ADDRESS_MASK_4K
     );
 
+    uint64_t replaced_kernel_entry;
+
+    if (!kernel_mapping_replaced_branch_entry(
+        &replaced_kernel_entry
+    )) {
+        kernel_panic(
+            "Replaced boot kernel branch is unavailable"
+        );
+    }
+
+    diagnostics_printf(
+        "  replaced boot kernel PML4 entry=%x\n",
+        replaced_kernel_entry
+    );
+
     runtime_dump_mapping_range(
         ".text",
         (uint64_t) __text_start,
@@ -756,7 +771,7 @@ static void runtime_dump_kernel_mapping_inventory(void)
     );
 
     diagnostics_write(
-        "\n  Inherited higher-half branches:\n"
+        "\n  Present higher-half branches:\n"
     );
 
     runtime_dump_present_kernel_branches();

@@ -11,6 +11,32 @@
 #include "../arch/x86_64/paging.h"
 
 #include <stdbool.h>
+#include <stdint.h>
+
+/**
+ * Installs a MyOS-owned kernel-image mapping into the active kernel address
+ * space.
+ *
+ * The existing boot-time PML4 branch is detached but retained for later
+ * reclamation. The kernel address space remains rooted at the same PML4 and
+ * CR3 is reloaded after the branch replacement.
+ *
+ * @return true when the kernel-image branch was replaced successfully; false
+ *         otherwise.
+ */
+bool kernel_mapping_install(void);
+
+/**
+ * Returns the boot-time kernel PML4 entry replaced by
+ * kernel_mapping_install().
+ *
+ * @param entry Receives the detached boot-time PML4 entry.
+ *
+ * @return true when a replaced entry is available; false otherwise.
+ */
+bool kernel_mapping_replaced_branch_entry(
+    uint64_t *entry
+);
 
 /**
  * Builds a detached MyOS-owned mapping of the kernel image.

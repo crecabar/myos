@@ -213,6 +213,72 @@ bool paging_address_space_activate(
     return true;
 }
 
+bool paging_address_space_transfer_pml4_branch(
+    struct paging_address_space *destination,
+    struct paging_address_space *source,
+    uint16_t pml4_index,
+    uint64_t *replaced_entry)
+{
+    if (destination == NULL) return false;
+    if (source == NULL) return false;
+    if (destination == source) return false;
+    if (destination->pml4_virtual == NULL) return false;
+    if (source->pml4_virtual == NULL) return false;
+    if (replaced_entry == NULL) return false;
+
+    if (pml4_index >= PAGING_TABLE_ENTRY_COUNT) {
+        return false;
+    }
+
+    if (!paging_address_space_pml4_index_mutable(
+        destination,
+        pml4_index
+    )) {
+        return false;
+    }
+
+    if (!paging_address_space_pml4_index_mutable(
+        source,
+        pml4_index
+    )) {
+        return false;
+    }
+
+    uint64_t source_entry =
+        source->pml4_virtual[
+            pml4_index
+        ];
+
+    if (
+        (source_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        return false;
+    }
+
+    if (
+        (source_entry &
+         PAGE_ENTRY_HUGE) != 0
+    ) {
+        return false;
+    }
+
+    *replaced_entry =
+        destination->pml4_virtual[
+            pml4_index
+        ];
+
+    destination->pml4_virtual[
+        pml4_index
+    ] = source_entry;
+
+    source->pml4_virtual[
+        pml4_index
+    ] = 0;
+
+    return true;
+}
+
 bool paging_create_empty_table(uint64_t *physical_address, uint64_t **virtual_address)
 {
     if (physical_address == NULL) {

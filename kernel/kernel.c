@@ -14,6 +14,7 @@
 #include "init/boot_banner.h"
 #include "init/display.h"
 #include "memory/heap.h"
+#include "memory/kernel_mapping.h"
 #include "memory/memory.h"
 #include "scheduler/scheduler.h"
 
@@ -61,6 +62,12 @@ _Noreturn void kernel_main(void)
 
     if (!paging_init()) {
         kernel_panic("Unable to initialize paging");
+    }
+
+    if (!kernel_mapping_install()) {
+        kernel_panic(
+            "Unable to install kernel-owned mappings"
+        );
     }
 
     if (!kernel_heap_init()) {

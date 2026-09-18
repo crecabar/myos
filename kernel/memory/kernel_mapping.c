@@ -12,6 +12,9 @@
 
 #define KERNEL_MAPPING_TABLE_ENTRY_COUNT 512
 
+static bool kernel_mapping_installed;
+static uint64_t kernel_mapping_replaced_entry;
+
 extern char __text_start[];
 extern char __text_end[];
 
@@ -66,6 +69,121 @@ static bool kernel_mapping_translation_user(
 static bool kernel_mapping_translation_executable(
     const struct paging_translation *translation
 );
+
+bool kernel_mapping_install(void)
+{
+    if (kernel_mapping_installed) return false;
+
+    struct paging_address_space candidate;
+
+    if (!kernel_mapping_build(
+        &candidate
+    )) {
+        return false;
+    }
+
+    struct paging_address_space *kernel_address_space =
+        paging_kernel_address_space();
+
+    if (kernel_address_space == NULL) {
+        if (!kernel_mapping_destroy(
+            &candidate
+        )) {
+            kernel_panic(
+                "Unable to destroy uninstalled kernel mapping candidate"
+            );
+        }
+
+        return false;
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            (uint64_t) __text_start
+        );
+
+    uint64_t current_entry =
+        kernel_address_space->pml4_virtual[
+            kernel_pml4_index
+        ];
+
+    if (
+        (current_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        if (!kernel_mapping_destroy(
+            &candidate
+        )) {
+            kernel_panic(
+                "Unable to destroy rejected kernel mapping candidate"
+            );
+        }
+
+        return false;
+    }
+
+    uint64_t replaced_entry;
+
+    if (!paging_address_space_transfer_pml4_branch(
+        kernel_address_space,
+        &candidate,
+        kernel_pml4_index,
+        &replaced_entry
+    )) {
+        if (!kernel_mapping_destroy(
+            &candidate
+        )) {
+            kernel_panic(
+                "Unable to destroy failed kernel mapping candidate"
+            );
+        }
+
+        return false;
+    }
+
+    /*
+     * The active CR3 still points to the same MyOS-owned PML4 root, but cached
+     * translations may still refer to the replaced boot-time branch.
+     */
+    if (!paging_address_space_activate(
+        kernel_address_space
+    )) {
+        kernel_panic(
+            "Unable to reload kernel address space after mapping cutover"
+        );
+    }
+
+    /*
+     * The kernel branch was transferred out of the candidate. Only its
+     * temporary PML4 root remains owned by the candidate now.
+     */
+    if (!kernel_mapping_destroy(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to destroy transferred kernel mapping candidate"
+        );
+    }
+
+    kernel_mapping_replaced_entry =
+        replaced_entry;
+
+    kernel_mapping_installed = true;
+
+    return true;
+}
+
+bool kernel_mapping_replaced_branch_entry(
+    uint64_t *entry)
+{
+    if (entry == NULL) return false;
+    if (!kernel_mapping_installed) return false;
+
+    *entry =
+        kernel_mapping_replaced_entry;
+
+    return true;
+}
 
 bool kernel_mapping_build(
     struct paging_address_space *address_space)
