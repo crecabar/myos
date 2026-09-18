@@ -72,6 +72,7 @@ static void runtime_dump_page_table_topology(
     uint64_t virtual_address
 );
 
+static void runtime_dump_present_kernel_branches(void);
 static void runtime_dump_kernel_mapping_inventory(void);
 static void runtime_test_page_table_chain(void);
 static void runtime_test_kernel_address_space(void);
@@ -564,6 +565,88 @@ static void runtime_dump_page_table_topology(
     );
 }
 
+static void runtime_dump_present_kernel_branches(void)
+{
+    uint64_t pml4_physical =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint64_t *pml4 =
+        memory_physical_to_virtual(
+            pml4_physical
+        );
+
+    diagnostics_write(
+        "  Present higher-half PML4 entries:\n"
+    );
+
+    for (size_t index = 256; index < 512; ++index) {
+        uint64_t entry = pml4[index];
+
+        if ((entry & PAGE_ENTRY_PRESENT) == 0) {
+            continue;
+        }
+
+        diagnostics_printf(
+            "    PML4[%u] entry=%x child PA=%x\n",
+            (uint64_t) index,
+            entry,
+            paging_entry_address(entry)
+        );
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            (uint64_t) __kernel_start
+        );
+
+    uint64_t kernel_pml4_entry =
+        pml4[kernel_pml4_index];
+
+    if (
+        (kernel_pml4_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        kernel_panic(
+            "Kernel PML4 branch is not present"
+        );
+    }
+
+    uint64_t kernel_pdpt_physical =
+        paging_entry_address(
+            kernel_pml4_entry
+        );
+
+    uint64_t *kernel_pdpt =
+        memory_physical_to_virtual(
+            kernel_pdpt_physical
+        );
+
+    diagnostics_printf(
+        "  Present PDPT entries under PML4[%u]:\n",
+        (uint64_t) kernel_pml4_index
+    );
+
+    for (size_t index = 0; index < 512; ++index) {
+        uint64_t entry =
+            kernel_pdpt[index];
+
+        if ((entry & PAGE_ENTRY_PRESENT) == 0) {
+            continue;
+        }
+
+        diagnostics_printf(
+            "    PDPT[%u] entry=%x child/leaf PA=%x huge=%u\n",
+            (uint64_t) index,
+            entry,
+            paging_entry_address(entry),
+            (entry & PAGE_ENTRY_HUGE) != 0
+                ? 1ULL
+                : 0ULL
+        );
+    }
+}
+
 static void runtime_dump_kernel_mapping_inventory(void)
 {
     diagnostics_printf(
@@ -656,6 +739,12 @@ static void runtime_dump_kernel_mapping_inventory(void)
         "direct-map PML4 frame",
         direct_map_pml4
     );
+
+    diagnostics_write(
+        "\n  Inherited higher-half branches:\n"
+    );
+
+    runtime_dump_present_kernel_branches();
 }
 
 static void runtime_dump_kernel_layout(void)
