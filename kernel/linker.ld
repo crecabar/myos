@@ -25,9 +25,11 @@ SECTIONS
     . = ALIGN(0x1000);
     .limine_requests :
     {
+        __limine_requests_start = .;
         KEEP(*(.limine_requests_start))
         KEEP(*(.limine_requests))
         KEEP(*(.limine_requests_end))
+        __limine_requests_end = .;
     }
 
     . = ALIGN(0x1000);
