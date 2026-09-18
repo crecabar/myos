@@ -4,9 +4,13 @@
 
 #include "memory.h"
 #include "../arch/x86_64/paging.h"
+#include "../core/panic.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
+#define KERNEL_MAPPING_TABLE_ENTRY_COUNT 512
 
 extern char __text_start[];
 extern char __text_end[];
@@ -39,10 +43,16 @@ static bool kernel_mapping_validate_range(
     bool executable
 );
 
-static bool kernel_mapping_unmap_range(
-    struct paging_address_space *address_space,
-    uint64_t start,
-    uint64_t end
+static bool kernel_mapping_populate(
+    struct paging_address_space *address_space
+);
+
+static bool kernel_mapping_release_pdpt(
+    uint64_t pdpt_physical
+);
+
+static bool kernel_mapping_release_pd(
+    uint64_t pd_physical
 );
 
 static bool kernel_mapping_translation_writable(
@@ -62,180 +72,92 @@ bool kernel_mapping_build(
 {
     if (address_space == NULL) return false;
 
+    struct paging_address_space candidate;
+
     if (!paging_address_space_create(
-        address_space
+        &candidate
     )) {
         return false;
     }
 
-    if (!kernel_mapping_map_range(
-        address_space,
-        (uint64_t) __text_start,
-        (uint64_t) __text_end,
-        false,
-        true
+    if (!kernel_mapping_populate(
+        &candidate
     )) {
-        goto fail;
+        if (!kernel_mapping_destroy(
+            &candidate
+        )) {
+            kernel_panic(
+                "Unable to roll back failed kernel mapping build"
+            );
+        }
+
+        return false;
     }
 
-    if (!kernel_mapping_map_range(
-        address_space,
-        (uint64_t) __rodata_start,
-        (uint64_t) __rodata_end,
-        false,
-        false
-    )) {
-        goto fail;
-    }
-
-    if (!kernel_mapping_map_range(
-        address_space,
-        (uint64_t) __limine_requests_start,
-        (uint64_t) __limine_requests_end,
-        false,
-        false
-    )) {
-        goto fail;
-    }
-
-    if (!kernel_mapping_map_range(
-        address_space,
-        (uint64_t) __data_start,
-        (uint64_t) __data_end,
-        true,
-        false
-    )) {
-        goto fail;
-    }
-
-    if (!kernel_mapping_map_range(
-        address_space,
-        (uint64_t) __bss_start,
-        (uint64_t) __bss_end,
-        true,
-        false
-    )) {
-        goto fail;
-    }
-
-    if (!kernel_mapping_validate_range(
-        address_space,
-        (uint64_t) __text_start,
-        (uint64_t) __text_end,
-        false,
-        true
-    )) {
-        goto fail;
-    }
-
-    if (!kernel_mapping_validate_range(
-        address_space,
-        (uint64_t) __rodata_start,
-        (uint64_t) __rodata_end,
-        false,
-        false
-    )) {
-        goto fail;
-    }
-
-    if (!kernel_mapping_validate_range(
-        address_space,
-        (uint64_t) __limine_requests_start,
-        (uint64_t) __limine_requests_end,
-        false,
-        false
-    )) {
-        goto fail;
-    }
-
-    if (!kernel_mapping_validate_range(
-        address_space,
-        (uint64_t) __data_start,
-        (uint64_t) __data_end,
-        true,
-        false
-    )) {
-        goto fail;
-    }
-
-    if (!kernel_mapping_validate_range(
-        address_space,
-        (uint64_t) __bss_start,
-        (uint64_t) __bss_end,
-        true,
-        false
-    )) {
-        goto fail;
-    }
-
-    if (
-        address_space->pml4_virtual[
-            paging_pml4_index(
-                (uint64_t) __text_start
-            )
-        ] &
-        PAGE_ENTRY_USER
-    ) {
-        goto fail;
-    }
-
-    if (
-        address_space->pml4_virtual[256] != 0
-    ) {
-        goto fail;
-    }
+    *address_space = candidate;
 
     return true;
-
-fail:
-    kernel_mapping_destroy(address_space);
-
-    return false;
 }
 
 bool kernel_mapping_destroy(
     struct paging_address_space *address_space)
 {
     if (address_space == NULL) return false;
+    if (address_space->pml4_virtual == NULL) return false;
+    if (address_space->kernel_half_shared) return false;
 
-    if (!kernel_mapping_unmap_range(
-        address_space,
-        (uint64_t) __bss_start,
-        (uint64_t) __bss_end
-    )) {
-        return false;
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            (uint64_t) __text_start
+        );
+
+    for (
+        size_t index = 0;
+        index < KERNEL_MAPPING_TABLE_ENTRY_COUNT;
+        ++index
+    ) {
+        if (index == kernel_pml4_index) {
+            continue;
+        }
+
+        if (
+            (address_space->pml4_virtual[index] &
+             PAGE_ENTRY_PRESENT) != 0
+        ) {
+            return false;
+        }
     }
 
-    if (!kernel_mapping_unmap_range(
-        address_space,
-        (uint64_t) __data_start,
-        (uint64_t) __data_end
-    )) {
-        return false;
-    }
+    uint64_t kernel_entry =
+        address_space->pml4_virtual[
+            kernel_pml4_index
+        ];
 
-    if (!kernel_mapping_unmap_range(
-        address_space,
-        (uint64_t) __limine_requests_start,
-        (uint64_t) __limine_requests_end
-    )) {
-        return false;
-    }
+    if (
+        (kernel_entry &
+         PAGE_ENTRY_PRESENT) != 0
+    ) {
+        if (
+            (kernel_entry &
+             PAGE_ENTRY_HUGE) != 0
+        ) {
+            return false;
+        }
 
-    if (!kernel_mapping_unmap_range(
-        address_space,
-        (uint64_t) __rodata_start,
-        (uint64_t) __rodata_end
-    )) {
-        return false;
-    }
+        uint64_t pdpt_physical =
+            paging_entry_address(
+                kernel_entry
+            );
 
-    if (!kernel_mapping_unmap_range(
-        address_space,
-        (uint64_t) __text_start,
-        (uint64_t) __text_end
-    )) {
-        return false;
+        if (!kernel_mapping_release_pdpt(
+            pdpt_physical
+        )) {
+            return false;
+        }
+
+        address_space->pml4_virtual[
+            kernel_pml4_index
+        ] = 0;
     }
 
     return paging_address_space_destroy(
@@ -395,48 +317,253 @@ static bool kernel_mapping_validate_range(
     return true;
 }
 
-static bool kernel_mapping_unmap_range(
-    struct paging_address_space *address_space,
-    uint64_t start,
-    uint64_t end)
+static bool kernel_mapping_populate(
+    struct paging_address_space *address_space)
 {
     if (address_space == NULL) return false;
-    if (end <= start) return false;
 
-    uint64_t first_page =
-        start & PAGE_ADDRESS_MASK_4K;
+    if (!kernel_mapping_map_range(
+        address_space,
+        (uint64_t) __text_start,
+        (uint64_t) __text_end,
+        false,
+        true
+    )) {
+        return false;
+    }
 
-    uint64_t last_page =
-        (end - 1) & PAGE_ADDRESS_MASK_4K;
+    if (!kernel_mapping_map_range(
+        address_space,
+        (uint64_t) __rodata_start,
+        (uint64_t) __rodata_end,
+        false,
+        false
+    )) {
+        return false;
+    }
+
+    if (!kernel_mapping_map_range(
+        address_space,
+        (uint64_t) __limine_requests_start,
+        (uint64_t) __limine_requests_end,
+        false,
+        false
+    )) {
+        return false;
+    }
+
+    if (!kernel_mapping_map_range(
+        address_space,
+        (uint64_t) __data_start,
+        (uint64_t) __data_end,
+        true,
+        false
+    )) {
+        return false;
+    }
+
+    if (!kernel_mapping_map_range(
+        address_space,
+        (uint64_t) __bss_start,
+        (uint64_t) __bss_end,
+        true,
+        false
+    )) {
+        return false;
+    }
+
+    if (!kernel_mapping_validate_range(
+        address_space,
+        (uint64_t) __text_start,
+        (uint64_t) __text_end,
+        false,
+        true
+    )) {
+        return false;
+    }
+
+    if (!kernel_mapping_validate_range(
+        address_space,
+        (uint64_t) __rodata_start,
+        (uint64_t) __rodata_end,
+        false,
+        false
+    )) {
+        return false;
+    }
+
+    if (!kernel_mapping_validate_range(
+        address_space,
+        (uint64_t) __limine_requests_start,
+        (uint64_t) __limine_requests_end,
+        false,
+        false
+    )) {
+        return false;
+    }
+
+    if (!kernel_mapping_validate_range(
+        address_space,
+        (uint64_t) __data_start,
+        (uint64_t) __data_end,
+        true,
+        false
+    )) {
+        return false;
+    }
+
+    if (!kernel_mapping_validate_range(
+        address_space,
+        (uint64_t) __bss_start,
+        (uint64_t) __bss_end,
+        true,
+        false
+    )) {
+        return false;
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            (uint64_t) __text_start
+        );
+
+    uint64_t kernel_entry =
+        address_space->pml4_virtual[
+            kernel_pml4_index
+        ];
+
+    if ((kernel_entry & PAGE_ENTRY_PRESENT) == 0) {
+        return false;
+    }
+
+    if ((kernel_entry & PAGE_ENTRY_USER) != 0) {
+        return false;
+    }
 
     for (
-        uint64_t virtual_address = first_page;
-        ;
-        virtual_address += MEMORY_FRAME_SIZE
+        size_t index = 0;
+        index < KERNEL_MAPPING_TABLE_ENTRY_COUNT;
+        ++index
     ) {
-        uint64_t physical_address;
-
-        if (!paging_unmap_page(
-            address_space,
-            virtual_address,
-            &physical_address
-        )) {
-            return false;
-        }
-
-        if (virtual_address == last_page) {
-            break;
+        if (index == kernel_pml4_index) {
+            continue;
         }
 
         if (
-            virtual_address >
-            UINT64_MAX - MEMORY_FRAME_SIZE
+            (address_space->pml4_virtual[index] &
+             PAGE_ENTRY_PRESENT) != 0
         ) {
             return false;
         }
     }
 
     return true;
+}
+
+static bool kernel_mapping_release_pdpt(
+    uint64_t pdpt_physical)
+{
+    uint64_t *pdpt =
+        memory_physical_to_virtual(
+            pdpt_physical
+        );
+
+    for (
+        size_t index = 0;
+        index < KERNEL_MAPPING_TABLE_ENTRY_COUNT;
+        ++index
+    ) {
+        uint64_t entry = pdpt[index];
+
+        if (
+            (entry &
+             PAGE_ENTRY_PRESENT) == 0
+        ) {
+            continue;
+        }
+
+        if (
+            (entry &
+             PAGE_ENTRY_HUGE) != 0
+        ) {
+            /*
+             * Huge leaves map borrowed physical memory.
+             * The mapping disappears with the table; the leaf frame itself
+             * is not owned by this candidate.
+             */
+            pdpt[index] = 0;
+            continue;
+        }
+
+        uint64_t pd_physical =
+            paging_entry_address(entry);
+
+        if (!kernel_mapping_release_pd(
+            pd_physical
+        )) {
+            return false;
+        }
+
+        pdpt[index] = 0;
+    }
+
+    return physical_free_frame(
+        pdpt_physical
+    );
+}
+
+static bool kernel_mapping_release_pd(
+    uint64_t pd_physical)
+{
+    uint64_t *pd =
+        memory_physical_to_virtual(
+            pd_physical
+        );
+
+    for (
+        size_t index = 0;
+        index < KERNEL_MAPPING_TABLE_ENTRY_COUNT;
+        ++index
+    ) {
+        uint64_t entry = pd[index];
+
+        if (
+            (entry &
+             PAGE_ENTRY_PRESENT) == 0
+        ) {
+            continue;
+        }
+
+        if (
+            (entry &
+             PAGE_ENTRY_HUGE) != 0
+        ) {
+            /*
+             * Huge leaves reference borrowed physical memory.
+             */
+            pd[index] = 0;
+            continue;
+        }
+
+        uint64_t pt_physical =
+            paging_entry_address(entry);
+
+        /*
+         * PTE leaf frames contain the kernel image and are borrowed.
+         * Only the PT frame itself belongs to the detached candidate.
+         */
+        if (!physical_free_frame(
+            pt_physical
+        )) {
+            return false;
+        }
+
+        pd[index] = 0;
+    }
+
+    return physical_free_frame(
+        pd_physical
+    );
 }
 
 static bool kernel_mapping_translation_writable(

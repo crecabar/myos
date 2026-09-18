@@ -76,6 +76,7 @@ static void runtime_dump_page_table_topology(
 static void runtime_dump_present_kernel_branches(void);
 static void runtime_dump_kernel_mapping_inventory(void);
 static void runtime_test_kernel_owned_mapping_build(void);
+static void runtime_test_kernel_partial_mapping_destroy(void);
 static void runtime_test_page_table_chain(void);
 static void runtime_test_kernel_address_space(void);
 static void runtime_test_active_page_mapping(void);
@@ -109,6 +110,12 @@ void runtime_diagnostics_run(void)
     );
 
     runtime_test_kernel_owned_mapping_build();
+
+    diagnostics_write(
+        "\n--- Kernel partial mapping rollback ---\n"
+    );
+
+    runtime_test_kernel_partial_mapping_destroy();
 
     diagnostics_write("\n--- Physical memory ---\n");
     memory_dump_map();
@@ -851,31 +858,23 @@ static void runtime_test_kernel_owned_mapping_build(void)
             kernel_pml4_index
         ];
 
-        if (
-            (candidate_entry &
-             PAGE_ENTRY_PRESENT) == 0
-        ) {
-            kernel_panic(
-                "Candidate kernel PML4 branch is missing"
-            );
-        }
+    if ((candidate_entry & PAGE_ENTRY_PRESENT) == 0) {
+        kernel_panic(
+            "Candidate kernel PML4 branch is missing"
+        );
+    }
 
-        if (
-            (candidate_entry &
-             PAGE_ENTRY_USER) != 0
-        ) {
-            kernel_panic(
-                "Candidate kernel PML4 branch is user accessible"
-            );
-        }
+    if ((candidate_entry & PAGE_ENTRY_USER) != 0) {
+        kernel_panic(
+            "Candidate kernel PML4 branch is user accessible"
+        );
+    }
 
-        if (
-            candidate.pml4_virtual[256] != 0
-        ) {
-            kernel_panic(
-                "Candidate unexpectedly inherited direct-map branch"
-            );
-        }
+    if (candidate.pml4_virtual[256] != 0) {
+        kernel_panic(
+            "Candidate unexpectedly inherited direct-map branch"
+        );
+    }
 
     diagnostics_printf(
         "Kernel owned mapping candidate:\n"
@@ -922,6 +921,134 @@ static void runtime_test_kernel_owned_mapping_build(void)
 
     diagnostics_printf(
         "  free after destroy=%u\n",
+        free_after_destroy
+    );
+}
+
+static void runtime_test_kernel_partial_mapping_destroy(void)
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct paging_address_space candidate;
+
+    if (!paging_address_space_create(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to create partial kernel mapping candidate"
+        );
+    }
+
+    uint64_t pdpt_physical;
+    uint64_t *pdpt;
+
+    if (!paging_create_empty_table(
+        &pdpt_physical,
+        &pdpt
+    )) {
+        kernel_panic(
+            "Unable to create partial kernel PDPT"
+        );
+    }
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            (uint64_t) __kernel_start
+        );
+
+    candidate.pml4_virtual[
+        pml4_index
+    ] = paging_make_table_entry(
+        pdpt_physical,
+        true,
+        false
+    );
+
+    uint64_t pd_physical;
+    uint64_t *pd;
+
+    if (!paging_create_empty_table(
+        &pd_physical,
+        &pd
+    )) {
+        kernel_panic(
+            "Unable to create partial kernel PD"
+        );
+    }
+
+    uint16_t pdpt_index =
+        paging_pdpt_index(
+            (uint64_t) __kernel_start
+        );
+
+    pdpt[pdpt_index] =
+        paging_make_table_entry(
+            pd_physical,
+            true,
+            false
+        );
+
+    uint64_t pt_physical;
+    uint64_t *pt;
+
+    if (!paging_create_empty_table(
+        &pt_physical,
+        &pt
+    )) {
+        kernel_panic(
+            "Unable to create partial kernel PT"
+        );
+    }
+
+    uint16_t pd_index =
+        paging_pd_index(
+            (uint64_t) __kernel_start
+        );
+
+    pd[pd_index] =
+        paging_make_table_entry(
+            pt_physical,
+            true,
+            false
+        );
+
+    uint64_t free_after_partial_build =
+        physical_free_frame_count();
+
+    if (
+        free_after_partial_build !=
+        free_before - 4
+    ) {
+        kernel_panic(
+            "Partial kernel mapping allocated unexpected frame count"
+        );
+    }
+
+    if (!kernel_mapping_destroy(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to destroy partial kernel mapping candidate"
+        );
+    }
+
+    uint64_t free_after_destroy =
+        physical_free_frame_count();
+
+    if (free_after_destroy != free_before) {
+        kernel_panic(
+            "Partial kernel mapping rollback leaked page-table frames"
+        );
+    }
+
+    diagnostics_printf(
+        "Partial kernel mapping rollback test:\n"
+        "  free before=%u\n"
+        "  free after partial build=%u\n"
+        "  free after destroy=%u\n",
+        free_before,
+        free_after_partial_build,
         free_after_destroy
     );
 }
