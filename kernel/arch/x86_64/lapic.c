@@ -2,7 +2,7 @@
 
 #include "lapic.h"
 
-#include "paging.h"
+#include "../../memory/device_mapping.h"
 
 #include <stddef.h>
 
@@ -21,6 +21,7 @@
 #define LAPIC_SOFTWARE_ENABLE (1U << 8)
 
 static volatile uint32_t *lapic_base;
+static uint64_t lapic_physical_base;
 static bool lapic_initialized;
 
 /* Helpers and private functions */
@@ -53,13 +54,14 @@ bool lapic_init(void)
 
     volatile void *mapping;
 
-    if (!paging_map_mmio_page(
+    if (!device_mapping_map_mmio_page(
         physical_address,
         &mapping
     )) {
         return false;
     }
 
+    lapic_physical_base = physical_address;
     lapic_base = mapping;
 
     uint32_t spurious =
@@ -75,6 +77,20 @@ bool lapic_init(void)
     );
 
     lapic_initialized = true;
+
+    return true;
+}
+
+bool lapic_mapping_info(
+    uint64_t *physical_address,
+    uint64_t *virtual_address)
+{
+    if (!lapic_initialized) return false;
+    if (physical_address == NULL) return false;
+    if (virtual_address == NULL) return false;
+
+    *physical_address = lapic_physical_base;
+    *virtual_address = (uint64_t) lapic_base;
 
     return true;
 }

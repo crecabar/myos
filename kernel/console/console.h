@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-#include <limine.h>
+struct framebuffer;
 
 struct console {
     struct framebuffer *framebuffer;

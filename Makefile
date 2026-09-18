@@ -605,7 +605,8 @@ run-tests:
 	$(MAKE) \
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=0 \
-		run
+		MYOS_QEMU_TEST_EXIT=1 \
+		run-qemu-tests
 
 test-qemu:
 	$(MAKE) \
@@ -624,7 +625,8 @@ run-diagnostics:
 	$(MAKE) \
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=1 \
-		run
+		MYOS_QEMU_TEST_EXIT=1 \
+		run-qemu-tests
 
 debug-diagnostics:
 	$(MAKE) \
@@ -710,7 +712,6 @@ check-toolchain:
 # -----------------------------------------------------------------------------
 
 COMPDB := $(BUILD_DIR)/compile_commands.json
-COMPDB_TMP := .compile_commands.json.tmp
 
 .PHONY: compdb
 
@@ -719,12 +720,15 @@ compdb:
 		echo "error: Bear is not installed"; \
 		exit 1; \
 	}
-	@rm -f $(COMPDB_TMP)
-	@$(MAKE) clean
+	@rm -f compile_commands.json $(COMPDB)
 	@mkdir -p $(BUILD_DIR)
-	@$(BEAR) -o $(COMPDB_TMP) -- \
-		$(MAKE) CLANG="$(CLANG)" all
-	@mv $(COMPDB_TMP) $(COMPDB)
+	@$(MAKE) -B -n \
+		CLANG="$(CLANG)" \
+		MYOS_RUNTIME_DIAGNOSTICS=1 \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_QEMU_TEST_EXIT=1 \
+		all | $(BEAR) parse-sh
+	@mv compile_commands.json $(COMPDB)
 	@echo
 	@echo "Compilation database created:"
 	@echo "  $(COMPDB)"

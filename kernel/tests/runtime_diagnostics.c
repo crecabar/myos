@@ -3,10 +3,14 @@
 #include "runtime_diagnostics.h"
 
 #include "../arch/x86_64/gdt.h"
+#include "../arch/x86_64/ioapic.h"
+#include "../arch/x86_64/lapic.h"
 #include "../arch/x86_64/paging.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../drivers/framebuffer.h"
 #include "../memory/memory.h"
+#include "../memory/kernel_mapping.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/stack.h"
@@ -14,8 +18,28 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define IA32_PAT_MSR 0x277U
+
+#define PAGE_ENTRY_PAT_4K    (1ULL << 7)
+#define PAGE_ENTRY_PAT_LARGE (1ULL << 12)
+
 extern char __kernel_start[];
 extern char __kernel_end[];
+
+extern char __text_start[];
+extern char __text_end[];
+
+extern char __rodata_start[];
+extern char __rodata_end[];
+
+extern char __limine_requests_start[];
+extern char __limine_requests_end[];
+
+extern char __data_start[];
+extern char __data_end[];
+
+extern char __bss_start[];
+extern char __bss_end[];
 
 /* Helpers and private functions */
 static uint16_t read_cs(void);
@@ -25,6 +49,61 @@ static uint16_t read_tr(void);
 static void dump_page_size(enum paging_page_size page_size);
 static void runtime_dump_kernel_layout(void);
 static void runtime_dump_paging(void);
+
+static uint64_t runtime_read_msr(uint32_t msr);
+
+static uint8_t runtime_translation_pat_index(
+    const struct paging_translation *translation
+);
+
+static const char *runtime_pat_memory_type_name(
+    uint8_t memory_type
+);
+
+static const char *runtime_page_size_name(
+    enum paging_page_size page_size
+);
+
+static uint64_t runtime_translation_leaf_entry(
+    const struct paging_translation *translation
+);
+
+static void runtime_dump_device_mapping_inventory(
+    const struct framebuffer *framebuffer
+);
+
+static bool runtime_translation_writable(
+    const struct paging_translation *translation
+);
+
+static bool runtime_translation_user(
+    const struct paging_translation *translation
+);
+
+static bool runtime_translation_executable(
+    const struct paging_translation *translation
+);
+
+static void runtime_dump_mapping_point(
+    const char *name,
+    uint64_t virtual_address
+);
+
+static void runtime_dump_mapping_range(
+    const char *name,
+    uint64_t start,
+    uint64_t end
+);
+
+static void runtime_dump_page_table_topology(
+    const char *name,
+    uint64_t virtual_address
+);
+
+static void runtime_dump_present_kernel_branches(void);
+static void runtime_dump_kernel_mapping_inventory(void);
+static void runtime_test_kernel_owned_mapping_build(void);
+static void runtime_test_kernel_partial_mapping_destroy(void);
 static void runtime_test_page_table_chain(void);
 static void runtime_test_kernel_address_space(void);
 static void runtime_test_active_page_mapping(void);
@@ -39,13 +118,40 @@ static void runtime_test_process_layout(void);
 static void runtime_test_gdt(void);
 /* END HELPERS */
 
-void runtime_diagnostics_run(void)
+void runtime_diagnostics_run(
+    const struct framebuffer *framebuffer)
 {
     diagnostics_write("[tests] Starting runtime diagnostics\n");
     diagnostics_write("\n=== Runtime diagnostics ===\n");
 
     runtime_dump_kernel_layout();
     runtime_dump_paging();
+
+    diagnostics_write(
+        "\n--- Kernel mapping inventory ---\n"
+    );
+
+    runtime_dump_kernel_mapping_inventory();
+
+    diagnostics_write(
+        "\n--- Device mapping inventory ---\n"
+    );
+
+    runtime_dump_device_mapping_inventory(
+        framebuffer
+    );
+
+    diagnostics_write(
+        "\n--- Kernel owned mapping build ---\n"
+    );
+
+    runtime_test_kernel_owned_mapping_build();
+
+    diagnostics_write(
+        "\n--- Kernel partial mapping rollback ---\n"
+    );
+
+    runtime_test_kernel_partial_mapping_destroy();
 
     diagnostics_write("\n--- Physical memory ---\n");
     memory_dump_map();
@@ -196,6 +302,734 @@ static void dump_page_size(enum paging_page_size page_size)
     }
 }
 
+static const char *runtime_page_size_name(
+    enum paging_page_size page_size)
+{
+    switch (page_size) {
+        case PAGING_PAGE_SIZE_4K:
+            return "4K";
+
+        case PAGING_PAGE_SIZE_2M:
+            return "2M";
+
+        case PAGING_PAGE_SIZE_1G:
+            return "1G";
+    }
+
+    return "unknown";
+}
+
+static uint64_t runtime_translation_leaf_entry(
+    const struct paging_translation *translation)
+{
+    if (translation == NULL) return 0;
+
+    switch (translation->page_size) {
+        case PAGING_PAGE_SIZE_1G:
+            return translation->pdpt_entry;
+
+        case PAGING_PAGE_SIZE_2M:
+            return translation->pd_entry;
+
+        case PAGING_PAGE_SIZE_4K:
+            return translation->pt_entry;
+    }
+
+    return 0;
+}
+
+static void runtime_dump_device_mapping_inventory(
+    const struct framebuffer *framebuffer)
+{
+    if (framebuffer == NULL) {
+        kernel_panic(
+            "Device mapping inventory received NULL framebuffer"
+        );
+    }
+
+    diagnostics_printf(
+        "  IA32_PAT=%x\n",
+        runtime_read_msr(
+            IA32_PAT_MSR
+        )
+    );
+
+    if (framebuffer->address == NULL) {
+        kernel_panic(
+            "Device mapping inventory received unmapped framebuffer"
+        );
+    }
+
+    if (framebuffer->height == 0) {
+        kernel_panic(
+            "Device mapping inventory received empty framebuffer"
+        );
+    }
+
+    if (
+        framebuffer->pitch >
+        UINT64_MAX / framebuffer->height
+    ) {
+        kernel_panic(
+            "Framebuffer mapping size overflow"
+        );
+    }
+
+    uint64_t framebuffer_size =
+        framebuffer->pitch *
+        framebuffer->height;
+
+    uint64_t framebuffer_start =
+        (uint64_t) framebuffer->address;
+
+    if (
+        framebuffer_size == 0 ||
+        framebuffer_start >
+            UINT64_MAX - framebuffer_size
+    ) {
+        kernel_panic(
+            "Framebuffer mapping range overflow"
+        );
+    }
+
+    uint64_t framebuffer_end =
+        framebuffer_start +
+        framebuffer_size;
+
+    runtime_dump_mapping_range(
+        "framebuffer",
+        framebuffer_start,
+        framebuffer_end
+    );
+
+    runtime_dump_page_table_topology(
+        "framebuffer first",
+        framebuffer_start
+    );
+
+    runtime_dump_page_table_topology(
+        "framebuffer last",
+        framebuffer_end - 1
+    );
+
+    uint64_t lapic_physical;
+    uint64_t lapic_virtual;
+
+    if (!lapic_mapping_info(
+        &lapic_physical,
+        &lapic_virtual
+    )) {
+        kernel_panic(
+            "Local APIC mapping information unavailable"
+        );
+    }
+
+    diagnostics_printf(
+        "  LAPIC requested PA=%x mapped VA=%x\n",
+        lapic_physical,
+        lapic_virtual
+    );
+
+    runtime_dump_mapping_point(
+        "LAPIC",
+        lapic_virtual
+    );
+
+    runtime_dump_page_table_topology(
+        "LAPIC",
+        lapic_virtual
+    );
+
+    struct paging_translation lapic_translation;
+
+    if (
+        !paging_translate(
+            lapic_virtual,
+            &lapic_translation
+        ) ||
+        (
+            lapic_translation.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        ) != lapic_physical
+    ) {
+        kernel_panic(
+            "Local APIC mapping resolves to unexpected physical address"
+        );
+    }
+
+    uint64_t ioapic_physical;
+    uint64_t ioapic_virtual;
+
+    if (!ioapic_mapping_info(
+        &ioapic_physical,
+        &ioapic_virtual
+    )) {
+        kernel_panic(
+            "I/O APIC mapping information unavailable"
+        );
+    }
+
+    diagnostics_printf(
+        "  IOAPIC requested PA=%x mapped VA=%x\n",
+        ioapic_physical,
+        ioapic_virtual
+    );
+
+    runtime_dump_mapping_point(
+        "IOAPIC",
+        ioapic_virtual
+    );
+
+    runtime_dump_page_table_topology(
+        "IOAPIC",
+        ioapic_virtual
+    );
+
+    struct paging_translation ioapic_translation;
+
+    if (
+        !paging_translate(
+            ioapic_virtual,
+            &ioapic_translation
+        ) ||
+        (
+            ioapic_translation.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        ) != ioapic_physical
+    ) {
+        kernel_panic(
+            "I/O APIC mapping resolves to unexpected physical address"
+        );
+    }
+}
+
+static bool runtime_translation_writable(
+    const struct paging_translation *translation)
+{
+    if (translation == NULL) return false;
+
+    if (
+        (translation->pml4_entry &
+         PAGE_ENTRY_WRITABLE) == 0 ||
+        (translation->pdpt_entry &
+         PAGE_ENTRY_WRITABLE) == 0
+    ) {
+        return false;
+    }
+
+    if (
+        translation->page_size !=
+            PAGING_PAGE_SIZE_1G &&
+        (translation->pd_entry &
+         PAGE_ENTRY_WRITABLE) == 0
+    ) {
+        return false;
+    }
+
+    if (
+        translation->page_size ==
+            PAGING_PAGE_SIZE_4K &&
+        (translation->pt_entry &
+         PAGE_ENTRY_WRITABLE) == 0
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool runtime_translation_user(
+    const struct paging_translation *translation)
+{
+    if (translation == NULL) return false;
+
+    if (
+        (translation->pml4_entry &
+         PAGE_ENTRY_USER) == 0 ||
+        (translation->pdpt_entry &
+         PAGE_ENTRY_USER) == 0
+    ) {
+        return false;
+    }
+
+    if (
+        translation->page_size !=
+            PAGING_PAGE_SIZE_1G &&
+        (translation->pd_entry &
+         PAGE_ENTRY_USER) == 0
+    ) {
+        return false;
+    }
+
+    if (
+        translation->page_size ==
+            PAGING_PAGE_SIZE_4K &&
+        (translation->pt_entry &
+         PAGE_ENTRY_USER) == 0
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool runtime_translation_executable(
+    const struct paging_translation *translation)
+{
+    if (translation == NULL) return false;
+
+    if (
+        (translation->pml4_entry &
+         PAGE_ENTRY_NO_EXECUTE) != 0 ||
+        (translation->pdpt_entry &
+         PAGE_ENTRY_NO_EXECUTE) != 0
+    ) {
+        return false;
+    }
+
+    if (
+        translation->page_size !=
+            PAGING_PAGE_SIZE_1G &&
+        (translation->pd_entry &
+         PAGE_ENTRY_NO_EXECUTE) != 0
+    ) {
+        return false;
+    }
+
+    if (
+        translation->page_size ==
+            PAGING_PAGE_SIZE_4K &&
+        (translation->pt_entry &
+         PAGE_ENTRY_NO_EXECUTE) != 0
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+static void runtime_dump_mapping_point(
+    const char *name,
+    uint64_t virtual_address)
+{
+    struct paging_translation translation;
+
+    if (!paging_translate(
+        virtual_address,
+        &translation
+    )) {
+        diagnostics_printf(
+            "    %s VA=%x unmapped\n",
+            name,
+            virtual_address
+        );
+
+        return;
+    }
+
+    uint64_t leaf_entry =
+        runtime_translation_leaf_entry(
+            &translation
+        );
+
+    uint8_t pat_index =
+        runtime_translation_pat_index(
+            &translation
+        );
+
+    uint64_t pat =
+        runtime_read_msr(
+            IA32_PAT_MSR
+        );
+
+    uint8_t memory_type =
+        (uint8_t) (
+            (pat >> (pat_index * 8)) &
+            0xFFULL
+        );
+
+    diagnostics_printf(
+        "    %s VA=%x PA=%x size=%s W=%u U=%u X=%u WT=%u CD=%u PAT=%u type=%s\n",
+        name,
+        virtual_address,
+        translation.physical_address,
+        runtime_page_size_name(
+            translation.page_size
+        ),
+        runtime_translation_writable(
+            &translation
+        ) ? 1ULL : 0ULL,
+        runtime_translation_user(
+            &translation
+        ) ? 1ULL : 0ULL,
+        runtime_translation_executable(
+            &translation
+        ) ? 1ULL : 0ULL,
+        (leaf_entry &
+         PAGE_ENTRY_WRITE_THROUGH) != 0
+            ? 1ULL
+            : 0ULL,
+        (leaf_entry &
+         PAGE_ENTRY_CACHE_DISABLE) != 0
+            ? 1ULL
+            : 0ULL,
+        (uint64_t) pat_index,
+        runtime_pat_memory_type_name(
+            memory_type
+        )
+    );
+}
+
+static void runtime_dump_mapping_range(
+    const char *name,
+    uint64_t start,
+    uint64_t end)
+{
+    if (end <= start) {
+        kernel_panic(
+            "Kernel mapping inventory received invalid range"
+        );
+    }
+
+    diagnostics_printf(
+        "  %s start=%x end=%x bytes=%u\n",
+        name,
+        start,
+        end,
+        end - start
+    );
+
+    runtime_dump_mapping_point(
+        "first",
+        start
+    );
+
+    runtime_dump_mapping_point(
+        "last",
+        end - 1
+    );
+}
+
+static void runtime_dump_page_table_topology(
+    const char *name,
+    uint64_t virtual_address)
+{
+    struct paging_translation translation;
+
+    if (!paging_translate(
+        virtual_address,
+        &translation
+    )) {
+        diagnostics_printf(
+            "  %s VA=%x unmapped\n",
+            name,
+            virtual_address
+        );
+
+        return;
+    }
+
+    uint64_t pml4_physical =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            virtual_address
+        );
+
+    uint16_t pdpt_index =
+        paging_pdpt_index(
+            virtual_address
+        );
+
+    uint16_t pd_index =
+        paging_pd_index(
+            virtual_address
+        );
+
+    uint16_t pt_index =
+        paging_pt_index(
+            virtual_address
+        );
+
+    uint64_t pdpt_physical =
+        paging_entry_address(
+            translation.pml4_entry
+        );
+
+    diagnostics_printf(
+        "  %s\n"
+        "    VA=%x resolved PA=%x size=%s\n"
+        "    PML4 PA=%x index=%u entry=%x\n"
+        "    PDPT PA=%x index=%u entry=%x\n",
+        name,
+        virtual_address,
+        translation.physical_address,
+        runtime_page_size_name(
+            translation.page_size
+        ),
+        pml4_physical,
+        (uint64_t) pml4_index,
+        translation.pml4_entry,
+        pdpt_physical,
+        (uint64_t) pdpt_index,
+        translation.pdpt_entry
+    );
+
+    if (
+        translation.page_size ==
+        PAGING_PAGE_SIZE_1G
+    ) {
+        diagnostics_printf(
+            "    1G leaf PA=%x\n",
+            paging_entry_address(
+                translation.pdpt_entry
+            )
+        );
+
+        return;
+    }
+
+    uint64_t pd_physical =
+        paging_entry_address(
+            translation.pdpt_entry
+        );
+
+    diagnostics_printf(
+        "    PD PA=%x index=%u entry=%x\n",
+        pd_physical,
+        (uint64_t) pd_index,
+        translation.pd_entry
+    );
+
+    if (
+        translation.page_size ==
+        PAGING_PAGE_SIZE_2M
+    ) {
+        diagnostics_printf(
+            "    2M leaf PA=%x\n",
+            translation.pd_entry &
+                PAGE_ADDRESS_MASK_2M
+        );
+
+        return;
+    }
+
+    uint64_t pt_physical =
+        paging_entry_address(
+            translation.pd_entry
+        );
+
+    diagnostics_printf(
+        "    PT PA=%x index=%u entry=%x\n"
+        "    4K leaf PA=%x\n",
+        pt_physical,
+        (uint64_t) pt_index,
+        translation.pt_entry,
+        paging_entry_address(
+            translation.pt_entry
+        )
+    );
+}
+
+static void runtime_dump_present_kernel_branches(void)
+{
+    uint64_t pml4_physical =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint64_t *pml4 =
+        memory_physical_to_virtual(
+            pml4_physical
+        );
+
+    diagnostics_write(
+        "  Present higher-half PML4 entries:\n"
+    );
+
+    for (size_t index = 256; index < 512; ++index) {
+        uint64_t entry = pml4[index];
+
+        if ((entry & PAGE_ENTRY_PRESENT) == 0) {
+            continue;
+        }
+
+        diagnostics_printf(
+            "    PML4[%u] entry=%x child PA=%x\n",
+            (uint64_t) index,
+            entry,
+            paging_entry_address(entry)
+        );
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            (uint64_t) __kernel_start
+        );
+
+    uint64_t kernel_pml4_entry =
+        pml4[kernel_pml4_index];
+
+    if (
+        (kernel_pml4_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        kernel_panic(
+            "Kernel PML4 branch is not present"
+        );
+    }
+
+    uint64_t kernel_pdpt_physical =
+        paging_entry_address(
+            kernel_pml4_entry
+        );
+
+    uint64_t *kernel_pdpt =
+        memory_physical_to_virtual(
+            kernel_pdpt_physical
+        );
+
+    diagnostics_printf(
+        "  Present PDPT entries under PML4[%u]:\n",
+        (uint64_t) kernel_pml4_index
+    );
+
+    for (size_t index = 0; index < 512; ++index) {
+        uint64_t entry =
+            kernel_pdpt[index];
+
+        if ((entry & PAGE_ENTRY_PRESENT) == 0) {
+            continue;
+        }
+
+        diagnostics_printf(
+            "    PDPT[%u] entry=%x child/leaf PA=%x huge=%u\n",
+            (uint64_t) index,
+            entry,
+            paging_entry_address(entry),
+            (entry & PAGE_ENTRY_HUGE) != 0
+                ? 1ULL
+                : 0ULL
+        );
+    }
+}
+
+static void runtime_dump_kernel_mapping_inventory(void)
+{
+    diagnostics_printf(
+        "  CR3=%x\n",
+        paging_read_cr3() &
+            PAGE_ADDRESS_MASK_4K
+    );
+
+    uint64_t replaced_kernel_entry;
+
+    if (!kernel_mapping_replaced_branch_entry(
+        &replaced_kernel_entry
+    )) {
+        kernel_panic(
+            "Replaced boot kernel branch is unavailable"
+        );
+    }
+
+    diagnostics_printf(
+        "  replaced boot kernel PML4 entry=%x\n",
+        replaced_kernel_entry
+    );
+
+    runtime_dump_mapping_range(
+        ".text",
+        (uint64_t) __text_start,
+        (uint64_t) __text_end
+    );
+
+    runtime_dump_mapping_range(
+        ".rodata",
+        (uint64_t) __rodata_start,
+        (uint64_t) __rodata_end
+    );
+
+    runtime_dump_mapping_range(
+        ".limine_requests",
+        (uint64_t) __limine_requests_start,
+        (uint64_t) __limine_requests_end
+    );
+
+    runtime_dump_mapping_range(
+        ".data",
+        (uint64_t) __data_start,
+        (uint64_t) __data_end
+    );
+
+    runtime_dump_mapping_range(
+        ".bss",
+        (uint64_t) __bss_start,
+        (uint64_t) __bss_end
+    );
+
+    uint64_t active_rsp =
+        read_rsp();
+
+    runtime_dump_mapping_point(
+        "active RSP",
+        active_rsp
+    );
+
+    uint64_t tss_rsp0 =
+        gdt_kernel_stack_top() - 1;
+
+    runtime_dump_mapping_point(
+        "TSS RSP0",
+        tss_rsp0
+    );
+
+    uint64_t kernel_pml4_physical =
+        paging_kernel_address_space()
+            ->pml4_physical;
+
+    uint64_t direct_map_pml4 =
+        (uint64_t)
+        memory_physical_to_virtual(
+            kernel_pml4_physical
+        );
+
+    runtime_dump_mapping_point(
+        "direct-map PML4 frame",
+        direct_map_pml4
+    );
+
+    diagnostics_write(
+        "\n  Page-table topology:\n"
+    );
+
+    runtime_dump_page_table_topology(
+        ".text",
+        (uint64_t) __text_start
+    );
+
+    runtime_dump_page_table_topology(
+        "active RSP",
+        active_rsp
+    );
+
+    runtime_dump_page_table_topology(
+        "TSS RSP0",
+        tss_rsp0
+    );
+
+    runtime_dump_page_table_topology(
+        "direct-map PML4 frame",
+        direct_map_pml4
+    );
+
+    diagnostics_write(
+        "\n  Present higher-half branches:\n"
+    );
+
+    runtime_dump_present_kernel_branches();
+}
+
 static void runtime_dump_kernel_layout(void)
 {
     uintptr_t kernel_start = (uintptr_t) __kernel_start;
@@ -242,6 +1076,329 @@ static void runtime_dump_paging(void)
         translation.pdpt_entry,
         translation.pd_entry,
         translation.pt_entry
+    );
+}
+
+static uint64_t runtime_read_msr(uint32_t msr)
+{
+    uint32_t low;
+    uint32_t high;
+
+    __asm__ volatile (
+        "rdmsr"
+        : "=a"(low), "=d"(high)
+        : "c"(msr)
+    );
+
+    return ((uint64_t) high << 32) | low;
+}
+
+static uint8_t runtime_translation_pat_index(
+    const struct paging_translation *translation)
+{
+    if (translation == NULL) return 0;
+
+    uint64_t leaf_entry =
+        runtime_translation_leaf_entry(
+            translation
+        );
+
+    uint64_t pat_mask =
+        translation->page_size ==
+            PAGING_PAGE_SIZE_4K
+            ? PAGE_ENTRY_PAT_4K
+            : PAGE_ENTRY_PAT_LARGE;
+
+    uint8_t pat =
+        (leaf_entry & pat_mask) != 0
+            ? 1U
+            : 0U;
+
+    uint8_t cache_disable =
+        (leaf_entry &
+         PAGE_ENTRY_CACHE_DISABLE) != 0
+            ? 1U
+            : 0U;
+
+    uint8_t write_through =
+        (leaf_entry &
+         PAGE_ENTRY_WRITE_THROUGH) != 0
+            ? 1U
+            : 0U;
+
+    return (uint8_t) (
+        (pat << 2) |
+        (cache_disable << 1) |
+        write_through
+    );
+}
+
+static const char *runtime_pat_memory_type_name(
+    uint8_t memory_type)
+{
+    switch (memory_type) {
+        case 0:
+            return "UC";
+
+        case 1:
+            return "WC";
+
+        case 4:
+            return "WT";
+
+        case 5:
+            return "WP";
+
+        case 6:
+            return "WB";
+
+        case 7:
+            return "UC-";
+
+        default:
+            return "reserved";
+    }
+}
+
+static void runtime_test_kernel_owned_mapping_build(void)
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct paging_address_space candidate;
+
+    if (!kernel_mapping_build(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to build kernel mapping candidate"
+        );
+    }
+
+    struct paging_translation active_text;
+    struct paging_translation candidate_text;
+
+    if (!paging_translate(
+        (uint64_t) __text_start,
+        &active_text
+    )) {
+        kernel_panic(
+            "Unable to translate active kernel text"
+        );
+    }
+
+    if (!paging_translate_address_space(
+        &candidate,
+        (uint64_t) __text_start,
+        &candidate_text
+    )) {
+        kernel_panic(
+            "Unable to translate candidate kernel text"
+        );
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            (uint64_t) __kernel_start
+        );
+
+    uint64_t candidate_entry =
+        candidate.pml4_virtual[
+            kernel_pml4_index
+        ];
+
+    if ((candidate_entry & PAGE_ENTRY_PRESENT) == 0) {
+        kernel_panic(
+            "Candidate kernel PML4 branch is missing"
+        );
+    }
+
+    if ((candidate_entry & PAGE_ENTRY_USER) != 0) {
+        kernel_panic(
+            "Candidate kernel PML4 branch is user accessible"
+        );
+    }
+
+    if (candidate.pml4_virtual[256] != 0) {
+        kernel_panic(
+            "Candidate unexpectedly inherited direct-map branch"
+        );
+    }
+
+    diagnostics_printf(
+        "Kernel owned mapping candidate:\n"
+        "  active PML4 PA=%x\n"
+        "  candidate PML4 PA=%x\n"
+        "  kernel PML4 index=%u\n"
+        "  candidate entry=%x\n"
+        "  candidate PDPT PA=%x\n"
+        "  active text PA=%x\n"
+        "  candidate text PA=%x\n"
+        "  all kernel pages validated\n"
+        "  free before=%u\n"
+        "  free after build=%u\n",
+        paging_read_cr3() &
+            PAGE_ADDRESS_MASK_4K,
+        candidate.pml4_physical,
+        (uint64_t) kernel_pml4_index,
+        candidate_entry,
+        paging_entry_address(
+            candidate_entry
+        ),
+        active_text.physical_address,
+        candidate_text.physical_address,
+        free_before,
+        physical_free_frame_count()
+    );
+
+    if (!kernel_mapping_destroy(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to destroy kernel mapping candidate"
+        );
+    }
+
+    uint64_t free_after_destroy =
+        physical_free_frame_count();
+
+    if (free_after_destroy != free_before) {
+        kernel_panic(
+            "Kernel mapping candidate leaked page-table frames"
+        );
+    }
+
+    diagnostics_printf(
+        "  free after destroy=%u\n",
+        free_after_destroy
+    );
+}
+
+static void runtime_test_kernel_partial_mapping_destroy(void)
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct paging_address_space candidate;
+
+    if (!paging_address_space_create(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to create partial kernel mapping candidate"
+        );
+    }
+
+    uint64_t pdpt_physical;
+    uint64_t *pdpt;
+
+    if (!paging_create_empty_table(
+        &pdpt_physical,
+        &pdpt
+    )) {
+        kernel_panic(
+            "Unable to create partial kernel PDPT"
+        );
+    }
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            (uint64_t) __kernel_start
+        );
+
+    candidate.pml4_virtual[
+        pml4_index
+    ] = paging_make_table_entry(
+        pdpt_physical,
+        true,
+        false
+    );
+
+    uint64_t pd_physical;
+    uint64_t *pd;
+
+    if (!paging_create_empty_table(
+        &pd_physical,
+        &pd
+    )) {
+        kernel_panic(
+            "Unable to create partial kernel PD"
+        );
+    }
+
+    uint16_t pdpt_index =
+        paging_pdpt_index(
+            (uint64_t) __kernel_start
+        );
+
+    pdpt[pdpt_index] =
+        paging_make_table_entry(
+            pd_physical,
+            true,
+            false
+        );
+
+    uint64_t pt_physical;
+    uint64_t *pt;
+
+    if (!paging_create_empty_table(
+        &pt_physical,
+        &pt
+    )) {
+        kernel_panic(
+            "Unable to create partial kernel PT"
+        );
+    }
+
+    uint16_t pd_index =
+        paging_pd_index(
+            (uint64_t) __kernel_start
+        );
+
+    pd[pd_index] =
+        paging_make_table_entry(
+            pt_physical,
+            true,
+            false
+        );
+
+    uint64_t free_after_partial_build =
+        physical_free_frame_count();
+
+    if (
+        free_after_partial_build !=
+        free_before - 4
+    ) {
+        kernel_panic(
+            "Partial kernel mapping allocated unexpected frame count"
+        );
+    }
+
+    if (!kernel_mapping_destroy(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to destroy partial kernel mapping candidate"
+        );
+    }
+
+    uint64_t free_after_destroy =
+        physical_free_frame_count();
+
+    if (free_after_destroy != free_before) {
+        kernel_panic(
+            "Partial kernel mapping rollback leaked page-table frames"
+        );
+    }
+
+    diagnostics_printf(
+        "Partial kernel mapping rollback test:\n"
+        "  free before=%u\n"
+        "  free after partial build=%u\n"
+        "  free after destroy=%u\n",
+        free_before,
+        free_after_partial_build,
+        free_after_destroy
     );
 }
 
