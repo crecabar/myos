@@ -13,6 +13,14 @@
 #define IA32_EFER_MSR 0xC0000080U
 #define IA32_EFER_NXE (1ULL << 11)
 
+#define IA32_PAT_MSR 0x277U
+
+#define IA32_PAT_TYPE_UNCACHEABLE     0U
+#define IA32_PAT_TYPE_WRITE_COMBINING 1U
+#define IA32_PAT_TYPE_WRITE_BACK      6U
+
+#define PAGE_ENTRY_PAT_4K (1ULL << 7)
+
 #define CPUID_EXTENDED_FEATURES 0x80000001U
 #define CPUID_EDX_NX            (1U << 20)
 
@@ -34,6 +42,11 @@ static bool paging_map_page_flags(
     uint64_t virtual_address,
     uint64_t physical_address,
     uint64_t flags
+);
+
+static bool paging_cache_flags(
+    enum paging_cache_type cache_type,
+    uint64_t *flags
 );
 
 static uint64_t paging_make_page_entry_flags(
@@ -397,6 +410,33 @@ bool paging_map_page(
     );
 }
 
+bool paging_map_kernel_device_page(
+    uint64_t virtual_address,
+    uint64_t physical_address,
+    enum paging_cache_type cache_type)
+{
+    uint64_t cache_flags;
+
+    if (!paging_cache_flags(
+        cache_type,
+        &cache_flags
+    )) {
+        return false;
+    }
+
+    uint64_t flags =
+        PAGE_ENTRY_WRITABLE |
+        PAGE_ENTRY_NO_EXECUTE |
+        cache_flags;
+
+    return paging_map_page_flags(
+        paging_kernel_address_space(),
+        virtual_address,
+        physical_address,
+        flags
+    );
+}
+
 static bool paging_map_page_flags(
     struct paging_address_space *address_space,
     uint64_t virtual_address,
@@ -468,6 +508,78 @@ static bool paging_map_page_flags(
     );
 
     return true;
+}
+
+static bool paging_cache_flags(
+    enum paging_cache_type cache_type,
+    uint64_t *flags)
+{
+    if (flags == NULL) return false;
+
+    uint8_t required_type;
+
+    switch (cache_type) {
+        case PAGING_CACHE_WRITE_BACK:
+            required_type =
+                IA32_PAT_TYPE_WRITE_BACK;
+            break;
+
+        case PAGING_CACHE_WRITE_COMBINING:
+            required_type =
+                IA32_PAT_TYPE_WRITE_COMBINING;
+            break;
+
+        case PAGING_CACHE_UNCACHEABLE:
+            required_type =
+                IA32_PAT_TYPE_UNCACHEABLE;
+            break;
+
+        default:
+            return false;
+    }
+
+    uint64_t pat =
+        paging_read_msr(
+            IA32_PAT_MSR
+        );
+
+    for (uint8_t index = 0; index < 8; ++index) {
+        uint8_t memory_type =
+            (uint8_t) (
+                (
+                    pat >>
+                    ((uint64_t) index * 8)
+                ) &
+                0x7ULL
+            );
+
+        if (memory_type != required_type) {
+            continue;
+        }
+
+        uint64_t result = 0;
+
+        if ((index & 0x1U) != 0) {
+            result |=
+                PAGE_ENTRY_WRITE_THROUGH;
+        }
+
+        if ((index & 0x2U) != 0) {
+            result |=
+                PAGE_ENTRY_CACHE_DISABLE;
+        }
+
+        if ((index & 0x4U) != 0) {
+            result |=
+                PAGE_ENTRY_PAT_4K;
+        }
+
+        *flags = result;
+
+        return true;
+    }
+
+    return false;
 }
 
 bool paging_map_mmio_page(

@@ -33,6 +33,12 @@ enum paging_page_size {
     PAGING_PAGE_SIZE_1G,
 };
 
+enum paging_cache_type {
+    PAGING_CACHE_WRITE_BACK,
+    PAGING_CACHE_WRITE_COMBINING,
+    PAGING_CACHE_UNCACHEABLE,
+};
+
 struct paging_translation {
     uint64_t physical_address;
     enum paging_page_size page_size;
@@ -195,6 +201,25 @@ bool paging_map_page(
     bool writable,
     bool user,
     bool executable
+);
+
+/**
+ * Maps one 4 KiB device page into the kernel address space.
+ *
+ * The mapping is supervisor-only, writable, and non-executable. Cache
+ * attributes are selected from the active IA32_PAT configuration according
+ * to the requested semantic memory type.
+ *
+ * @param virtual_address Kernel virtual page address.
+ * @param physical_address Physical device page address.
+ * @param cache_type Required cache policy.
+ *
+ * @return true when the mapping was created; false otherwise.
+ */
+bool paging_map_kernel_device_page(
+    uint64_t virtual_address,
+    uint64_t physical_address,
+    enum paging_cache_type cache_type
 );
 
 /**

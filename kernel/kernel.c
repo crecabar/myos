@@ -14,6 +14,7 @@
 #include "diagnostics/diagnostics.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
+#include "memory/device_mapping.h"
 #include "memory/heap.h"
 #include "memory/kernel_mapping.h"
 #include "memory/memory.h"
@@ -78,6 +79,14 @@ _Noreturn void kernel_main(void)
     if (!kernel_mapping_install()) {
         kernel_panic(
             "Unable to install kernel-owned mappings"
+        );
+    }
+
+    if (!device_mapping_map_framebuffer(
+        &kernel_boot_info.framebuffer
+    )) {
+        kernel_panic(
+            "Unable to install kernel framebuffer mapping"
         );
     }
 

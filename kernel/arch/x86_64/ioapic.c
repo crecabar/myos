@@ -2,7 +2,7 @@
 
 #include "ioapic.h"
 
-#include "paging.h"
+#include "../../memory/device_mapping.h"
 
 #include <stddef.h>
 
@@ -39,7 +39,7 @@ bool ioapic_init(
 
     volatile void *mapping;
 
-    if (!paging_map_mmio_page(
+    if (!device_mapping_map_mmio_page(
         physical_address,
         &mapping
     )) {
