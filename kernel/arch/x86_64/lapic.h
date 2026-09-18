@@ -22,6 +22,19 @@
 bool lapic_init(void);
 
 /**
+ * Returns the active Local APIC MMIO mapping.
+ *
+ * @param physical_address Receives the physical MMIO base.
+ * @param virtual_address Receives the kernel virtual mapping.
+ *
+ * @return true when the Local APIC has been initialized; false otherwise.
+ */
+bool lapic_mapping_info(
+    uint64_t *physical_address,
+    uint64_t *virtual_address
+);
+
+/**
  * Returns the current Local APIC identifier.
  *
  * @return Local APIC ID of the executing processor.

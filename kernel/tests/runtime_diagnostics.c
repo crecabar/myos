@@ -3,9 +3,12 @@
 #include "runtime_diagnostics.h"
 
 #include "../arch/x86_64/gdt.h"
+#include "../arch/x86_64/ioapic.h"
+#include "../arch/x86_64/lapic.h"
 #include "../arch/x86_64/paging.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../drivers/framebuffer.h"
 #include "../memory/memory.h"
 #include "../memory/kernel_mapping.h"
 #include "../process/layout.h"
@@ -14,6 +17,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
+#define IA32_PAT_MSR 0x277U
+
+#define PAGE_ENTRY_PAT_4K    (1ULL << 7)
+#define PAGE_ENTRY_PAT_LARGE (1ULL << 12)
 
 extern char __kernel_start[];
 extern char __kernel_end[];
@@ -41,8 +49,27 @@ static uint16_t read_tr(void);
 static void dump_page_size(enum paging_page_size page_size);
 static void runtime_dump_kernel_layout(void);
 static void runtime_dump_paging(void);
+
+static uint64_t runtime_read_msr(uint32_t msr);
+
+static uint8_t runtime_translation_pat_index(
+    const struct paging_translation *translation
+);
+
+static const char *runtime_pat_memory_type_name(
+    uint8_t memory_type
+);
+
 static const char *runtime_page_size_name(
     enum paging_page_size page_size
+);
+
+static uint64_t runtime_translation_leaf_entry(
+    const struct paging_translation *translation
+);
+
+static void runtime_dump_device_mapping_inventory(
+    const struct framebuffer *framebuffer
 );
 
 static bool runtime_translation_writable(
@@ -91,7 +118,8 @@ static void runtime_test_process_layout(void);
 static void runtime_test_gdt(void);
 /* END HELPERS */
 
-void runtime_diagnostics_run(void)
+void runtime_diagnostics_run(
+    const struct framebuffer *framebuffer)
 {
     diagnostics_write("[tests] Starting runtime diagnostics\n");
     diagnostics_write("\n=== Runtime diagnostics ===\n");
@@ -104,6 +132,14 @@ void runtime_diagnostics_run(void)
     );
 
     runtime_dump_kernel_mapping_inventory();
+
+    diagnostics_write(
+        "\n--- Device mapping inventory ---\n"
+    );
+
+    runtime_dump_device_mapping_inventory(
+        framebuffer
+    );
 
     diagnostics_write(
         "\n--- Kernel owned mapping build ---\n"
@@ -283,6 +319,190 @@ static const char *runtime_page_size_name(
     return "unknown";
 }
 
+static uint64_t runtime_translation_leaf_entry(
+    const struct paging_translation *translation)
+{
+    if (translation == NULL) return 0;
+
+    switch (translation->page_size) {
+        case PAGING_PAGE_SIZE_1G:
+            return translation->pdpt_entry;
+
+        case PAGING_PAGE_SIZE_2M:
+            return translation->pd_entry;
+
+        case PAGING_PAGE_SIZE_4K:
+            return translation->pt_entry;
+    }
+
+    return 0;
+}
+
+static void runtime_dump_device_mapping_inventory(
+    const struct framebuffer *framebuffer)
+{
+    if (framebuffer == NULL) {
+        kernel_panic(
+            "Device mapping inventory received NULL framebuffer"
+        );
+    }
+
+    diagnostics_printf(
+        "  IA32_PAT=%x\n",
+        runtime_read_msr(
+            IA32_PAT_MSR
+        )
+    );
+
+    if (framebuffer->address == NULL) {
+        kernel_panic(
+            "Device mapping inventory received unmapped framebuffer"
+        );
+    }
+
+    if (framebuffer->height == 0) {
+        kernel_panic(
+            "Device mapping inventory received empty framebuffer"
+        );
+    }
+
+    if (
+        framebuffer->pitch >
+        UINT64_MAX / framebuffer->height
+    ) {
+        kernel_panic(
+            "Framebuffer mapping size overflow"
+        );
+    }
+
+    uint64_t framebuffer_size =
+        framebuffer->pitch *
+        framebuffer->height;
+
+    uint64_t framebuffer_start =
+        (uint64_t) framebuffer->address;
+
+    if (
+        framebuffer_size == 0 ||
+        framebuffer_start >
+            UINT64_MAX - framebuffer_size
+    ) {
+        kernel_panic(
+            "Framebuffer mapping range overflow"
+        );
+    }
+
+    uint64_t framebuffer_end =
+        framebuffer_start +
+        framebuffer_size;
+
+    runtime_dump_mapping_range(
+        "framebuffer",
+        framebuffer_start,
+        framebuffer_end
+    );
+
+    runtime_dump_page_table_topology(
+        "framebuffer first",
+        framebuffer_start
+    );
+
+    runtime_dump_page_table_topology(
+        "framebuffer last",
+        framebuffer_end - 1
+    );
+
+    uint64_t lapic_physical;
+    uint64_t lapic_virtual;
+
+    if (!lapic_mapping_info(
+        &lapic_physical,
+        &lapic_virtual
+    )) {
+        kernel_panic(
+            "Local APIC mapping information unavailable"
+        );
+    }
+
+    diagnostics_printf(
+        "  LAPIC requested PA=%x mapped VA=%x\n",
+        lapic_physical,
+        lapic_virtual
+    );
+
+    runtime_dump_mapping_point(
+        "LAPIC",
+        lapic_virtual
+    );
+
+    runtime_dump_page_table_topology(
+        "LAPIC",
+        lapic_virtual
+    );
+
+    struct paging_translation lapic_translation;
+
+    if (
+        !paging_translate(
+            lapic_virtual,
+            &lapic_translation
+        ) ||
+        (
+            lapic_translation.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        ) != lapic_physical
+    ) {
+        kernel_panic(
+            "Local APIC mapping resolves to unexpected physical address"
+        );
+    }
+
+    uint64_t ioapic_physical;
+    uint64_t ioapic_virtual;
+
+    if (!ioapic_mapping_info(
+        &ioapic_physical,
+        &ioapic_virtual
+    )) {
+        kernel_panic(
+            "I/O APIC mapping information unavailable"
+        );
+    }
+
+    diagnostics_printf(
+        "  IOAPIC requested PA=%x mapped VA=%x\n",
+        ioapic_physical,
+        ioapic_virtual
+    );
+
+    runtime_dump_mapping_point(
+        "IOAPIC",
+        ioapic_virtual
+    );
+
+    runtime_dump_page_table_topology(
+        "IOAPIC",
+        ioapic_virtual
+    );
+
+    struct paging_translation ioapic_translation;
+
+    if (
+        !paging_translate(
+            ioapic_virtual,
+            &ioapic_translation
+        ) ||
+        (
+            ioapic_translation.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        ) != ioapic_physical
+    ) {
+        kernel_panic(
+            "I/O APIC mapping resolves to unexpected physical address"
+        );
+    }
+}
+
 static bool runtime_translation_writable(
     const struct paging_translation *translation)
 {
@@ -407,8 +627,29 @@ static void runtime_dump_mapping_point(
         return;
     }
 
+    uint64_t leaf_entry =
+        runtime_translation_leaf_entry(
+            &translation
+        );
+
+    uint8_t pat_index =
+        runtime_translation_pat_index(
+            &translation
+        );
+
+    uint64_t pat =
+        runtime_read_msr(
+            IA32_PAT_MSR
+        );
+
+    uint8_t memory_type =
+        (uint8_t) (
+            (pat >> (pat_index * 8)) &
+            0xFFULL
+        );
+
     diagnostics_printf(
-        "    %s VA=%x PA=%x size=%s W=%u U=%u X=%u\n",
+        "    %s VA=%x PA=%x size=%s W=%u U=%u X=%u WT=%u CD=%u PAT=%u type=%s\n",
         name,
         virtual_address,
         translation.physical_address,
@@ -423,7 +664,19 @@ static void runtime_dump_mapping_point(
         ) ? 1ULL : 0ULL,
         runtime_translation_executable(
             &translation
-        ) ? 1ULL : 0ULL
+        ) ? 1ULL : 0ULL,
+        (leaf_entry &
+         PAGE_ENTRY_WRITE_THROUGH) != 0
+            ? 1ULL
+            : 0ULL,
+        (leaf_entry &
+         PAGE_ENTRY_CACHE_DISABLE) != 0
+            ? 1ULL
+            : 0ULL,
+        (uint64_t) pat_index,
+        runtime_pat_memory_type_name(
+            memory_type
+        )
     );
 }
 
@@ -824,6 +1077,87 @@ static void runtime_dump_paging(void)
         translation.pd_entry,
         translation.pt_entry
     );
+}
+
+static uint64_t runtime_read_msr(uint32_t msr)
+{
+    uint32_t low;
+    uint32_t high;
+
+    __asm__ volatile (
+        "rdmsr"
+        : "=a"(low), "=d"(high)
+        : "c"(msr)
+    );
+
+    return ((uint64_t) high << 32) | low;
+}
+
+static uint8_t runtime_translation_pat_index(
+    const struct paging_translation *translation)
+{
+    if (translation == NULL) return 0;
+
+    uint64_t leaf_entry =
+        runtime_translation_leaf_entry(
+            translation
+        );
+
+    uint64_t pat_mask =
+        translation->page_size ==
+            PAGING_PAGE_SIZE_4K
+            ? PAGE_ENTRY_PAT_4K
+            : PAGE_ENTRY_PAT_LARGE;
+
+    uint8_t pat =
+        (leaf_entry & pat_mask) != 0
+            ? 1U
+            : 0U;
+
+    uint8_t cache_disable =
+        (leaf_entry &
+         PAGE_ENTRY_CACHE_DISABLE) != 0
+            ? 1U
+            : 0U;
+
+    uint8_t write_through =
+        (leaf_entry &
+         PAGE_ENTRY_WRITE_THROUGH) != 0
+            ? 1U
+            : 0U;
+
+    return (uint8_t) (
+        (pat << 2) |
+        (cache_disable << 1) |
+        write_through
+    );
+}
+
+static const char *runtime_pat_memory_type_name(
+    uint8_t memory_type)
+{
+    switch (memory_type) {
+        case 0:
+            return "UC";
+
+        case 1:
+            return "WC";
+
+        case 4:
+            return "WT";
+
+        case 5:
+            return "WP";
+
+        case 6:
+            return "WB";
+
+        case 7:
+            return "UC-";
+
+        default:
+            return "reserved";
+    }
 }
 
 static void runtime_test_kernel_owned_mapping_build(void)

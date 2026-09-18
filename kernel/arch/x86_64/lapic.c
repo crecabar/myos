@@ -21,6 +21,7 @@
 #define LAPIC_SOFTWARE_ENABLE (1U << 8)
 
 static volatile uint32_t *lapic_base;
+static uint64_t lapic_physical_base;
 static bool lapic_initialized;
 
 /* Helpers and private functions */
@@ -60,6 +61,7 @@ bool lapic_init(void)
         return false;
     }
 
+    lapic_physical_base = physical_address;
     lapic_base = mapping;
 
     uint32_t spurious =
@@ -75,6 +77,20 @@ bool lapic_init(void)
     );
 
     lapic_initialized = true;
+
+    return true;
+}
+
+bool lapic_mapping_info(
+    uint64_t *physical_address,
+    uint64_t *virtual_address)
+{
+    if (!lapic_initialized) return false;
+    if (physical_address == NULL) return false;
+    if (virtual_address == NULL) return false;
+
+    *physical_address = lapic_physical_base;
+    *virtual_address = (uint64_t) lapic_base;
 
     return true;
 }

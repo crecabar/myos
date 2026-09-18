@@ -19,6 +19,7 @@
 #define IOAPIC_REDIRECTION_MASKED        (1U << 16)
 
 static volatile uint32_t *ioapic_base;
+static uint64_t ioapic_physical_base;
 static uint32_t ioapic_gsi_base;
 static uint32_t ioapic_redirection_count;
 static bool ioapic_initialized;
@@ -45,6 +46,7 @@ bool ioapic_init(
         return false;
     }
 
+    ioapic_physical_base = physical_address;
     ioapic_base = mapping;
     ioapic_gsi_base = gsi_base;
 
@@ -58,6 +60,20 @@ bool ioapic_init(
         maximum_redirection_entry + 1;
 
     ioapic_initialized = true;
+
+    return true;
+}
+
+bool ioapic_mapping_info(
+    uint64_t *physical_address,
+    uint64_t *virtual_address)
+{
+    if (!ioapic_initialized) return false;
+    if (physical_address == NULL) return false;
+    if (virtual_address == NULL) return false;
+
+    *physical_address = ioapic_physical_base;
+    *virtual_address = (uint64_t) ioapic_base;
 
     return true;
 }

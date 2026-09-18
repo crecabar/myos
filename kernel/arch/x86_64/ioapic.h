@@ -25,6 +25,19 @@ bool ioapic_init(
 );
 
 /**
+ * Returns the active I/O APIC MMIO mapping.
+ *
+ * @param physical_address Receives the physical MMIO base.
+ * @param virtual_address Receives the kernel virtual mapping.
+ *
+ * @return true when the I/O APIC has been initialized; false otherwise.
+ */
+bool ioapic_mapping_info(
+    uint64_t *physical_address,
+    uint64_t *virtual_address
+);
+
+/**
  * Routes a global system interrupt to a Local APIC.
  *
  * @param gsi Global System Interrupt number.

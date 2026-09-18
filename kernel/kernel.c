@@ -147,7 +147,9 @@ static _Noreturn void kernel_main_continue(void)
     diagnostics_write(
         "\n--- kernel runtime test suite ---\n"
     );
-    runtime_diagnostics_run();
+    runtime_diagnostics_run(
+        &kernel_boot_info.framebuffer
+    );
 #endif
 
 #if MYOS_KERNEL_TESTS
