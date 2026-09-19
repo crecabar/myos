@@ -505,37 +505,94 @@ their normal halt/idle behavior.
 
 ### Writing the USB image to physical media
 
-On macOS, first identify the target USB device:
+Build the desired image from the repository root. Both commands produce `build/myos-usb.img`:
+
+```bash
+make usb-image                 # Normal boot
+make usb-image-diagnostics     # Runtime diagnostics and kernel tests
+```
+
+**Warning:** writing the image to a whole disk destroys its existing partition table and data. Device identifiers can change after reconnecting a drive. Identify and verify the target USB disk **every time**, and never select the workstation's system disk. The `USB_DISC` assignments below are examples: replace them with the actual whole-disk path before running `dd`.
+
+#### macOS
+
+Identify the USB disk, then assign its **whole-disk** path to a shell variable (replace `/dev/disk4` with the actual device):
 
 ```bash
 diskutil list
+USB_DISC=/dev/disk4
+diskutil info "$USB_DISC"
 ```
 
-**Warning:** writing the image directly to a device destroys the existing partition table and data on that device. Device identifiers are not stable across reconnects, so verify the target every time before running `dd`.
-
-For the first physical-hardware boot, the USB stick appeared as `/dev/disk6`. After building the desired image, unmount the whole device without ejecting it:
+Unmount the whole disk without ejecting it:
 
 ```bash
-diskutil unmountDisk /dev/disk6
+diskutil unmountDisk "$USB_DISC"
 ```
 
-Then write the image through the corresponding raw device:
+For faster raw-device access, derive the corresponding `/dev/rdiskN` path from `USB_DISC` and write the image:
+
+```bash
+USB_RAW_DISC="/dev/r${USB_DISC#/dev/}"
+sudo dd \
+    if=build/myos-usb.img \
+    of="$USB_RAW_DISC" \
+    bs=1048576
+```
+
+Flush outstanding writes and eject the disk:
+
+```bash
+sync
+diskutil eject "$USB_DISC"
+```
+
+#### Arch Linux
+
+Ensure the image-building utilities are installed, and build the desired image as shown above:
+
+```bash
+sudo pacman -S --needed gptfdisk mtools
+make check-usb-tools
+```
+
+Identify the USB **whole disk**, then assign its path to `USB_DISC` (replace `/dev/sdX` with the actual device; do not use a partition such as `/dev/sdX1`):
+
+```bash
+lsblk -o NAME,PATH,SIZE,MODEL,TRAN,TYPE,MOUNTPOINTS
+USB_DISC=/dev/sdX
+lsblk -o NAME,PATH,SIZE,MODEL,TRAN,TYPE,MOUNTPOINTS "$USB_DISC"
+```
+
+Verify that `USB_DISC` refers to the intended removable drive, not the Arch system disk. If the drive has mounted partitions, unmount them before writing the image. This loop works for both `/dev/sdX1` and `/dev/nvmeXnYp1` partition naming:
+
+```bash
+lsblk -nrpo NAME,TYPE "$USB_DISC" | while read -r partition type; do
+    if [ "$type" = part ] && findmnt -rn --source "$partition" > /dev/null; then
+        sudo umount "$partition"
+    fi
+done
+```
+
+Write to the **whole disk** identified by `USB_DISC`, not to an individual partition:
 
 ```bash
 sudo dd \
     if=build/myos-usb.img \
-    of=/dev/rdisk6 \
-    bs=1048576
+    of="$USB_DISC" \
+    bs=4M \
+    status=progress \
+    conv=fsync
 ```
 
-Flush outstanding writes and eject the device cleanly:
+Flush writes and safely power off the USB drive before unplugging it:
 
 ```bash
 sync
-diskutil eject /dev/disk6
+sudo udisksctl power-off -b "$USB_DISC"
 ```
 
-The `/dev/disk6` / `/dev/rdisk6` identifiers above are examples from the first successful Dell workstation boot. Replace the disk number with the device reported by `diskutil list` on the current machine.
+If `udisksctl` is unavailable, install `udisks2` or use the desktop environment's safe-removal action after `dd` and `sync` finish.
 
 Detailed toolchain notes are available in:
 
