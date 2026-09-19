@@ -9,6 +9,7 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
+#include "../memory/boot_paging.h"
 #include "../memory/direct_mapping.h"
 #include "../memory/kernel_mapping.h"
 #include "../memory/memory.h"
@@ -51,6 +52,7 @@ static void dump_page_size(enum paging_page_size page_size);
 static void runtime_dump_kernel_layout(void);
 static void runtime_dump_paging(void);
 static void runtime_dump_inherited_paging_root(void);
+static void runtime_dump_inherited_page_table_inventory(void);
 
 static uint64_t runtime_read_msr(uint32_t msr);
 
@@ -138,6 +140,12 @@ void runtime_diagnostics_run(
     );
 
     runtime_dump_inherited_paging_root();
+
+    diagnostics_write(
+        "\n--- Inherited page-table inventory ---\n"
+    );
+
+    runtime_dump_inherited_page_table_inventory();
 
     diagnostics_write(
         "\n--- Kernel mapping inventory ---\n"
@@ -1703,6 +1711,69 @@ static void runtime_dump_inherited_paging_root(void)
             paging_entry_address(
                 entry
             )
+        );
+    }
+}
+
+static void runtime_dump_inherited_page_table_inventory(void)
+{
+    struct boot_paging_inventory inventory;
+
+    if (!boot_paging_inventory_collect(
+        &inventory
+    )) {
+        kernel_panic(
+            "Unable to inventory inherited page tables"
+        );
+    }
+
+    uint64_t total_frames =
+        inventory.pml4_frames +
+        inventory.pdpt_frames +
+        inventory.pd_frames +
+        inventory.pt_frames;
+
+    diagnostics_printf(
+        "Inherited page-table frames:\n"
+        "  PML4 frames=%u\n"
+        "  PDPT frames=%u\n"
+        "  PD frames=%u\n"
+        "  PT frames=%u\n"
+        "  total table frames=%u\n"
+        "  duplicate table references=%u\n"
+        "  active table overlaps=%u\n"
+        "  non-reclaimable table frames=%u\n",
+        inventory.pml4_frames,
+        inventory.pdpt_frames,
+        inventory.pd_frames,
+        inventory.pt_frames,
+        total_frames,
+        inventory.duplicate_table_references,
+        inventory.active_table_overlaps,
+        inventory.non_reclaimable_table_frames
+    );
+
+    if (
+        inventory.duplicate_table_references != 0
+    ) {
+        kernel_panic(
+            "Inherited paging hierarchy contains aliased tables"
+        );
+    }
+
+    if (
+        inventory.active_table_overlaps != 0
+    ) {
+        kernel_panic(
+            "Inherited page table still belongs to active hierarchy"
+        );
+    }
+
+    if (
+        inventory.non_reclaimable_table_frames != 0
+    ) {
+        kernel_panic(
+            "Inherited page table is outside bootloader-reclaimable memory"
         );
     }
 }

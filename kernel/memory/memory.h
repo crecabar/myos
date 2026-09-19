@@ -59,6 +59,19 @@ uint64_t memory_direct_map_base(void);
  */
 uint64_t memory_managed_physical_limit(void);
 
+/**
+ * Reports whether a complete physical frame lies inside a region marked
+ * bootloader-reclaimable by the boot memory map.
+ *
+ * @param physical_address Frame-aligned physical address.
+ *
+ * @return true when the complete frame is bootloader-reclaimable; false
+ *         otherwise.
+ */
+bool memory_physical_frame_is_bootloader_reclaimable(
+    uint64_t physical_address
+);
+
 bool physical_alloc_frame(uint64_t *physical_address);
 
 bool physical_free_frame(uint64_t physical_address);

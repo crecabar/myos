@@ -26,7 +26,7 @@ static uint64_t managed_frame_count;
 static uint64_t next_free_frame_hint;
 
 /* Helpers and private functions */
-static uint64_t memory_highest_usable_address(void);
+static uint64_t memory_highest_managed_address(void);
 static const char *memory_region_type_name(enum memory_region_type type);
 static uint64_t align_up(uint64_t value, uint64_t alignment);
 static uint64_t align_down(uint64_t value, uint64_t alignment);
@@ -69,10 +69,35 @@ void memory_init(
     }
 
     region_count = memory_region_count;
-    uint64_t highest_usable_address = memory_highest_usable_address();
-    managed_frame_count = highest_usable_address / MEMORY_FRAME_SIZE;
-    frame_bitmap_size = frame_bitmap_size_for(managed_frame_count);
-    uint64_t bitmap_frame_count = bytes_to_frames(frame_bitmap_size);
+
+    uint64_t highest_managed_address =
+        memory_highest_managed_address();
+
+    if (
+        highest_managed_address >
+        UINT64_MAX - (MEMORY_FRAME_SIZE - 1)
+    ) {
+        kernel_panic(
+            "Managed physical address range overflows"
+        );
+    }
+
+    managed_frame_count =
+        align_up(
+            highest_managed_address,
+            MEMORY_FRAME_SIZE
+        ) /
+        MEMORY_FRAME_SIZE;
+
+    frame_bitmap_size =
+        frame_bitmap_size_for(
+            managed_frame_count
+        );
+
+    uint64_t bitmap_frame_count =
+        bytes_to_frames(
+            frame_bitmap_size
+        );
     frame_bitmap_physical = find_bitmap_physical_address(bitmap_frame_count);
     frame_bitmap = direct_map_physical_address(frame_bitmap_physical);
 
@@ -117,6 +142,72 @@ uint64_t memory_managed_physical_limit(void)
     }
 
     return (managed_frame_count * MEMORY_FRAME_SIZE);
+}
+
+bool memory_physical_frame_is_bootloader_reclaimable(
+    uint64_t physical_address)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    if (
+        (physical_address %
+         MEMORY_FRAME_SIZE) != 0
+    ) {
+        return false;
+    }
+
+    if (
+        physical_address >
+        UINT64_MAX - MEMORY_FRAME_SIZE
+    ) {
+        return false;
+    }
+
+    uint64_t frame_end =
+        physical_address +
+        MEMORY_FRAME_SIZE;
+
+    for (
+        size_t index = 0;
+        index < region_count;
+        ++index
+    ) {
+        const struct memory_region *region =
+            &regions[index];
+
+        if (
+            region->type !=
+            MEMORY_REGION_BOOTLOADER_RECLAIMABLE
+        ) {
+            continue;
+        }
+
+        if (
+            region->length >
+            UINT64_MAX - region->base
+        ) {
+            kernel_panic(
+                "Physical memory region end overflows"
+            );
+        }
+
+        uint64_t region_end =
+            region->base +
+            region->length;
+
+        if (
+            physical_address >= region->base &&
+            frame_end <= region_end
+        ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool physical_alloc_frame(uint64_t *physical_address)
@@ -419,25 +510,44 @@ static uint64_t align_down(uint64_t value, uint64_t alignment)
     return value & ~(alignment - 1);
 }
 
-static uint64_t memory_highest_usable_address(void)
+static uint64_t memory_highest_managed_address(void)
 {
     uint64_t highest_address = 0;
 
-    for (size_t index = 0;
-         index < region_count;
-         ++index)
-    {
+    for (
+        size_t index = 0;
+        index < region_count;
+        ++index
+    ) {
         const struct memory_region *region =
             &regions[index];
 
-        if (region->type != MEMORY_REGION_USABLE) {
+        if (
+            region->type !=
+                MEMORY_REGION_USABLE &&
+            region->type !=
+                MEMORY_REGION_BOOTLOADER_RECLAIMABLE
+        ) {
             continue;
         }
 
-        uint64_t region_end =
-            region->base + region->length;
+        if (
+            region->length >
+            UINT64_MAX - region->base
+        ) {
+            kernel_panic(
+                "Physical memory region end overflows"
+            );
+        }
 
-        if (region_end > highest_address) {
+        uint64_t region_end =
+            region->base +
+            region->length;
+
+        if (
+            region_end >
+            highest_address
+        ) {
             highest_address =
                 region_end;
         }
