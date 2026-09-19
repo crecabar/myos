@@ -50,6 +50,7 @@ static uint16_t read_tr(void);
 static void dump_page_size(enum paging_page_size page_size);
 static void runtime_dump_kernel_layout(void);
 static void runtime_dump_paging(void);
+static void runtime_dump_inherited_paging_root(void);
 
 static uint64_t runtime_read_msr(uint32_t msr);
 
@@ -131,6 +132,12 @@ void runtime_diagnostics_run(
 
     runtime_dump_kernel_layout();
     runtime_dump_paging();
+
+    diagnostics_write(
+        "\n--- Inherited paging root ---\n"
+    );
+
+    runtime_dump_inherited_paging_root();
 
     diagnostics_write(
         "\n--- Kernel mapping inventory ---\n"
@@ -1511,6 +1518,193 @@ static void runtime_dump_paging(void)
         translation.pd_entry,
         translation.pt_entry
     );
+}
+
+static void runtime_dump_inherited_paging_root(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Boot-time PML4 root unavailable"
+        );
+    }
+
+    struct paging_address_space *active =
+        paging_kernel_address_space();
+
+    if (active == NULL) {
+        kernel_panic(
+            "Active kernel address space unavailable"
+        );
+    }
+
+    if (
+        boot_pml4_physical ==
+        active->pml4_physical
+    ) {
+        kernel_panic(
+            "Boot and active PML4 roots unexpectedly match"
+        );
+    }
+
+    uint64_t *boot_pml4 =
+        memory_physical_to_virtual(
+            boot_pml4_physical
+        );
+
+    uint64_t kernel_replaced_entry;
+
+    if (!kernel_mapping_replaced_branch_entry(
+        &kernel_replaced_entry
+    )) {
+        kernel_panic(
+            "Replaced boot kernel branch unavailable"
+        );
+    }
+
+    uint64_t direct_map_replaced_entry;
+
+    if (!direct_mapping_replaced_branch_entry(
+        &direct_map_replaced_entry
+    )) {
+        kernel_panic(
+            "Replaced boot direct-map branch unavailable"
+        );
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            (uint64_t) __text_start
+        );
+
+    uint16_t direct_map_pml4_index =
+        paging_pml4_index(
+            memory_direct_map_base()
+        );
+
+    uint64_t boot_kernel_entry =
+        boot_pml4[
+            kernel_pml4_index
+        ];
+
+    uint64_t boot_direct_map_entry =
+        boot_pml4[
+            direct_map_pml4_index
+        ];
+
+    if (
+        (boot_kernel_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        kernel_panic(
+            "Boot kernel PML4 branch missing"
+        );
+    }
+
+    if (
+        (boot_direct_map_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        kernel_panic(
+            "Boot direct-map PML4 branch missing"
+        );
+    }
+
+    if (
+        paging_entry_address(
+            boot_kernel_entry
+        ) !=
+        paging_entry_address(
+            kernel_replaced_entry
+        )
+    ) {
+        kernel_panic(
+            "Boot kernel branch does not match replaced branch"
+        );
+    }
+
+    if (
+        paging_entry_address(
+            boot_direct_map_entry
+        ) !=
+        paging_entry_address(
+            direct_map_replaced_entry
+        )
+    ) {
+        kernel_panic(
+            "Boot direct-map branch does not match replaced branch"
+        );
+    }
+
+    uint64_t present_entries = 0;
+
+    for (
+        size_t index = 0;
+        index < 512;
+        ++index
+    ) {
+        if (
+            (boot_pml4[index] &
+             PAGE_ENTRY_PRESENT) != 0
+        ) {
+            ++present_entries;
+        }
+    }
+
+    diagnostics_printf(
+        "Inherited boot PML4 root:\n"
+        "  boot PML4 PA=%x\n"
+        "  active PML4 PA=%x\n"
+        "  present entries=%u\n"
+        "  kernel branch index=%u boot child PA=%x replaced child PA=%x\n"
+        "  direct-map branch index=%u boot child PA=%x replaced child PA=%x\n"
+        "  present boot PML4 entries:\n",
+        boot_pml4_physical,
+        active->pml4_physical,
+        present_entries,
+        (uint64_t) kernel_pml4_index,
+        paging_entry_address(
+            boot_kernel_entry
+        ),
+        paging_entry_address(
+            kernel_replaced_entry
+        ),
+        (uint64_t) direct_map_pml4_index,
+        paging_entry_address(
+            boot_direct_map_entry
+        ),
+        paging_entry_address(
+            direct_map_replaced_entry
+        )
+    );
+
+    for (
+        size_t index = 0;
+        index < 512;
+        ++index
+    ) {
+        uint64_t entry =
+            boot_pml4[index];
+
+        if (
+            (entry &
+             PAGE_ENTRY_PRESENT) == 0
+        ) {
+            continue;
+        }
+
+        diagnostics_printf(
+            "    PML4[%u] entry=%x child PA=%x\n",
+            (uint64_t) index,
+            entry,
+            paging_entry_address(
+                entry
+            )
+        );
+    }
 }
 
 static uint64_t runtime_read_msr(uint32_t msr)
