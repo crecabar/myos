@@ -24,6 +24,7 @@
 #define PAGE_ENTRY_WRITE_THROUGH (1ULL << 3)
 #define PAGE_ENTRY_CACHE_DISABLE (1ULL << 4)
 #define PAGE_ENTRY_ACCESSED      (1ULL << 5)
+#define PAGE_ENTRY_DIRTY         (1ULL << 6)
 #define PAGE_ENTRY_HUGE          (1ULL << 7)
 #define PAGE_ENTRY_NO_EXECUTE    (1ULL << 63)
 

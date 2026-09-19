@@ -9,8 +9,9 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
-#include "../memory/memory.h"
+#include "../memory/direct_mapping.h"
 #include "../memory/kernel_mapping.h"
+#include "../memory/memory.h"
 #include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/stack.h"
@@ -72,6 +73,10 @@ static void runtime_dump_device_mapping_inventory(
     const struct framebuffer *framebuffer
 );
 
+static void runtime_dump_direct_map_inventory(void);
+
+static void runtime_test_direct_mapping_build(void);
+
 static bool runtime_translation_writable(
     const struct paging_translation *translation
 );
@@ -132,6 +137,18 @@ void runtime_diagnostics_run(
     );
 
     runtime_dump_kernel_mapping_inventory();
+
+    diagnostics_write(
+        "\n--- Direct-map inventory ---\n"
+    );
+
+    runtime_dump_direct_map_inventory();
+
+    diagnostics_write(
+        "\n--- Direct-map owned mapping build ---\n"
+    );
+
+    runtime_test_direct_mapping_build();
 
     diagnostics_write(
         "\n--- Device mapping inventory ---\n"
@@ -499,6 +516,423 @@ static void runtime_dump_device_mapping_inventory(
     ) {
         kernel_panic(
             "I/O APIC mapping resolves to unexpected physical address"
+        );
+    }
+}
+
+static void runtime_dump_direct_map_inventory(void)
+{
+    uint64_t direct_map_base = memory_direct_map_base();
+
+    uint64_t physical_limit =
+        memory_managed_physical_limit();
+
+    if (physical_limit == 0) {
+        kernel_panic(
+            "Direct-map managed physical span is empty"
+        );
+    }
+
+    if (
+        direct_map_base >
+        UINT64_MAX - physical_limit
+    ) {
+        kernel_panic(
+            "Direct-map virtual span overflows"
+        );
+    }
+
+    uint64_t direct_map_end =
+        direct_map_base +
+        physical_limit;
+
+    uint64_t pml4_physical =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint64_t *pml4 =
+        memory_physical_to_virtual(
+            pml4_physical
+        );
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            direct_map_base
+        );
+
+    uint64_t pml4_entry =
+        pml4[pml4_index];
+
+    if (
+        (pml4_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        kernel_panic(
+            "Direct-map PML4 branch is not present"
+        );
+    }
+
+    uint64_t pdpt_physical =
+        paging_entry_address(
+            pml4_entry
+        );
+
+    uint64_t replaced_entry;
+
+    if (!direct_mapping_replaced_branch_entry(
+        &replaced_entry
+    )) {
+        kernel_panic(
+            "Replaced boot direct-map branch is unavailable"
+        );
+    }
+
+    uint64_t *pdpt =
+        memory_physical_to_virtual(
+            pdpt_physical
+        );
+
+    uint64_t pdpt_entries = 0;
+    uint64_t pd_tables = 0;
+    uint64_t pt_tables = 0;
+
+    uint64_t leaf_1g = 0;
+    uint64_t leaf_2m = 0;
+    uint64_t leaf_4k = 0;
+
+    uint64_t mapped_bytes = 0;
+
+    for (
+        size_t pdpt_index = 0;
+        pdpt_index < 512;
+        ++pdpt_index
+    ) {
+        uint64_t pdpt_entry =
+            pdpt[pdpt_index];
+
+        if (
+            (pdpt_entry &
+             PAGE_ENTRY_PRESENT) == 0
+        ) {
+            continue;
+        }
+
+        ++pdpt_entries;
+
+        if (
+            (pdpt_entry &
+             PAGE_ENTRY_HUGE) != 0
+        ) {
+            ++leaf_1g;
+            mapped_bytes +=
+                1ULL << 30;
+
+            continue;
+        }
+
+        ++pd_tables;
+
+        uint64_t pd_physical =
+            paging_entry_address(
+                pdpt_entry
+            );
+
+        uint64_t *pd =
+            memory_physical_to_virtual(
+                pd_physical
+            );
+
+        for (
+            size_t pd_index = 0;
+            pd_index < 512;
+            ++pd_index
+        ) {
+            uint64_t pd_entry =
+                pd[pd_index];
+
+            if (
+                (pd_entry &
+                 PAGE_ENTRY_PRESENT) == 0
+            ) {
+                continue;
+            }
+
+            if (
+                (pd_entry &
+                 PAGE_ENTRY_HUGE) != 0
+            ) {
+                ++leaf_2m;
+                mapped_bytes +=
+                    1ULL << 21;
+
+                continue;
+            }
+
+            ++pt_tables;
+
+            uint64_t pt_physical =
+                paging_entry_address(
+                    pd_entry
+                );
+
+            uint64_t *pt =
+                memory_physical_to_virtual(
+                    pt_physical
+                );
+
+            for (
+                size_t pt_index = 0;
+                pt_index < 512;
+                ++pt_index
+            ) {
+                if (
+                    (pt[pt_index] &
+                     PAGE_ENTRY_PRESENT) == 0
+                ) {
+                    continue;
+                }
+
+                ++leaf_4k;
+                mapped_bytes +=
+                    MEMORY_FRAME_SIZE;
+            }
+        }
+    }
+
+    diagnostics_printf(
+        "Direct physical-memory map:\n"
+        "  base VA=%x\n"
+        "  managed physical limit=%x\n"
+        "  managed physical bytes=%u\n"
+        "  managed virtual end=%x\n"
+        "  PML4 index=%u\n"
+        "  branch entry=%x child PA=%x\n"
+        "  replaced boot branch entry=%x child PA=%x\n"
+        "  present PDPT entries=%u\n"
+        "  PD tables=%u\n"
+        "  PT tables=%u\n"
+        "  1G leaves=%u\n"
+        "  2M leaves=%u\n"
+        "  4K leaves=%u\n"
+        "  mapped bytes in branch=%u\n",
+        direct_map_base,
+        physical_limit,
+        physical_limit,
+        direct_map_end,
+        (uint64_t) pml4_index,
+        pml4_entry,
+        pdpt_physical,
+        replaced_entry,
+        paging_entry_address(
+            replaced_entry
+        ),
+        pdpt_entries,
+        pd_tables,
+        pt_tables,
+        leaf_1g,
+        leaf_2m,
+        leaf_4k,
+        mapped_bytes
+    );
+
+    runtime_dump_mapping_point(
+        "direct-map first managed byte",
+        direct_map_base
+    );
+
+    runtime_dump_mapping_point(
+        "direct-map last managed byte",
+        direct_map_end - 1
+    );
+
+    runtime_dump_page_table_topology(
+        "direct-map first managed byte",
+        direct_map_base
+    );
+
+    runtime_dump_page_table_topology(
+        "direct-map last managed byte",
+        direct_map_end - 1
+    );
+}
+
+static void runtime_test_direct_mapping_build(void)
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct paging_address_space candidate;
+
+    if (!direct_mapping_build(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to build direct-map candidate"
+        );
+    }
+
+    uint64_t free_after_build =
+        physical_free_frame_count();
+
+    struct paging_address_space *active =
+        paging_kernel_address_space();
+
+    if (active == NULL) {
+        kernel_panic(
+            "Active kernel address space unavailable"
+        );
+    }
+
+    uint64_t direct_map_base =
+        memory_direct_map_base();
+
+    uint16_t pml4_index =
+        paging_pml4_index(
+            direct_map_base
+        );
+
+    uint64_t active_entry =
+        active->pml4_virtual[
+            pml4_index
+        ];
+
+    uint64_t candidate_entry =
+        candidate.pml4_virtual[
+            pml4_index
+        ];
+
+    struct paging_translation active_first;
+    struct paging_translation candidate_first;
+
+    if (
+        !paging_translate_address_space(
+            active,
+            direct_map_base,
+            &active_first
+        ) ||
+        !paging_translate_address_space(
+            &candidate,
+            direct_map_base,
+            &candidate_first
+        )
+    ) {
+        kernel_panic(
+            "Unable to translate direct-map candidate start"
+        );
+    }
+
+    if (
+        active_first.physical_address !=
+            candidate_first.physical_address ||
+        active_first.page_size !=
+            candidate_first.page_size
+    ) {
+        kernel_panic(
+            "Direct-map candidate start translation mismatch"
+        );
+    }
+
+    uint64_t physical_limit =
+        memory_managed_physical_limit();
+
+    if (physical_limit == 0) {
+        kernel_panic(
+            "Managed physical-memory limit is empty"
+        );
+    }
+
+    uint64_t last_virtual =
+        direct_map_base +
+        physical_limit -
+        1;
+
+    struct paging_translation active_last;
+    struct paging_translation candidate_last;
+
+    if (
+        !paging_translate_address_space(
+            active,
+            last_virtual,
+            &active_last
+        ) ||
+        !paging_translate_address_space(
+            &candidate,
+            last_virtual,
+            &candidate_last
+        )
+    ) {
+        kernel_panic(
+            "Unable to translate direct-map candidate end"
+        );
+    }
+
+    if (
+        active_last.physical_address !=
+            candidate_last.physical_address ||
+        active_last.page_size !=
+            candidate_last.page_size
+    ) {
+        kernel_panic(
+            "Direct-map candidate end translation mismatch"
+        );
+    }
+
+    diagnostics_printf(
+        "Direct-map owned mapping candidate:\n"
+        "  active PML4 PA=%x\n"
+        "  candidate PML4 PA=%x\n"
+        "  direct-map PML4 index=%u\n"
+        "  active entry=%x child PA=%x\n"
+        "  candidate entry=%x child PA=%x\n"
+        "  first resolved PA=%x size=%s\n"
+        "  last resolved PA=%x size=%s\n"
+        "  free before=%u\n"
+        "  free after build=%u\n",
+        active->pml4_physical,
+        candidate.pml4_physical,
+        (uint64_t) pml4_index,
+        active_entry,
+        paging_entry_address(
+            active_entry
+        ),
+        candidate_entry,
+        paging_entry_address(
+            candidate_entry
+        ),
+        candidate_first.physical_address,
+        runtime_page_size_name(
+            candidate_first.page_size
+        ),
+        candidate_last.physical_address,
+        runtime_page_size_name(
+            candidate_last.page_size
+        ),
+        free_before,
+        free_after_build
+    );
+
+    if (!direct_mapping_destroy(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to destroy direct-map candidate"
+        );
+    }
+
+    uint64_t free_after_destroy =
+        physical_free_frame_count();
+
+    diagnostics_printf(
+        "  free after destroy=%u\n",
+        free_after_destroy
+    );
+
+    if (
+        free_after_destroy !=
+        free_before
+    ) {
+        kernel_panic(
+            "Direct-map candidate leaked physical frames"
         );
     }
 }
