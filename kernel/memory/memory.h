@@ -45,6 +45,13 @@ void memory_init(
 void *memory_physical_to_virtual(uint64_t physical_address);
 
 /**
+ * Returns the virtual base of the kernel direct physical-memory map.
+ *
+ * @return Direct-map virtual base address.
+ */
+uint64_t memory_direct_map_base(void);
+
+/**
  * Returns the exclusive upper bound of physical memory managed by the
  * physical-frame allocator.
  *
