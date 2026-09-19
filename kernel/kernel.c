@@ -15,6 +15,7 @@
 #include "init/boot_banner.h"
 #include "init/display.h"
 #include "memory/device_mapping.h"
+#include "memory/direct_mapping.h"
 #include "memory/heap.h"
 #include "memory/kernel_mapping.h"
 #include "memory/memory.h"
@@ -100,6 +101,12 @@ _Noreturn void kernel_main(void)
 
 static _Noreturn void kernel_main_continue(void)
 {
+    if (!direct_mapping_install()) {
+        kernel_panic(
+            "Unable to install MyOS-owned direct map"
+        );
+    }
+
     if (!kernel_heap_init()) {
         kernel_panic("Unable to initialize kernel heap");
     }

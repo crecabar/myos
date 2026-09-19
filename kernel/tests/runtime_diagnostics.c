@@ -577,6 +577,16 @@ static void runtime_dump_direct_map_inventory(void)
             pml4_entry
         );
 
+    uint64_t replaced_entry;
+
+    if (!direct_mapping_replaced_branch_entry(
+        &replaced_entry
+    )) {
+        kernel_panic(
+            "Replaced boot direct-map branch is unavailable"
+        );
+    }
+
     uint64_t *pdpt =
         memory_physical_to_virtual(
             pdpt_physical
@@ -697,6 +707,7 @@ static void runtime_dump_direct_map_inventory(void)
         "  managed virtual end=%x\n"
         "  PML4 index=%u\n"
         "  branch entry=%x child PA=%x\n"
+        "  replaced boot branch entry=%x child PA=%x\n"
         "  present PDPT entries=%u\n"
         "  PD tables=%u\n"
         "  PT tables=%u\n"
@@ -711,6 +722,10 @@ static void runtime_dump_direct_map_inventory(void)
         (uint64_t) pml4_index,
         pml4_entry,
         pdpt_physical,
+        replaced_entry,
+        paging_entry_address(
+            replaced_entry
+        ),
         pdpt_entries,
         pd_tables,
         pt_tables,

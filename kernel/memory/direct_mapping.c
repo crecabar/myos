@@ -19,6 +19,9 @@
 #define DIRECT_MAPPING_VOLATILE_FLAGS \
     (PAGE_ENTRY_ACCESSED | PAGE_ENTRY_DIRTY)
 
+static bool direct_mapping_installed;
+static uint64_t direct_mapping_replaced_entry;
+
 static bool direct_mapping_clone_table(
     uint64_t source_physical,
     unsigned int level,
@@ -52,6 +55,122 @@ static uint64_t direct_mapping_owned_table_entry(
 static uint64_t direct_mapping_stable_entry(
     uint64_t entry
 );
+
+bool direct_mapping_install(void)
+{
+    if (direct_mapping_installed) return false;
+
+    struct paging_address_space candidate;
+
+    if (!direct_mapping_build(
+        &candidate
+    )) {
+        return false;
+    }
+
+    struct paging_address_space *kernel_address_space =
+        paging_kernel_address_space();
+
+    if (kernel_address_space == NULL) {
+        if (!direct_mapping_destroy(
+            &candidate
+        )) {
+            kernel_panic(
+                "Unable to destroy uninstalled direct-map candidate"
+            );
+        }
+
+        return false;
+    }
+
+    uint16_t direct_map_pml4_index =
+        paging_pml4_index(
+            memory_direct_map_base()
+        );
+
+    uint64_t current_entry =
+        kernel_address_space->pml4_virtual[
+            direct_map_pml4_index
+        ];
+
+    if (
+        (current_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        if (!direct_mapping_destroy(
+            &candidate
+        )) {
+            kernel_panic(
+                "Unable to destroy rejected direct-map candidate"
+            );
+        }
+
+        return false;
+    }
+
+    uint64_t replaced_entry;
+
+    if (!paging_address_space_transfer_pml4_branch(
+        kernel_address_space,
+        &candidate,
+        direct_map_pml4_index,
+        &replaced_entry
+    )) {
+        if (!direct_mapping_destroy(
+            &candidate
+        )) {
+            kernel_panic(
+                "Unable to destroy failed direct-map candidate"
+            );
+        }
+
+        return false;
+    }
+
+    /*
+     * The direct-map PML4 entry has changed beneath the active CR3.
+     * Reload CR3 so no cached translations continue to reference the
+     * bootloader-owned hierarchy.
+     */
+    if (!paging_address_space_activate(
+        kernel_address_space
+    )) {
+        kernel_panic(
+            "Unable to reload kernel address space after direct-map cutover"
+        );
+    }
+
+    /*
+     * The direct-map branch has moved into the kernel address space.
+     * The detached candidate now owns only its temporary PML4 root.
+     */
+    if (!direct_mapping_destroy(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to destroy transferred direct-map candidate"
+        );
+    }
+
+    direct_mapping_replaced_entry =
+        replaced_entry;
+
+    direct_mapping_installed = true;
+
+    return true;
+}
+
+bool direct_mapping_replaced_branch_entry(
+    uint64_t *entry)
+{
+    if (entry == NULL) return false;
+    if (!direct_mapping_installed) return false;
+
+    *entry =
+        direct_mapping_replaced_entry;
+
+    return true;
+}
 
 bool direct_mapping_build(
     struct paging_address_space *address_space)

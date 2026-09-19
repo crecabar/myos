@@ -13,6 +13,32 @@
 #include <stdbool.h>
 
 /**
+ * Installs a MyOS-owned direct physical-memory map.
+ *
+ * A detached copy of the active direct-map hierarchy is built first and then
+ * transferred into the active kernel address space. CR3 is reloaded after the
+ * cutover.
+ *
+ * The replaced boot-time PML4 branch is retained for later reclamation.
+ *
+ * @return true when the direct-map branch was replaced successfully; false
+ *         otherwise.
+ */
+bool direct_mapping_install(void);
+
+/**
+ * Returns the boot-time direct-map PML4 entry replaced by
+ * direct_mapping_install().
+ *
+ * @param entry Receives the detached boot-time PML4 entry.
+ *
+ * @return true when a replaced entry is available; false otherwise.
+ */
+bool direct_mapping_replaced_branch_entry(
+    uint64_t *entry
+);
+
+/**
  * Builds a detached MyOS-owned copy of the active direct-map hierarchy.
  *
  * Physical leaves and their cache attributes are preserved. All newly
