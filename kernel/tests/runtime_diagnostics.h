@@ -11,6 +11,14 @@
 struct framebuffer;
 
 /**
+ * Inspects inherited boot-time paging structures before their reclamation.
+ *
+ * Must be called after the MyOS-owned direct map has been installed and
+ * before any inherited page-table frame is transferred to the allocator.
+ */
+void runtime_diagnostics_pre_reclaim(void);
+
+/**
  * Runs the low-level runtime diagnostics and regression tests.
  *
  * Exercises kernel memory, paging, process address spaces, stacks, layouts,

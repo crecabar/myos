@@ -14,6 +14,7 @@
 #include "diagnostics/diagnostics.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
+#include "memory/boot_paging.h"
 #include "memory/device_mapping.h"
 #include "memory/direct_mapping.h"
 #include "memory/heap.h"
@@ -136,6 +137,56 @@ static _Noreturn void kernel_main_continue(void)
         &cpu,
         &system,
         boot_mode
+    );
+
+    struct boot_paging_inventory boot_inventory;
+
+    if (!boot_paging_reclaim_preflight(
+        &boot_inventory
+    )) {
+        kernel_panic(
+            "Inherited page-table reclaim preflight failed"
+        );
+    }
+
+    uint64_t inherited_table_frames =
+        boot_inventory.pml4_frames +
+        boot_inventory.pdpt_frames +
+        boot_inventory.pd_frames +
+        boot_inventory.pt_frames;
+
+    diagnostics_printf(
+        "[boot-paging] Reclaim preflight passed: "
+        "%u inherited table frames remain reserved\n",
+        inherited_table_frames
+    );
+
+#if MYOS_RUNTIME_DIAGNOSTICS
+    runtime_diagnostics_pre_reclaim();
+#endif
+
+    uint64_t reclaimed_table_frames = 0;
+
+    if (!boot_paging_reclaim(
+        &reclaimed_table_frames
+    )) {
+        kernel_panic(
+            "Unable to reclaim inherited page tables"
+        );
+    }
+
+    if (
+        reclaimed_table_frames !=
+        inherited_table_frames
+    ) {
+        kernel_panic(
+            "Boot page-table reclaim result differs from preflight"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-paging] Reclaimed %u inherited page-table frames\n",
+        reclaimed_table_frames
     );
 
     arch_init();

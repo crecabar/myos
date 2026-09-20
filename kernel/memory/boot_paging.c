@@ -4,6 +4,7 @@
 
 #include "memory.h"
 #include "../arch/x86_64/paging.h"
+#include "../core/panic.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -23,6 +24,14 @@ struct boot_paging_inventory_state {
 
     struct boot_paging_inventory *inventory;
 };
+
+static bool boot_paging_reclaimed;
+
+static bool boot_paging_reclaim_table(
+    uint64_t table_physical,
+    unsigned int level,
+    uint64_t *reclaimed_frames
+);
 
 static bool boot_paging_walk_table(
     uint64_t table_physical,
@@ -53,10 +62,16 @@ static uint64_t boot_paging_tree_reference_count(
     uint64_t target_physical
 );
 
+static bool boot_paging_tree_all_frames_pending(
+    uint64_t table_physical,
+    unsigned int level
+);
+
 bool boot_paging_inventory_collect(
     struct boot_paging_inventory *inventory)
 {
     if (inventory == NULL) return false;
+    if (boot_paging_reclaimed) return false;
 
     inventory->pml4_frames = 0;
     inventory->pdpt_frames = 0;
@@ -103,6 +118,155 @@ bool boot_paging_inventory_collect(
         BOOT_PAGING_LEVEL_PML4,
         &state
     );
+}
+
+bool boot_paging_reclaim_preflight(
+    struct boot_paging_inventory *inventory)
+{
+    if (inventory == NULL) {
+        return false;
+    }
+
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        return false;
+    }
+
+    struct paging_address_space *active =
+        paging_kernel_address_space();
+
+    if (active == NULL) {
+        return false;
+    }
+
+    uint64_t active_cr3 =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    if (
+        active_cr3 != active->pml4_physical ||
+        active_cr3 == boot_pml4_physical
+    ) {
+        return false;
+    }
+
+    if (!boot_paging_inventory_collect(
+        inventory
+    )) {
+        return false;
+    }
+
+    if (
+        inventory->duplicate_table_references != 0 ||
+        inventory->active_table_overlaps != 0 ||
+        inventory->non_reclaimable_table_frames != 0
+    ) {
+        return false;
+    }
+
+    uint64_t total_frames =
+        inventory->pml4_frames +
+        inventory->pdpt_frames +
+        inventory->pd_frames +
+        inventory->pt_frames;
+
+    if (total_frames == 0) {
+        return false;
+    }
+
+    return boot_paging_tree_all_frames_pending(
+        boot_pml4_physical,
+        BOOT_PAGING_LEVEL_PML4
+    );
+}
+
+bool boot_paging_reclaim(
+    uint64_t *reclaimed_frames)
+{
+    if (reclaimed_frames == NULL) {
+        return false;
+    }
+
+    if (boot_paging_reclaimed) {
+        return false;
+    }
+
+    /*
+     * Revalidate immediately before the irreversible ownership transfer.
+     * No frame is released unless the entire hierarchy passes preflight.
+     */
+    struct boot_paging_inventory inventory;
+
+    if (!boot_paging_reclaim_preflight(
+        &inventory
+    )) {
+        return false;
+    }
+
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        return false;
+    }
+
+    uint64_t expected_frames =
+        inventory.pml4_frames +
+        inventory.pdpt_frames +
+        inventory.pd_frames +
+        inventory.pt_frames;
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    uint64_t reclaimed = 0;
+
+    /*
+     * Once the first frame has been released, a partial failure cannot be
+     * rolled back safely. Treat any unexpected failure as kernel-fatal.
+     */
+    if (!boot_paging_reclaim_table(
+        boot_pml4_physical,
+        BOOT_PAGING_LEVEL_PML4,
+        &reclaimed
+    )) {
+        kernel_panic(
+            "Inherited page-table reclamation failed"
+        );
+    }
+
+    if (reclaimed != expected_frames) {
+        kernel_panic(
+            "Inherited page-table reclaim count mismatch"
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (
+        free_after < free_before ||
+        free_after - free_before != reclaimed
+    ) {
+        kernel_panic(
+            "Inherited page-table reclaim accounting mismatch"
+        );
+    }
+
+    /*
+     * The original PML4 and its descendants are no longer owned by the
+     * bootloader. Their contents must never be inspected as inherited
+     * page tables again.
+     */
+    boot_paging_reclaimed = true;
+
+    *reclaimed_frames = reclaimed;
+
+    return true;
 }
 
 static bool boot_paging_walk_table(
@@ -396,4 +560,144 @@ static uint64_t boot_paging_tree_reference_count(
     }
 
     return references;
+}
+
+static bool boot_paging_tree_all_frames_pending(
+    uint64_t table_physical,
+    unsigned int level)
+{
+    if (
+        level < BOOT_PAGING_LEVEL_PT ||
+        level > BOOT_PAGING_LEVEL_PML4
+    ) {
+        return false;
+    }
+
+    if (
+        !memory_bootloader_frame_reclaim_pending(
+            table_physical
+        )
+    ) {
+        return false;
+    }
+
+    if (level == BOOT_PAGING_LEVEL_PT) {
+        return true;
+    }
+
+    const uint64_t *table =
+        memory_physical_to_virtual(
+            table_physical
+        );
+
+    for (
+        size_t index = 0;
+        index < BOOT_PAGING_TABLE_ENTRY_COUNT;
+        ++index
+    ) {
+        uint64_t entry =
+            table[index];
+
+        if (!boot_paging_entry_points_to_table(
+            entry,
+            level
+        )) {
+            continue;
+        }
+
+        uint64_t child_physical =
+            paging_entry_address(
+                entry
+            );
+
+        if (
+            !boot_paging_tree_all_frames_pending(
+                child_physical,
+                level - 1
+            )
+        ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool boot_paging_reclaim_table(
+    uint64_t table_physical,
+    unsigned int level,
+    uint64_t *reclaimed_frames)
+{
+    if (reclaimed_frames == NULL) {
+        return false;
+    }
+
+    if (
+        level < BOOT_PAGING_LEVEL_PT ||
+        level > BOOT_PAGING_LEVEL_PML4
+    ) {
+        return false;
+    }
+
+    if (
+        !memory_bootloader_frame_reclaim_pending(
+            table_physical
+        )
+    ) {
+        return false;
+    }
+
+    /*
+     * Read the child entries while this parent table is still reserved.
+     * A PT contains leaf mappings only, so it has no child page tables.
+     */
+    if (level > BOOT_PAGING_LEVEL_PT) {
+        const uint64_t *table =
+            memory_physical_to_virtual(
+                table_physical
+            );
+
+        for (
+            size_t index = 0;
+            index < BOOT_PAGING_TABLE_ENTRY_COUNT;
+            ++index
+        ) {
+            uint64_t entry =
+                table[index];
+
+            if (!boot_paging_entry_points_to_table(
+                entry,
+                level
+            )) {
+                continue;
+            }
+
+            uint64_t child_physical =
+                paging_entry_address(
+                    entry
+                );
+
+            if (!boot_paging_reclaim_table(
+                child_physical,
+                level - 1,
+                reclaimed_frames
+            )) {
+                return false;
+            }
+        }
+    }
+
+    /*
+     * All children have been processed. No subsequent operation in this
+     * traversal may dereference this table after its frame is transferred.
+     */
+    if (!memory_bootloader_frame_reclaim(
+        table_physical
+    )) {
+        return false;
+    }
+
+    ++*reclaimed_frames;
+
+    return true;
 }

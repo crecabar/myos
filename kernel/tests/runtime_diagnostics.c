@@ -55,6 +55,7 @@ static void runtime_dump_inherited_paging_root(void);
 static void runtime_dump_inherited_page_table_inventory(void);
 static void runtime_test_bootloader_frame_ownership(void);
 static void runtime_test_bootloader_frame_reclaim_rejections(void);
+static void runtime_test_reclaimed_boot_paging(void);
 
 static uint64_t runtime_read_msr(uint32_t msr);
 
@@ -128,14 +129,11 @@ static void runtime_test_process_layout(void);
 static void runtime_test_gdt(void);
 /* END HELPERS */
 
-void runtime_diagnostics_run(
-    const struct framebuffer *framebuffer)
+void runtime_diagnostics_pre_reclaim(void)
 {
-    diagnostics_write("[tests] Starting runtime diagnostics\n");
-    diagnostics_write("\n=== Runtime diagnostics ===\n");
-
-    runtime_dump_kernel_layout();
-    runtime_dump_paging();
+    diagnostics_write(
+        "\n=== Pre-reclaim diagnostics ===\n"
+    );
 
     diagnostics_write(
         "\n--- Inherited paging root ---\n"
@@ -160,6 +158,26 @@ void runtime_diagnostics_run(
     );
 
     runtime_test_bootloader_frame_reclaim_rejections();
+
+    diagnostics_write(
+        "[tests] Pre-reclaim diagnostics completed\n"
+    );
+}
+
+void runtime_diagnostics_run(
+    const struct framebuffer *framebuffer)
+{
+    diagnostics_write("[tests] Starting runtime diagnostics\n");
+    diagnostics_write("\n=== Runtime diagnostics ===\n");
+
+    runtime_dump_kernel_layout();
+    runtime_dump_paging();
+
+    diagnostics_write(
+        "\n--- Reclaimed boot paging ---\n"
+    );
+
+    runtime_test_reclaimed_boot_paging();
 
     diagnostics_write(
         "\n--- Kernel mapping inventory ---\n"
@@ -1867,6 +1885,93 @@ static void runtime_test_bootloader_frame_ownership(void)
         "  free after=%u\n",
         boot_pml4_physical,
         active->pml4_physical,
+        free_before,
+        free_after
+    );
+}
+
+static void runtime_test_reclaimed_boot_paging(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Historical boot PML4 address unavailable"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed boot PML4 is still pending"
+        );
+    }
+
+    /*
+     * Both reclamation APIs must reject a second transfer. The historical
+     * physical address may already have been reused by MyOS.
+     */
+    if (
+        memory_bootloader_frame_reclaim(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Boot PML4 frame was reclaimed twice"
+        );
+    }
+
+    uint64_t second_reclaim_count = 0;
+
+    if (boot_paging_reclaim(
+        &second_reclaim_count
+    )) {
+        kernel_panic(
+            "Inherited paging hierarchy was reclaimed twice"
+        );
+    }
+
+    /*
+     * The original tables may now contain unrelated data. An inventory
+     * request must fail without dereferencing the old hierarchy.
+     */
+    struct boot_paging_inventory stale_inventory;
+
+    if (boot_paging_inventory_collect(
+        &stale_inventory
+    )) {
+        kernel_panic(
+            "Reclaimed boot paging remains available for inventory"
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (free_after != free_before) {
+        kernel_panic(
+            "Repeated boot paging reclaim changed free-frame count"
+        );
+    }
+
+    diagnostics_printf(
+        "Reclaimed boot paging test passed:\n"
+        "  historical boot PML4 PA=%x\n"
+        "  pending=no\n"
+        "  repeated frame reclamation rejected\n"
+        "  repeated hierarchy reclamation rejected\n"
+        "  stale inventory rejected\n"
+        "  free before=%u\n"
+        "  free after=%u\n",
+        boot_pml4_physical,
         free_before,
         free_after
     );
