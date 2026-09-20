@@ -25,6 +25,7 @@
 #define CPUID_EDX_NX            (1U << 20)
 
 static struct paging_address_space kernel_address_space;
+static uint64_t boot_pml4_physical;
 static bool paging_initialized;
 
 /* PRIVATE HELPERS */
@@ -84,6 +85,10 @@ bool paging_init(void)
 {
     if (paging_initialized) return false;
 
+    uint64_t inherited_pml4_physical =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
     if (!paging_enable_nx()) {
         return false;
     }
@@ -102,13 +107,23 @@ bool paging_init(void)
         return false;
     }
 
-    paging_write_cr3(kernel_address_space.pml4_physical);
+    paging_write_cr3(
+        kernel_address_space.pml4_physical
+    );
 
-    uint64_t active_cr3 = paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
+    uint64_t active_cr3 =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
 
-    if (active_cr3 != kernel_address_space.pml4_physical) {
+    if (
+        active_cr3 !=
+        kernel_address_space.pml4_physical
+    ) {
         return false;
     }
+
+    boot_pml4_physical =
+        inherited_pml4_physical;
 
     paging_initialized = true;
 
@@ -120,6 +135,18 @@ struct paging_address_space *paging_kernel_address_space(void)
     if (!paging_initialized) return NULL;
 
     return &kernel_address_space;
+}
+
+bool paging_boot_pml4_physical(
+    uint64_t *physical_address)
+{
+    if (!paging_initialized) return false;
+    if (physical_address == NULL) return false;
+
+    *physical_address =
+        boot_pml4_physical;
+
+    return true;
 }
 
 uint64_t paging_entry_address(uint64_t entry)

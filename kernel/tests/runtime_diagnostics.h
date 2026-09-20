@@ -11,7 +11,23 @@
 struct framebuffer;
 
 /**
- * Runs the low-level runtime diagnostics and regression tests.
+ * Inspects inherited boot-time paging structures before their reclamation.
+ *
+ * Must be called after the MyOS-owned direct map has been installed and
+ * before any inherited page-table frame is transferred to the allocator.
+ */
+ void runtime_diagnostics_pre_reclaim(void);
+
+ /**
+  * Tests allocation and release of the historical boot PML4 frame.
+  *
+  * Must run immediately after successful inherited page-table reclamation,
+  * before other kernel components can allocate the recovered frame.
+  */
+ void runtime_diagnostics_reclaimed_frame_reuse(void);
+
+ /**
+  * Runs the low-level runtime diagnostics and regression tests.
  *
  * Exercises kernel memory, paging, process address spaces, stacks, layouts,
  * and x86-64 execution-state invariants established during early MyOS

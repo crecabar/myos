@@ -19,6 +19,8 @@ static uint64_t direct_map_offset;
 static bool memory_initialized;
 
 static uint8_t *frame_bitmap;
+static uint8_t *boot_reclaim_pending_bitmap;
+
 static uint64_t frame_bitmap_physical;
 static size_t frame_bitmap_size;
 static uint64_t managed_frame_count;
@@ -26,7 +28,7 @@ static uint64_t managed_frame_count;
 static uint64_t next_free_frame_hint;
 
 /* Helpers and private functions */
-static uint64_t memory_highest_usable_address(void);
+static uint64_t memory_highest_managed_address(void);
 static const char *memory_region_type_name(enum memory_region_type type);
 static uint64_t align_up(uint64_t value, uint64_t alignment);
 static uint64_t align_down(uint64_t value, uint64_t alignment);
@@ -35,6 +37,12 @@ static uint64_t bytes_to_frames(size_t byte_count);
 static uint64_t find_bitmap_physical_address(uint64_t bitmap_frame_count);
 static void *direct_map_physical_address(uint64_t physical_address);
 static void frame_bitmap_mark_all_used(void);
+static void boot_reclaim_pending_bitmap_initialize(void);
+static bool boot_reclaim_pending_bitmap_is_set(uint64_t frame_number);
+static void boot_reclaim_pending_bitmap_set(
+    uint64_t frame_number,
+    bool pending
+);
 static void frame_bitmap_set(uint64_t frame_number, bool used);
 static bool frame_bitmap_is_used(uint64_t frame_number);
 static uint64_t frame_bitmap_count_free(void);
@@ -69,19 +77,67 @@ void memory_init(
     }
 
     region_count = memory_region_count;
-    uint64_t highest_usable_address = memory_highest_usable_address();
-    managed_frame_count = highest_usable_address / MEMORY_FRAME_SIZE;
-    frame_bitmap_size = frame_bitmap_size_for(managed_frame_count);
-    uint64_t bitmap_frame_count = bytes_to_frames(frame_bitmap_size);
+
+    uint64_t highest_managed_address =
+        memory_highest_managed_address();
+
+    if (
+        highest_managed_address >
+        UINT64_MAX - (MEMORY_FRAME_SIZE - 1)
+    ) {
+        kernel_panic(
+            "Managed physical address range overflows"
+        );
+    }
+
+    managed_frame_count =
+        align_up(
+            highest_managed_address,
+            MEMORY_FRAME_SIZE
+        ) /
+        MEMORY_FRAME_SIZE;
+
+    frame_bitmap_size =
+        frame_bitmap_size_for(
+            managed_frame_count
+        );
+
+    if (
+        frame_bitmap_size >
+        (SIZE_MAX - (MEMORY_FRAME_SIZE - 1)) / 2
+    ) {
+        kernel_panic(
+            "Physical allocator bitmaps exceed addressable size"
+        );
+    }
+
+    size_t bitmap_storage_size = frame_bitmap_size * 2;
+    uint64_t bitmap_frame_count = bytes_to_frames(bitmap_storage_size);
     frame_bitmap_physical = find_bitmap_physical_address(bitmap_frame_count);
     frame_bitmap = direct_map_physical_address(frame_bitmap_physical);
 
-    frame_bitmap_mark_all_used();
-    frame_bitmap_release_usable_regions();
-    frame_bitmap_mark_range_used(0, MEMORY_BITMAP_MIN_ADDRESS);
+    boot_reclaim_pending_bitmap =
+        frame_bitmap +
+        frame_bitmap_size;
 
-    uint64_t bitmap_end = frame_bitmap_physical + bitmap_frame_count * MEMORY_FRAME_SIZE;
-    frame_bitmap_mark_range_used(frame_bitmap_physical, bitmap_end);
+    frame_bitmap_mark_all_used();
+    boot_reclaim_pending_bitmap_initialize();
+
+    frame_bitmap_release_usable_regions();
+
+    frame_bitmap_mark_range_used(
+        0,
+        MEMORY_BITMAP_MIN_ADDRESS
+    );
+
+    uint64_t bitmap_end =
+        frame_bitmap_physical +
+        bitmap_frame_count * MEMORY_FRAME_SIZE;
+
+    frame_bitmap_mark_range_used(
+        frame_bitmap_physical,
+        bitmap_end
+    );
 
     next_free_frame_hint = MEMORY_BITMAP_MIN_ADDRESS / MEMORY_FRAME_SIZE;
 
@@ -117,6 +173,172 @@ uint64_t memory_managed_physical_limit(void)
     }
 
     return (managed_frame_count * MEMORY_FRAME_SIZE);
+}
+
+bool memory_physical_frame_is_bootloader_reclaimable(
+    uint64_t physical_address)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    if (
+        (physical_address %
+         MEMORY_FRAME_SIZE) != 0
+    ) {
+        return false;
+    }
+
+    if (
+        physical_address >
+        UINT64_MAX - MEMORY_FRAME_SIZE
+    ) {
+        return false;
+    }
+
+    uint64_t frame_end =
+        physical_address +
+        MEMORY_FRAME_SIZE;
+
+    for (
+        size_t index = 0;
+        index < region_count;
+        ++index
+    ) {
+        const struct memory_region *region =
+            &regions[index];
+
+        if (
+            region->type !=
+            MEMORY_REGION_BOOTLOADER_RECLAIMABLE
+        ) {
+            continue;
+        }
+
+        if (
+            region->length >
+            UINT64_MAX - region->base
+        ) {
+            kernel_panic(
+                "Physical memory region end overflows"
+            );
+        }
+
+        uint64_t region_end =
+            region->base +
+            region->length;
+
+        if (
+            physical_address >= region->base &&
+            frame_end <= region_end
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool memory_bootloader_frame_reclaim_pending(
+    uint64_t physical_address)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    if (
+        (physical_address %
+         MEMORY_FRAME_SIZE) != 0
+    ) {
+        return false;
+    }
+
+    if (
+        physical_address <
+        MEMORY_BITMAP_MIN_ADDRESS
+    ) {
+        return false;
+    }
+
+    uint64_t frame_number =
+        physical_address /
+        MEMORY_FRAME_SIZE;
+
+    if (
+        frame_number >=
+        managed_frame_count
+    ) {
+        return false;
+    }
+
+    if (
+        !memory_physical_frame_is_bootloader_reclaimable(
+            physical_address
+        )
+    ) {
+        return false;
+    }
+
+    return boot_reclaim_pending_bitmap_is_set(
+        frame_number
+    );
+}
+
+bool memory_bootloader_frame_reclaim(
+    uint64_t physical_address)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    if (
+        !memory_bootloader_frame_reclaim_pending(
+            physical_address
+        )
+    ) {
+        return false;
+    }
+
+    uint64_t frame_number =
+        physical_address /
+        MEMORY_FRAME_SIZE;
+
+    /*
+     * A pending frame must still be reserved. A free frame with pending=1
+     * would indicate corrupted ownership accounting.
+     */
+    if (!frame_bitmap_is_used(frame_number)) {
+        kernel_panic(
+            "Pending bootloader frame is already free"
+        );
+    }
+
+    /*
+     * Remove bootloader ownership before exposing the frame to the allocator.
+     * The pending bit remains clear even if the frame is allocated again.
+     */
+    boot_reclaim_pending_bitmap_set(
+        frame_number,
+        false
+    );
+
+    frame_bitmap_set(
+        frame_number,
+        false
+    );
+
+    if (frame_number < next_free_frame_hint) {
+        next_free_frame_hint =
+            frame_number;
+    }
+
+    return true;
 }
 
 bool physical_alloc_frame(uint64_t *physical_address)
@@ -160,6 +382,71 @@ bool physical_alloc_frame(uint64_t *physical_address)
     return false;
 }
 
+bool physical_alloc_frame_at(uint64_t physical_address)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    if (
+        (physical_address %
+         MEMORY_FRAME_SIZE) != 0
+    ) {
+        return false;
+    }
+
+    if (
+        physical_address <
+        MEMORY_BITMAP_MIN_ADDRESS
+    ) {
+        return false;
+    }
+
+    uint64_t frame_number =
+        physical_address /
+        MEMORY_FRAME_SIZE;
+
+    if (
+        frame_number >=
+        managed_frame_count
+    ) {
+        return false;
+    }
+
+    if (
+        boot_reclaim_pending_bitmap_is_set(
+            frame_number
+        )
+    ) {
+        return false;
+    }
+
+    if (frame_bitmap_is_used(frame_number)) {
+        return false;
+    }
+
+    frame_bitmap_set(
+        frame_number,
+        true
+    );
+
+    if (frame_number == next_free_frame_hint) {
+        next_free_frame_hint =
+            frame_number + 1;
+
+        if (
+            next_free_frame_hint >=
+            managed_frame_count
+        ) {
+            next_free_frame_hint = 0;
+        }
+    }
+
+    return true;
+}
+
 bool physical_free_frame(uint64_t physical_address)
 {
     if (!memory_initialized) {
@@ -170,10 +457,18 @@ bool physical_free_frame(uint64_t physical_address)
         kernel_panic("Physical address is not frame-aligned");
     }
 
-    uint64_t frame_number = physical_address / MEMORY_FRAME_SIZE;
+    uint64_t frame_number =
+        physical_address /
+        MEMORY_FRAME_SIZE;
 
     if (frame_number >= managed_frame_count) {
         kernel_panic("Physical frame exceeds bitmap capacity");
+    }
+
+    if (boot_reclaim_pending_bitmap_is_set(frame_number)) {
+        kernel_panic(
+            "Cannot free frame still owned by bootloader"
+        );
     }
 
     if (!frame_bitmap_is_used(frame_number)) {
@@ -419,25 +714,44 @@ static uint64_t align_down(uint64_t value, uint64_t alignment)
     return value & ~(alignment - 1);
 }
 
-static uint64_t memory_highest_usable_address(void)
+static uint64_t memory_highest_managed_address(void)
 {
     uint64_t highest_address = 0;
 
-    for (size_t index = 0;
-         index < region_count;
-         ++index)
-    {
+    for (
+        size_t index = 0;
+        index < region_count;
+        ++index
+    ) {
         const struct memory_region *region =
             &regions[index];
 
-        if (region->type != MEMORY_REGION_USABLE) {
+        if (
+            region->type !=
+                MEMORY_REGION_USABLE &&
+            region->type !=
+                MEMORY_REGION_BOOTLOADER_RECLAIMABLE
+        ) {
             continue;
         }
 
-        uint64_t region_end =
-            region->base + region->length;
+        if (
+            region->length >
+            UINT64_MAX - region->base
+        ) {
+            kernel_panic(
+                "Physical memory region end overflows"
+            );
+        }
 
-        if (region_end > highest_address) {
+        uint64_t region_end =
+            region->base +
+            region->length;
+
+        if (
+            region_end >
+            highest_address
+        ) {
             highest_address =
                 region_end;
         }
@@ -513,6 +827,168 @@ static void frame_bitmap_mark_all_used(void)
 {
     for (size_t index = 0; index < frame_bitmap_size; ++index) {
         frame_bitmap[index] = 0xff;
+    }
+}
+
+static void boot_reclaim_pending_bitmap_initialize(void)
+{
+    for (
+        size_t index = 0;
+        index < frame_bitmap_size;
+        ++index
+    ) {
+        boot_reclaim_pending_bitmap[index] = 0;
+    }
+
+    for (
+        size_t index = 0;
+        index < region_count;
+        ++index
+    ) {
+        const struct memory_region *region =
+            &regions[index];
+
+        if (
+            region->type !=
+            MEMORY_REGION_BOOTLOADER_RECLAIMABLE
+        ) {
+            continue;
+        }
+
+        if (
+            region->length >
+            UINT64_MAX - region->base
+        ) {
+            kernel_panic(
+                "Bootloader memory region end overflows"
+            );
+        }
+
+        uint64_t region_end =
+            region->base +
+            region->length;
+
+        uint64_t first_frame_address =
+            align_up(
+                region->base,
+                MEMORY_FRAME_SIZE
+            );
+
+        uint64_t last_frame_address =
+            align_down(
+                region_end,
+                MEMORY_FRAME_SIZE
+            );
+
+        /*
+         * Keep the first MiB reserved under the existing physical-memory
+         * policy, even if the bootloader classifies individual frames there
+         * as reclaimable.
+         */
+        if (
+            first_frame_address <
+            MEMORY_BITMAP_MIN_ADDRESS
+        ) {
+            first_frame_address =
+                MEMORY_BITMAP_MIN_ADDRESS;
+        }
+
+        for (
+            uint64_t physical_address =
+                first_frame_address;
+            physical_address <
+                last_frame_address;
+            physical_address += MEMORY_FRAME_SIZE
+        ) {
+            uint64_t frame_number =
+                physical_address /
+                MEMORY_FRAME_SIZE;
+
+            if (
+                frame_number >=
+                managed_frame_count
+            ) {
+                kernel_panic(
+                    "Bootloader frame exceeds bitmap capacity"
+                );
+            }
+
+            if (
+                !frame_bitmap_is_used(
+                    frame_number
+                )
+            ) {
+                kernel_panic(
+                    "Bootloader frame is unexpectedly available"
+                );
+            }
+
+            size_t byte_index =
+                (size_t) (frame_number / 8);
+
+            uint8_t bit_index =
+                (uint8_t) (frame_number % 8);
+
+            boot_reclaim_pending_bitmap[
+                byte_index
+            ] |=
+                (uint8_t) (1U << bit_index);
+        }
+    }
+}
+
+static bool boot_reclaim_pending_bitmap_is_set(
+    uint64_t frame_number)
+{
+    if (
+        frame_number >=
+        managed_frame_count
+    ) {
+        kernel_panic(
+            "Bootloader frame number exceeds bitmap capacity"
+        );
+    }
+
+    size_t byte_index =
+        (size_t) (frame_number / 8);
+
+    uint8_t bit_index =
+        (uint8_t) (frame_number % 8);
+
+    uint8_t mask =
+        (uint8_t) (1U << bit_index);
+
+    return (
+        boot_reclaim_pending_bitmap[
+            byte_index
+        ] & mask
+    ) != 0;
+}
+
+static void boot_reclaim_pending_bitmap_set(
+    uint64_t frame_number,
+    bool pending)
+{
+    if (frame_number >= managed_frame_count) {
+        kernel_panic(
+            "Bootloader frame number exceeds bitmap capacity"
+        );
+    }
+
+    size_t byte_index =
+        (size_t) (frame_number / 8);
+
+    uint8_t bit_index =
+        (uint8_t) (frame_number % 8);
+
+    uint8_t mask =
+        (uint8_t) (1U << bit_index);
+
+    if (pending) {
+        boot_reclaim_pending_bitmap[byte_index] |= mask;
+    } else {
+        boot_reclaim_pending_bitmap[byte_index] &=
+            (uint8_t) ~mask;
     }
 }
 

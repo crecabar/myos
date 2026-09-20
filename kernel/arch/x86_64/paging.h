@@ -91,6 +91,22 @@ uint64_t paging_entry_address(uint64_t entry);
 
 struct paging_address_space *paging_kernel_address_space(void);
 
+/**
+ * Returns the physical address of the boot-time PML4 root that was active
+ * before MyOS installed its own kernel address-space root.
+ *
+ * The returned frame remains owned by the boot environment until explicitly
+ * reclaimed.
+ *
+ * @param physical_address Receives the boot-time PML4 physical address.
+ *
+ * @return true when paging is initialized and the address is available; false
+ *         otherwise.
+ */
+bool paging_boot_pml4_physical(
+    uint64_t *physical_address
+);
+
 uint64_t paging_read_cr3(void);
 
 void paging_invalidate_page(uint64_t virtual_address);

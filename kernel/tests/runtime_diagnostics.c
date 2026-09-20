@@ -9,6 +9,7 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
+#include "../memory/boot_paging.h"
 #include "../memory/direct_mapping.h"
 #include "../memory/kernel_mapping.h"
 #include "../memory/memory.h"
@@ -50,6 +51,11 @@ static uint16_t read_tr(void);
 static void dump_page_size(enum paging_page_size page_size);
 static void runtime_dump_kernel_layout(void);
 static void runtime_dump_paging(void);
+static void runtime_dump_inherited_paging_root(void);
+static void runtime_dump_inherited_page_table_inventory(void);
+static void runtime_test_bootloader_frame_ownership(void);
+static void runtime_test_bootloader_frame_reclaim_rejections(void);
+static void runtime_test_reclaimed_boot_paging(void);
 
 static uint64_t runtime_read_msr(uint32_t msr);
 
@@ -123,6 +129,151 @@ static void runtime_test_process_layout(void);
 static void runtime_test_gdt(void);
 /* END HELPERS */
 
+void runtime_diagnostics_pre_reclaim(void)
+{
+    diagnostics_write(
+        "\n=== Pre-reclaim diagnostics ===\n"
+    );
+
+    diagnostics_write(
+        "\n--- Inherited paging root ---\n"
+    );
+
+    runtime_dump_inherited_paging_root();
+
+    diagnostics_write(
+        "\n--- Inherited page-table inventory ---\n"
+    );
+
+    runtime_dump_inherited_page_table_inventory();
+
+    diagnostics_write(
+        "\n--- Bootloader frame ownership ---\n"
+    );
+
+    runtime_test_bootloader_frame_ownership();
+
+    diagnostics_write(
+        "\n--- Bootloader frame reclaim rejections ---\n"
+    );
+
+    runtime_test_bootloader_frame_reclaim_rejections();
+
+    diagnostics_write(
+        "[tests] Pre-reclaim diagnostics completed\n"
+    );
+}
+
+void runtime_diagnostics_reclaimed_frame_reuse(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Historical boot PML4 address unavailable"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    /*
+     * Only the historical address is used here. The original page-table
+     * contents are no longer valid boot-paging metadata.
+     */
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Boot PML4 remains pending after reclamation"
+        );
+    }
+
+    if (!physical_alloc_frame_at(
+        boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Unable to allocate reclaimed boot PML4 frame"
+        );
+    }
+
+    uint64_t free_after_allocate =
+        physical_free_frame_count();
+
+    if (
+        free_after_allocate >= free_before ||
+        free_before - free_after_allocate != 1
+    ) {
+        kernel_panic(
+            "Reclaimed frame allocation accounting mismatch"
+        );
+    }
+
+    if (physical_alloc_frame_at(
+        boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Allocated the same reclaimed frame twice"
+        );
+    }
+
+    if (memory_bootloader_frame_reclaim(
+        boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Reclaimed an already transferred frame"
+        );
+    }
+
+    if (!physical_free_frame(
+        boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Unable to free reclaimed boot PML4 frame"
+        );
+    }
+
+    uint64_t free_after_release =
+        physical_free_frame_count();
+
+    if (free_after_release != free_before) {
+        kernel_panic(
+            "Reclaimed frame release accounting mismatch"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Released frame returned to bootloader-pending state"
+        );
+    }
+
+    diagnostics_printf(
+        "Reclaimed frame reuse test passed:\n"
+        "  historical boot PML4 PA=%x\n"
+        "  frame allocation succeeded\n"
+        "  duplicate allocation rejected\n"
+        "  duplicate reclamation rejected\n"
+        "  frame release succeeded\n"
+        "  pending after release=no\n"
+        "  free before=%u\n"
+        "  free after allocation=%u\n"
+        "  free after release=%u\n",
+        boot_pml4_physical,
+        free_before,
+        free_after_allocate,
+        free_after_release
+    );
+}
+
 void runtime_diagnostics_run(
     const struct framebuffer *framebuffer)
 {
@@ -131,6 +282,12 @@ void runtime_diagnostics_run(
 
     runtime_dump_kernel_layout();
     runtime_dump_paging();
+
+    diagnostics_write(
+        "\n--- Reclaimed boot paging ---\n"
+    );
+
+    runtime_test_reclaimed_boot_paging();
 
     diagnostics_write(
         "\n--- Kernel mapping inventory ---\n"
@@ -1513,6 +1670,423 @@ static void runtime_dump_paging(void)
     );
 }
 
+static void runtime_dump_inherited_paging_root(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Boot-time PML4 root unavailable"
+        );
+    }
+
+    struct paging_address_space *active =
+        paging_kernel_address_space();
+
+    if (active == NULL) {
+        kernel_panic(
+            "Active kernel address space unavailable"
+        );
+    }
+
+    if (
+        boot_pml4_physical ==
+        active->pml4_physical
+    ) {
+        kernel_panic(
+            "Boot and active PML4 roots unexpectedly match"
+        );
+    }
+
+    uint64_t *boot_pml4 =
+        memory_physical_to_virtual(
+            boot_pml4_physical
+        );
+
+    uint64_t kernel_replaced_entry;
+
+    if (!kernel_mapping_replaced_branch_entry(
+        &kernel_replaced_entry
+    )) {
+        kernel_panic(
+            "Replaced boot kernel branch unavailable"
+        );
+    }
+
+    uint64_t direct_map_replaced_entry;
+
+    if (!direct_mapping_replaced_branch_entry(
+        &direct_map_replaced_entry
+    )) {
+        kernel_panic(
+            "Replaced boot direct-map branch unavailable"
+        );
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            (uint64_t) __text_start
+        );
+
+    uint16_t direct_map_pml4_index =
+        paging_pml4_index(
+            memory_direct_map_base()
+        );
+
+    uint64_t boot_kernel_entry =
+        boot_pml4[
+            kernel_pml4_index
+        ];
+
+    uint64_t boot_direct_map_entry =
+        boot_pml4[
+            direct_map_pml4_index
+        ];
+
+    if (
+        (boot_kernel_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        kernel_panic(
+            "Boot kernel PML4 branch missing"
+        );
+    }
+
+    if (
+        (boot_direct_map_entry &
+         PAGE_ENTRY_PRESENT) == 0
+    ) {
+        kernel_panic(
+            "Boot direct-map PML4 branch missing"
+        );
+    }
+
+    if (
+        paging_entry_address(
+            boot_kernel_entry
+        ) !=
+        paging_entry_address(
+            kernel_replaced_entry
+        )
+    ) {
+        kernel_panic(
+            "Boot kernel branch does not match replaced branch"
+        );
+    }
+
+    if (
+        paging_entry_address(
+            boot_direct_map_entry
+        ) !=
+        paging_entry_address(
+            direct_map_replaced_entry
+        )
+    ) {
+        kernel_panic(
+            "Boot direct-map branch does not match replaced branch"
+        );
+    }
+
+    uint64_t present_entries = 0;
+
+    for (
+        size_t index = 0;
+        index < 512;
+        ++index
+    ) {
+        if (
+            (boot_pml4[index] &
+             PAGE_ENTRY_PRESENT) != 0
+        ) {
+            ++present_entries;
+        }
+    }
+
+    diagnostics_printf(
+        "Inherited boot PML4 root:\n"
+        "  boot PML4 PA=%x\n"
+        "  active PML4 PA=%x\n"
+        "  present entries=%u\n"
+        "  kernel branch index=%u boot child PA=%x replaced child PA=%x\n"
+        "  direct-map branch index=%u boot child PA=%x replaced child PA=%x\n"
+        "  present boot PML4 entries:\n",
+        boot_pml4_physical,
+        active->pml4_physical,
+        present_entries,
+        (uint64_t) kernel_pml4_index,
+        paging_entry_address(
+            boot_kernel_entry
+        ),
+        paging_entry_address(
+            kernel_replaced_entry
+        ),
+        (uint64_t) direct_map_pml4_index,
+        paging_entry_address(
+            boot_direct_map_entry
+        ),
+        paging_entry_address(
+            direct_map_replaced_entry
+        )
+    );
+
+    for (
+        size_t index = 0;
+        index < 512;
+        ++index
+    ) {
+        uint64_t entry =
+            boot_pml4[index];
+
+        if (
+            (entry &
+             PAGE_ENTRY_PRESENT) == 0
+        ) {
+            continue;
+        }
+
+        diagnostics_printf(
+            "    PML4[%u] entry=%x child PA=%x\n",
+            (uint64_t) index,
+            entry,
+            paging_entry_address(
+                entry
+            )
+        );
+    }
+}
+
+static void runtime_dump_inherited_page_table_inventory(void)
+{
+    struct boot_paging_inventory inventory;
+
+    if (!boot_paging_inventory_collect(
+        &inventory
+    )) {
+        kernel_panic(
+            "Unable to inventory inherited page tables"
+        );
+    }
+
+    uint64_t total_frames =
+        inventory.pml4_frames +
+        inventory.pdpt_frames +
+        inventory.pd_frames +
+        inventory.pt_frames;
+
+    diagnostics_printf(
+        "Inherited page-table frames:\n"
+        "  PML4 frames=%u\n"
+        "  PDPT frames=%u\n"
+        "  PD frames=%u\n"
+        "  PT frames=%u\n"
+        "  total table frames=%u\n"
+        "  duplicate table references=%u\n"
+        "  active table overlaps=%u\n"
+        "  non-reclaimable table frames=%u\n",
+        inventory.pml4_frames,
+        inventory.pdpt_frames,
+        inventory.pd_frames,
+        inventory.pt_frames,
+        total_frames,
+        inventory.duplicate_table_references,
+        inventory.active_table_overlaps,
+        inventory.non_reclaimable_table_frames
+    );
+
+    if (
+        inventory.duplicate_table_references != 0
+    ) {
+        kernel_panic(
+            "Inherited paging hierarchy contains aliased tables"
+        );
+    }
+
+    if (
+        inventory.active_table_overlaps != 0
+    ) {
+        kernel_panic(
+            "Inherited page table still belongs to active hierarchy"
+        );
+    }
+
+    if (
+        inventory.non_reclaimable_table_frames != 0
+    ) {
+        kernel_panic(
+            "Inherited page table is outside bootloader-reclaimable memory"
+        );
+    }
+}
+
+static void runtime_test_bootloader_frame_ownership(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Bootloader PML4 root unavailable"
+        );
+    }
+
+    struct paging_address_space *active =
+        paging_kernel_address_space();
+
+    if (active == NULL) {
+        kernel_panic(
+            "Active kernel address space unavailable"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    if (
+        !memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Bootloader PML4 root is not pending reclamation"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            active->pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "MyOS-owned PML4 root is pending reclamation"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            0
+        )
+    ) {
+        kernel_panic(
+            "Reserved low-memory frame is pending reclamation"
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (
+        free_after !=
+        free_before
+    ) {
+        kernel_panic(
+            "Bootloader ownership query changed free-frame count"
+        );
+    }
+
+    diagnostics_printf(
+        "Bootloader frame ownership test:\n"
+        "  boot PML4 PA=%x pending=yes\n"
+        "  active PML4 PA=%x pending=no\n"
+        "  reserved low frame pending=no\n"
+        "  free before=%u\n"
+        "  free after=%u\n",
+        boot_pml4_physical,
+        active->pml4_physical,
+        free_before,
+        free_after
+    );
+}
+
+static void runtime_test_reclaimed_boot_paging(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Historical boot PML4 address unavailable"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed boot PML4 is still pending"
+        );
+    }
+
+    /*
+     * Both reclamation APIs must reject a second transfer. The historical
+     * physical address may already have been reused by MyOS.
+     */
+    if (
+        memory_bootloader_frame_reclaim(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Boot PML4 frame was reclaimed twice"
+        );
+    }
+
+    uint64_t second_reclaim_count = 0;
+
+    if (boot_paging_reclaim(
+        &second_reclaim_count
+    )) {
+        kernel_panic(
+            "Inherited paging hierarchy was reclaimed twice"
+        );
+    }
+
+    /*
+     * The original tables may now contain unrelated data. An inventory
+     * request must fail without dereferencing the old hierarchy.
+     */
+    struct boot_paging_inventory stale_inventory;
+
+    if (boot_paging_inventory_collect(
+        &stale_inventory
+    )) {
+        kernel_panic(
+            "Reclaimed boot paging remains available for inventory"
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (free_after != free_before) {
+        kernel_panic(
+            "Repeated boot paging reclaim changed free-frame count"
+        );
+    }
+
+    diagnostics_printf(
+        "Reclaimed boot paging test passed:\n"
+        "  historical boot PML4 PA=%x\n"
+        "  pending=no\n"
+        "  repeated frame reclamation rejected\n"
+        "  repeated hierarchy reclamation rejected\n"
+        "  stale inventory rejected\n"
+        "  free before=%u\n"
+        "  free after=%u\n",
+        boot_pml4_physical,
+        free_before,
+        free_after
+    );
+}
+
 static uint64_t runtime_read_msr(uint32_t msr)
 {
     uint32_t low;
@@ -1592,6 +2166,103 @@ static const char *runtime_pat_memory_type_name(
         default:
             return "reserved";
     }
+}
+
+static void runtime_test_bootloader_frame_reclaim_rejections(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Bootloader PML4 root unavailable"
+        );
+    }
+
+    struct paging_address_space *active =
+        paging_kernel_address_space();
+
+    if (active == NULL) {
+        kernel_panic(
+            "Active kernel address space unavailable"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    if (
+        memory_bootloader_frame_reclaim(
+            active->pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed an active MyOS-owned PML4 frame"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim(
+            boot_pml4_physical + 1
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed an unaligned bootloader frame"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim(
+            0
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed a reserved low-memory frame"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim(
+            memory_managed_physical_limit()
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed a frame outside the managed range"
+        );
+    }
+
+    if (
+        !memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Rejection tests modified bootloader PML4 ownership"
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (free_after != free_before) {
+        kernel_panic(
+            "Rejected bootloader reclamation changed free-frame count"
+        );
+    }
+
+    diagnostics_printf(
+        "Bootloader frame reclaim rejection tests passed:\n"
+        "  active PML4 rejected\n"
+        "  unaligned boot frame rejected\n"
+        "  reserved low frame rejected\n"
+        "  out-of-range frame rejected\n"
+        "  boot PML4 remains pending\n"
+        "  free before=%u\n"
+        "  free after=%u\n",
+        free_before,
+        free_after
+    );
 }
 
 static void runtime_test_kernel_owned_mapping_build(void)

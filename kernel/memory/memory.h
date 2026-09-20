@@ -59,7 +59,69 @@ uint64_t memory_direct_map_base(void);
  */
 uint64_t memory_managed_physical_limit(void);
 
+/**
+ * Reports whether a complete physical frame lies inside a region marked
+ * bootloader-reclaimable by the boot memory map.
+ *
+ * @param physical_address Frame-aligned physical address.
+ *
+ * @return true when the complete frame is bootloader-reclaimable; false
+ *         otherwise.
+ */
+bool memory_physical_frame_is_bootloader_reclaimable(
+    uint64_t physical_address
+);
+
+/**
+ * Reports whether a physical frame is still reserved for the bootloader and
+ * has not yet been transferred to MyOS.
+ *
+ * Frames below the physical allocator's minimum address are not eligible
+ * under the current reclamation policy.
+ *
+ * @param physical_address Frame-aligned physical address.
+ *
+ * @return true when the frame is pending reclamation; false otherwise.
+ */
+bool memory_bootloader_frame_reclaim_pending(
+    uint64_t physical_address
+);
+
+/**
+ * Transfers one bootloader-reclaimable physical frame to the MyOS allocator.
+ *
+ * The caller must establish that the frame is no longer referenced by any
+ * live bootloader or kernel structure before calling this function.
+ *
+ * A successful transfer clears the reclamation-pending state permanently and
+ * makes the frame available for future physical allocations. Reclaiming the
+ * same frame a second time is rejected, even if MyOS has since allocated it.
+ *
+ * Frames below the allocator's minimum physical address are not eligible.
+ *
+ * @param physical_address Frame-aligned physical address.
+ *
+ * @return true when ownership was transferred; false when the frame is
+ *         ineligible, has already been reclaimed, or has an invalid state.
+ */
+bool memory_bootloader_frame_reclaim(
+    uint64_t physical_address
+);
+
 bool physical_alloc_frame(uint64_t *physical_address);
+
+/**
+ * Allocates a specific physical frame if it is already available to MyOS.
+ *
+ * The operation rejects unaligned, unmanaged, occupied, and
+ * bootloader-reclamation-pending frames. It never transfers ownership
+ * from the bootloader.
+ *
+ * @param physical_address Frame-aligned physical address to allocate.
+ *
+ * @return true when the requested frame was allocated; false otherwise.
+ */
+bool physical_alloc_frame_at(uint64_t physical_address);
 
 bool physical_free_frame(uint64_t physical_address);
 
