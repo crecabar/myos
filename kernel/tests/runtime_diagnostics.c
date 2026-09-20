@@ -274,6 +274,47 @@ void runtime_diagnostics_reclaimed_frame_reuse(void)
     );
 }
 
+void runtime_diagnostics_bootloader_frame_inventory(void)
+{
+    struct memory_bootloader_frame_inventory inventory;
+
+    if (!memory_bootloader_frame_inventory_collect(
+        &inventory
+    )) {
+        kernel_panic(
+            "Unable to inventory bootloader-reclaimable frames"
+        );
+    }
+
+    uint64_t transferred_frames =
+        inventory.transferred_free_frames +
+        inventory.transferred_used_frames;
+
+    if (
+        inventory.pending_frames +
+        transferred_frames !=
+        inventory.eligible_frames
+    ) {
+        kernel_panic(
+            "Bootloader frame inventory accounting mismatch"
+        );
+    }
+
+    diagnostics_printf(
+        "\n--- Bootloader-reclaimable frame inventory ---\n"
+        "  eligible frames=%u\n"
+        "  pending frames=%u\n"
+        "  transferred frames=%u\n"
+        "    free=%u\n"
+        "    used=%u\n",
+        inventory.eligible_frames,
+        inventory.pending_frames,
+        transferred_frames,
+        inventory.transferred_free_frames,
+        inventory.transferred_used_frames
+    );
+}
+
 void runtime_diagnostics_run(
     const struct framebuffer *framebuffer)
 {

@@ -83,8 +83,37 @@ bool memory_physical_frame_is_bootloader_reclaimable(
  *
  * @return true when the frame is pending reclamation; false otherwise.
  */
-bool memory_bootloader_frame_reclaim_pending(
+ bool memory_bootloader_frame_reclaim_pending(
     uint64_t physical_address
+);
+
+/**
+ * Summarizes ownership of eligible bootloader-reclaimable physical frames.
+ *
+ * Transferred frames are classified according to their current allocator
+ * state, regardless of whether they have been allocated again by MyOS.
+ */
+struct memory_bootloader_frame_inventory {
+    uint64_t eligible_frames;
+    uint64_t pending_frames;
+    uint64_t transferred_free_frames;
+    uint64_t transferred_used_frames;
+};
+
+/**
+ * Collects a read-only inventory of eligible bootloader-reclaimable frames.
+ *
+ * Frames below the first MiB and partially covered boundary frames are
+ * excluded under the current physical-memory policy.
+ *
+ * Does not inspect frame contents or change allocator ownership.
+ *
+ * @param inventory Receives the resulting inventory.
+ *
+ * @return true when the inventory was collected; false for a NULL argument.
+ */
+bool memory_bootloader_frame_inventory_collect(
+    struct memory_bootloader_frame_inventory *inventory
 );
 
 /**

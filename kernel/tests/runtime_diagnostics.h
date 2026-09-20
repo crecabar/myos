@@ -24,10 +24,16 @@ struct framebuffer;
   * Must run immediately after successful inherited page-table reclamation,
   * before other kernel components can allocate the recovered frame.
   */
- void runtime_diagnostics_reclaimed_frame_reuse(void);
+  void runtime_diagnostics_reclaimed_frame_reuse(void);
 
- /**
-  * Runs the low-level runtime diagnostics and regression tests.
+/**
+ * Reports the bootloader-reclaimable frame inventory after the inherited
+ * page-table frames have been transferred to MyOS.
+ */
+void runtime_diagnostics_bootloader_frame_inventory(void);
+
+/**
+ * Runs the low-level runtime diagnostics and regression tests.
  *
  * Exercises kernel memory, paging, process address spaces, stacks, layouts,
  * and x86-64 execution-state invariants established during early MyOS

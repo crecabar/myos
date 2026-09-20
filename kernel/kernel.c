@@ -184,7 +184,7 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 
-#if MYOS_RUNTIME_DIAGNOSTICS
+    #if MYOS_RUNTIME_DIAGNOSTICS
     runtime_diagnostics_reclaimed_frame_reuse();
 #endif
 
@@ -192,6 +192,10 @@ static _Noreturn void kernel_main_continue(void)
         "[boot-paging] Reclaimed %u inherited page-table frames\n",
         reclaimed_table_frames
     );
+
+#if MYOS_RUNTIME_DIAGNOSTICS
+    runtime_diagnostics_bootloader_frame_inventory();
+#endif
 
     arch_init();
     diagnostics_write("[arch] x86-64 initialized\n");
