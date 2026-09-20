@@ -68,7 +68,7 @@ uint64_t memory_managed_physical_limit(void);
  * @return true when the complete frame is bootloader-reclaimable; false
  *         otherwise.
  */
- bool memory_physical_frame_is_bootloader_reclaimable(
+bool memory_physical_frame_is_bootloader_reclaimable(
     uint64_t physical_address
 );
 
@@ -83,7 +83,7 @@ uint64_t memory_managed_physical_limit(void);
  *
  * @return true when the frame is pending reclamation; false otherwise.
  */
- bool memory_bootloader_frame_reclaim_pending(
+bool memory_bootloader_frame_reclaim_pending(
     uint64_t physical_address
 );
 

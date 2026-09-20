@@ -97,7 +97,7 @@ void memory_init(
         ) /
         MEMORY_FRAME_SIZE;
 
-        frame_bitmap_size =
+    frame_bitmap_size =
         frame_bitmap_size_for(
             managed_frame_count
         );
