@@ -9,6 +9,7 @@
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/stack.h"
 #include "boot/boot.h"
+#include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
 #include "core/panic.h"
 #include "diagnostics/diagnostics.h"
@@ -196,6 +197,23 @@ static _Noreturn void kernel_main_continue(void)
 
 #if MYOS_RUNTIME_DIAGNOSTICS
     runtime_diagnostics_pre_reclaim();
+
+    struct boot_reclaim_preflight_report premature_report;
+
+    if (
+        boot_reclaim_preflight(
+            &kernel_boot_info,
+            &premature_report
+        )
+    ) {
+        kernel_panic(
+            "General boot-memory preflight accepted inherited page tables"
+        );
+    }
+
+    diagnostics_write(
+        "[boot-memory] Premature preflight rejected\n"
+    );
 #endif
 
     uint64_t reclaimed_table_frames = 0;
@@ -226,8 +244,30 @@ static _Noreturn void kernel_main_continue(void)
         reclaimed_table_frames
     );
 
+    struct boot_reclaim_preflight_report reclaim_report;
+
+    if (
+        !boot_reclaim_preflight(
+            &kernel_boot_info,
+            &reclaim_report
+        )
+    ) {
+        kernel_panic(
+            "General boot-memory preflight failed"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-memory] Read-only preflight passed: "
+        "pending=%u free=%u\n",
+        reclaim_report.inventory.pending_frames,
+        reclaim_report.free_frames
+    );
+
 #if MYOS_RUNTIME_DIAGNOSTICS
-    runtime_diagnostics_bootloader_frame_inventory();
+    runtime_diagnostics_bootloader_frame_inventory(
+        &kernel_boot_info
+    );
 #endif
 
     arch_init();

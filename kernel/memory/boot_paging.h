@@ -88,4 +88,11 @@ bool boot_paging_reclaim(
     uint64_t *reclaimed_frames
 );
 
+/**
+ * Reports whether inherited boot-time page-table reclamation completed.
+ *
+ * This function does not inspect the historical paging hierarchy.
+ */
+bool boot_paging_reclamation_complete(void);
+
 #endif

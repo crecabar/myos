@@ -6,6 +6,8 @@
 #include "../arch/x86_64/ioapic.h"
 #include "../arch/x86_64/lapic.h"
 #include "../arch/x86_64/paging.h"
+#include "../boot/boot.h"
+#include "../boot/reclaim_preflight.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
@@ -274,31 +276,28 @@ void runtime_diagnostics_reclaimed_frame_reuse(void)
     );
 }
 
-void runtime_diagnostics_bootloader_frame_inventory(void)
+void runtime_diagnostics_bootloader_frame_inventory(
+    const struct boot_info *boot_info)
 {
-    struct memory_bootloader_frame_inventory inventory;
+    struct boot_reclaim_preflight_report report;
 
-    if (!memory_bootloader_frame_inventory_collect(
-        &inventory
-    )) {
+    if (
+        !boot_reclaim_preflight(
+            boot_info,
+            &report
+        )
+    ) {
         kernel_panic(
-            "Unable to inventory bootloader-reclaimable frames"
+            "Bootloader-memory diagnostic preflight failed"
         );
     }
+
+    struct memory_bootloader_frame_inventory inventory =
+        report.inventory;
 
     uint64_t transferred_frames =
         inventory.transferred_free_frames +
         inventory.transferred_used_frames;
-
-    if (
-        inventory.pending_frames +
-        transferred_frames !=
-        inventory.eligible_frames
-    ) {
-        kernel_panic(
-            "Bootloader frame inventory accounting mismatch"
-        );
-    }
 
     diagnostics_printf(
         "\n--- Bootloader-reclaimable frame inventory ---\n"
@@ -312,6 +311,124 @@ void runtime_diagnostics_bootloader_frame_inventory(void)
         transferred_frames,
         inventory.transferred_free_frames,
         inventory.transferred_used_frames
+    );
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    if (
+        boot_reclaim_preflight(
+            NULL,
+            &report
+        ) ||
+        boot_reclaim_preflight(
+            boot_info,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Bootloader-memory preflight accepted NULL input"
+        );
+    }
+
+    /*
+    * Keep the negative-test fixture in zero-initialized kernel storage.
+    * Copy only the fields inspected by the current preflight, avoiding
+    * an implicit memcpy of the large boot_info structure.
+    *
+    * Update this fixture if the preflight begins inspecting more fields.
+    */
+   static struct boot_info invalid;
+
+   invalid.command_line = NULL;
+   invalid.smbios_entry_32 = NULL;
+   invalid.smbios_entry_64 = NULL;
+   invalid.direct_map_offset =
+       boot_info->direct_map_offset;
+   invalid.memory_region_count =
+       boot_info->memory_region_count;
+   invalid.framebuffer.address =
+       boot_info->framebuffer.address;
+
+   invalid.command_line =
+       "stale bootloader command line";
+
+   if (
+       boot_reclaim_preflight(
+           &invalid,
+           &report
+       )
+   ) {
+       kernel_panic(
+           "Bootloader-memory preflight accepted stale command line"
+       );
+   }
+
+   invalid.command_line = NULL;
+   invalid.smbios_entry_32 = &invalid;
+
+   if (
+       boot_reclaim_preflight(
+           &invalid,
+           &report
+       )
+   ) {
+       kernel_panic(
+           "Bootloader-memory preflight accepted stale SMBIOS entry"
+       );
+   }
+
+   invalid.smbios_entry_32 = NULL;
+   invalid.direct_map_offset =
+       boot_info->direct_map_offset +
+       MEMORY_FRAME_SIZE;
+
+   if (
+       boot_reclaim_preflight(
+           &invalid,
+           &report
+       )
+   ) {
+       kernel_panic(
+           "Bootloader-memory preflight accepted incorrect direct-map base"
+       );
+   }
+
+   invalid.direct_map_offset =
+       boot_info->direct_map_offset;
+   invalid.framebuffer.address = NULL;
+
+   if (
+       boot_reclaim_preflight(
+           &invalid,
+           &report
+       )
+   ) {
+       kernel_panic(
+           "Bootloader-memory preflight accepted missing framebuffer"
+       );
+   }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (free_after != free_before) {
+        kernel_panic(
+            "Bootloader-memory preflight modified allocator state"
+        );
+    }
+
+    diagnostics_printf(
+        "[tests] Bootloader-memory preflight rejections passed\n"
+        "  NULL arguments rejected\n"
+        "  stale command line rejected\n"
+        "  stale SMBIOS entry rejected\n"
+        "  incorrect direct-map base rejected\n"
+        "  missing framebuffer rejected\n"
+        "  free before=%u\n"
+        "  free after=%u\n",
+        free_before,
+        free_after
     );
 }
 

@@ -269,6 +269,11 @@ bool boot_paging_reclaim(
     return true;
 }
 
+bool boot_paging_reclamation_complete(void)
+{
+    return boot_paging_reclaimed;
+}
+
 static bool boot_paging_walk_table(
     uint64_t table_physical,
     unsigned int level,

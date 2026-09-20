@@ -8,6 +8,7 @@
 #ifndef MYOS_TESTS_RUNTIME_DIAGNOSTICS_H
 #define MYOS_TESTS_RUNTIME_DIAGNOSTICS_H
 
+struct boot_info;
 struct framebuffer;
 
 /**
@@ -30,7 +31,9 @@ struct framebuffer;
  * Reports the bootloader-reclaimable frame inventory after the inherited
  * page-table frames have been transferred to MyOS.
  */
-void runtime_diagnostics_bootloader_frame_inventory(void);
+ void runtime_diagnostics_bootloader_frame_inventory(
+    const struct boot_info *boot_info
+);
 
 /**
  * Runs the low-level runtime diagnostics and regression tests.
