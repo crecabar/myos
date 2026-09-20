@@ -68,6 +68,12 @@ _Noreturn void kernel_main(void)
         &kernel_boot_config
     );
 
+    /*
+     * The command line has been converted into kernel-owned configuration.
+     * Do not retain its bootloader-provided character buffer.
+     */
+    kernel_boot_info.command_line = NULL;
+
     memory_init(
         kernel_boot_info.direct_map_offset,
         kernel_boot_info.memory_regions,
@@ -128,6 +134,13 @@ static _Noreturn void kernel_main_continue(void)
         &system
     );
 
+    /*
+     * System identification has been copied into kernel-owned storage.
+     * The original SMBIOS entry-point pointers are no longer needed.
+     */
+    kernel_boot_info.smbios_entry_32 = NULL;
+    kernel_boot_info.smbios_entry_64 = NULL;
+
     enum boot_mode boot_mode =
         kernel_boot_config.mode == KERNEL_BOOT_MODE_TEST
             ? BOOT_MODE_TEST
@@ -138,6 +151,26 @@ static _Noreturn void kernel_main_continue(void)
         &system,
         boot_mode
     );
+
+    /*
+     * The bootloader-provided command line and SMBIOS entry points
+     * must not remain reachable through the persistent boot_info.
+     */
+    if (
+        kernel_boot_info.command_line != NULL ||
+        kernel_boot_info.smbios_entry_32 != NULL ||
+        kernel_boot_info.smbios_entry_64 != NULL
+    ) {
+        kernel_panic(
+            "Transient boot information remains referenced"
+        );
+    }
+
+#if MYOS_RUNTIME_DIAGNOSTICS
+    diagnostics_write(
+        "[boot] Transient boot-info references released\n"
+    );
+#endif
 
     struct boot_paging_inventory boot_inventory;
 
