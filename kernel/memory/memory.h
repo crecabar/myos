@@ -110,6 +110,19 @@ bool memory_bootloader_frame_reclaim(
 
 bool physical_alloc_frame(uint64_t *physical_address);
 
+/**
+ * Allocates a specific physical frame if it is already available to MyOS.
+ *
+ * The operation rejects unaligned, unmanaged, occupied, and
+ * bootloader-reclamation-pending frames. It never transfers ownership
+ * from the bootloader.
+ *
+ * @param physical_address Frame-aligned physical address to allocate.
+ *
+ * @return true when the requested frame was allocated; false otherwise.
+ */
+bool physical_alloc_frame_at(uint64_t physical_address);
+
 bool physical_free_frame(uint64_t physical_address);
 
 void memory_dump_map(void);

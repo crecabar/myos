@@ -184,6 +184,10 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 
+#if MYOS_RUNTIME_DIAGNOSTICS
+    runtime_diagnostics_reclaimed_frame_reuse();
+#endif
+
     diagnostics_printf(
         "[boot-paging] Reclaimed %u inherited page-table frames\n",
         reclaimed_table_frames

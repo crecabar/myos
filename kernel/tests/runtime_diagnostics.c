@@ -164,6 +164,116 @@ void runtime_diagnostics_pre_reclaim(void)
     );
 }
 
+void runtime_diagnostics_reclaimed_frame_reuse(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Historical boot PML4 address unavailable"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    /*
+     * Only the historical address is used here. The original page-table
+     * contents are no longer valid boot-paging metadata.
+     */
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Boot PML4 remains pending after reclamation"
+        );
+    }
+
+    if (!physical_alloc_frame_at(
+        boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Unable to allocate reclaimed boot PML4 frame"
+        );
+    }
+
+    uint64_t free_after_allocate =
+        physical_free_frame_count();
+
+    if (
+        free_after_allocate >= free_before ||
+        free_before - free_after_allocate != 1
+    ) {
+        kernel_panic(
+            "Reclaimed frame allocation accounting mismatch"
+        );
+    }
+
+    if (physical_alloc_frame_at(
+        boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Allocated the same reclaimed frame twice"
+        );
+    }
+
+    if (memory_bootloader_frame_reclaim(
+        boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Reclaimed an already transferred frame"
+        );
+    }
+
+    if (!physical_free_frame(
+        boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Unable to free reclaimed boot PML4 frame"
+        );
+    }
+
+    uint64_t free_after_release =
+        physical_free_frame_count();
+
+    if (free_after_release != free_before) {
+        kernel_panic(
+            "Reclaimed frame release accounting mismatch"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Released frame returned to bootloader-pending state"
+        );
+    }
+
+    diagnostics_printf(
+        "Reclaimed frame reuse test passed:\n"
+        "  historical boot PML4 PA=%x\n"
+        "  frame allocation succeeded\n"
+        "  duplicate allocation rejected\n"
+        "  duplicate reclamation rejected\n"
+        "  frame release succeeded\n"
+        "  pending after release=no\n"
+        "  free before=%u\n"
+        "  free after allocation=%u\n"
+        "  free after release=%u\n",
+        boot_pml4_physical,
+        free_before,
+        free_after_allocate,
+        free_after_release
+    );
+}
+
 void runtime_diagnostics_run(
     const struct framebuffer *framebuffer)
 {

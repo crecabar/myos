@@ -382,6 +382,71 @@ bool physical_alloc_frame(uint64_t *physical_address)
     return false;
 }
 
+bool physical_alloc_frame_at(uint64_t physical_address)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    if (
+        (physical_address %
+         MEMORY_FRAME_SIZE) != 0
+    ) {
+        return false;
+    }
+
+    if (
+        physical_address <
+        MEMORY_BITMAP_MIN_ADDRESS
+    ) {
+        return false;
+    }
+
+    uint64_t frame_number =
+        physical_address /
+        MEMORY_FRAME_SIZE;
+
+    if (
+        frame_number >=
+        managed_frame_count
+    ) {
+        return false;
+    }
+
+    if (
+        boot_reclaim_pending_bitmap_is_set(
+            frame_number
+        )
+    ) {
+        return false;
+    }
+
+    if (frame_bitmap_is_used(frame_number)) {
+        return false;
+    }
+
+    frame_bitmap_set(
+        frame_number,
+        true
+    );
+
+    if (frame_number == next_free_frame_hint) {
+        next_free_frame_hint =
+            frame_number + 1;
+
+        if (
+            next_free_frame_hint >=
+            managed_frame_count
+        ) {
+            next_free_frame_hint = 0;
+        }
+    }
+
+    return true;
+}
+
 bool physical_free_frame(uint64_t physical_address)
 {
     if (!memory_initialized) {
