@@ -53,6 +53,8 @@ static void runtime_dump_kernel_layout(void);
 static void runtime_dump_paging(void);
 static void runtime_dump_inherited_paging_root(void);
 static void runtime_dump_inherited_page_table_inventory(void);
+static void runtime_test_bootloader_frame_ownership(void);
+static void runtime_test_bootloader_frame_reclaim_rejections(void);
 
 static uint64_t runtime_read_msr(uint32_t msr);
 
@@ -146,6 +148,18 @@ void runtime_diagnostics_run(
     );
 
     runtime_dump_inherited_page_table_inventory();
+
+    diagnostics_write(
+        "\n--- Bootloader frame ownership ---\n"
+    );
+
+    runtime_test_bootloader_frame_ownership();
+
+    diagnostics_write(
+        "\n--- Bootloader frame reclaim rejections ---\n"
+    );
+
+    runtime_test_bootloader_frame_reclaim_rejections();
 
     diagnostics_write(
         "\n--- Kernel mapping inventory ---\n"
@@ -1778,6 +1792,86 @@ static void runtime_dump_inherited_page_table_inventory(void)
     }
 }
 
+static void runtime_test_bootloader_frame_ownership(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Bootloader PML4 root unavailable"
+        );
+    }
+
+    struct paging_address_space *active =
+        paging_kernel_address_space();
+
+    if (active == NULL) {
+        kernel_panic(
+            "Active kernel address space unavailable"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    if (
+        !memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Bootloader PML4 root is not pending reclamation"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            active->pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "MyOS-owned PML4 root is pending reclamation"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim_pending(
+            0
+        )
+    ) {
+        kernel_panic(
+            "Reserved low-memory frame is pending reclamation"
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (
+        free_after !=
+        free_before
+    ) {
+        kernel_panic(
+            "Bootloader ownership query changed free-frame count"
+        );
+    }
+
+    diagnostics_printf(
+        "Bootloader frame ownership test:\n"
+        "  boot PML4 PA=%x pending=yes\n"
+        "  active PML4 PA=%x pending=no\n"
+        "  reserved low frame pending=no\n"
+        "  free before=%u\n"
+        "  free after=%u\n",
+        boot_pml4_physical,
+        active->pml4_physical,
+        free_before,
+        free_after
+    );
+}
+
 static uint64_t runtime_read_msr(uint32_t msr)
 {
     uint32_t low;
@@ -1857,6 +1951,103 @@ static const char *runtime_pat_memory_type_name(
         default:
             return "reserved";
     }
+}
+
+static void runtime_test_bootloader_frame_reclaim_rejections(void)
+{
+    uint64_t boot_pml4_physical;
+
+    if (!paging_boot_pml4_physical(
+        &boot_pml4_physical
+    )) {
+        kernel_panic(
+            "Bootloader PML4 root unavailable"
+        );
+    }
+
+    struct paging_address_space *active =
+        paging_kernel_address_space();
+
+    if (active == NULL) {
+        kernel_panic(
+            "Active kernel address space unavailable"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    if (
+        memory_bootloader_frame_reclaim(
+            active->pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed an active MyOS-owned PML4 frame"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim(
+            boot_pml4_physical + 1
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed an unaligned bootloader frame"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim(
+            0
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed a reserved low-memory frame"
+        );
+    }
+
+    if (
+        memory_bootloader_frame_reclaim(
+            memory_managed_physical_limit()
+        )
+    ) {
+        kernel_panic(
+            "Reclaimed a frame outside the managed range"
+        );
+    }
+
+    if (
+        !memory_bootloader_frame_reclaim_pending(
+            boot_pml4_physical
+        )
+    ) {
+        kernel_panic(
+            "Rejection tests modified bootloader PML4 ownership"
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (free_after != free_before) {
+        kernel_panic(
+            "Rejected bootloader reclamation changed free-frame count"
+        );
+    }
+
+    diagnostics_printf(
+        "Bootloader frame reclaim rejection tests passed:\n"
+        "  active PML4 rejected\n"
+        "  unaligned boot frame rejected\n"
+        "  reserved low frame rejected\n"
+        "  out-of-range frame rejected\n"
+        "  boot PML4 remains pending\n"
+        "  free before=%u\n"
+        "  free after=%u\n",
+        free_before,
+        free_after
+    );
 }
 
 static void runtime_test_kernel_owned_mapping_build(void)
