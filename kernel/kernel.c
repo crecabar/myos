@@ -9,6 +9,7 @@
 #include "arch/x86_64/rtc.h"
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/stack.h"
+#include "boot/active_paging_audit.h"
 #include "boot/boot.h"
 #include "boot/physical_range_audit.h"
 #include "boot/reclaim_preflight.h"
@@ -288,6 +289,38 @@ static _Noreturn void kernel_main_continue(void)
         range_audit.pending_frames,
         range_audit.kernel_image_pages_checked,
         range_audit.framebuffer_pages_checked
+    );
+
+    struct boot_active_paging_audit_report paging_audit;
+
+    if (
+        !boot_active_paging_audit(
+            &kernel_boot_info,
+            &paging_audit
+        )
+    ) {
+        kernel_panic(
+            "Active paging-structure audit failed"
+        );
+    }
+
+    if (paging_audit.pml4_tables != 1) {
+        kernel_panic(
+            "Active paging audit found an unexpected PML4 count"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-memory] Active paging audit passed: "
+        "PML4=%u PDPT=%u PD=%u PT=%u "
+        "1G-leaves=%u 2M-leaves=%u free=%u\n",
+        paging_audit.pml4_tables,
+        paging_audit.pdpt_tables,
+        paging_audit.pd_tables,
+        paging_audit.pt_tables,
+        paging_audit.large_1g_mappings,
+        paging_audit.large_2m_mappings,
+        paging_audit.free_frames
     );
 
 #if MYOS_RUNTIME_DIAGNOSTICS
