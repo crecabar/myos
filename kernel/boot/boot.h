@@ -3,6 +3,7 @@
 #ifndef MYOS_BOOT_BOOT_H
 #define MYOS_BOOT_BOOT_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "../drivers/framebuffer.h"
@@ -30,5 +31,17 @@ struct boot_info {
 void boot_init(
     struct boot_info *boot_info
 );
+
+/**
+ * Reports whether the boot protocol's response structures have been
+ * consumed and their persistent response pointers cleared.
+ *
+ * This does not imply that transient data referenced by boot_info,
+ * such as SMBIOS entry points, has already been consumed.
+ *
+ * @return true when the protocol snapshot is complete and no request
+ *         retains a response pointer; false otherwise.
+ */
+bool boot_protocol_snapshot_complete(void);
 
 #endif

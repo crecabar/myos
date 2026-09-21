@@ -25,6 +25,17 @@ bool boot_reclaim_preflight(
     }
 
     /*
+     * All Limine response structures must have been consumed before
+     * the general boot-memory preflight can proceed.
+     *
+     * This checks persistent protocol references. The transient pointers
+     * in boot_info are checked separately below.
+     */
+    if (!boot_protocol_snapshot_complete()) {
+        return false;
+    }
+
+    /*
      * The kernel must not retain these transient bootloader-provided
      * pointers in its persistent boot information.
      */
