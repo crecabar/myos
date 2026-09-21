@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "arch/x86_64/arch.h"
@@ -9,6 +10,7 @@
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/stack.h"
 #include "boot/boot.h"
+#include "boot/physical_range_audit.h"
 #include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
 #include "core/panic.h"
@@ -264,7 +266,57 @@ static _Noreturn void kernel_main_continue(void)
         reclaim_report.free_frames
     );
 
+    struct boot_physical_range_audit_report range_audit;
+
+    if (
+        !boot_physical_range_audit(
+            &kernel_boot_info,
+            &reclaim_report,
+            &range_audit
+        )
+    ) {
+        kernel_panic(
+            "Bootloader physical-range audit failed"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-memory] Physical-range audit passed: "
+        "regions=%u pending=%u "
+        "kernel-pages=%u framebuffer-pages=%u\n",
+        range_audit.reclaimable_regions,
+        range_audit.pending_frames,
+        range_audit.kernel_image_pages_checked,
+        range_audit.framebuffer_pages_checked
+    );
+
 #if MYOS_RUNTIME_DIAGNOSTICS
+    diagnostics_write(
+        "\n--- Bootloader-reclaimable physical ranges ---\n"
+    );
+
+    for (
+        size_t index = 0;
+        index < kernel_boot_info.memory_region_count;
+        ++index
+    ) {
+        const struct memory_region *region =
+            &kernel_boot_info.memory_regions[index];
+
+        if (
+            region->type !=
+            MEMORY_REGION_BOOTLOADER_RECLAIMABLE
+        ) {
+            continue;
+        }
+
+        diagnostics_printf(
+            "  [%x, %x)\n",
+            region->base,
+            region->base + region->length
+        );
+    }
+
     runtime_diagnostics_bootloader_frame_inventory(
         &kernel_boot_info
     );

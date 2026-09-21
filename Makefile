@@ -16,10 +16,10 @@ QEMU_PREFIX  ?= $(shell brew --prefix qemu 2>/dev/null)
 QEMU_FIRMWARE ?= $(QEMU_PREFIX)/share/qemu/edk2-x86_64-code.fd
 QEMU_DISPLAY  ?= cocoa,show-cursor=on
 else ifeq ($(HOST_OS),Linux)
-LLVM_PREFIX  ?= /usr/lib/llvm21
-LLD_PREFIX   ?= /usr/lib/llvm21
-QEMU_PREFIX  ?= /usr
-QEMU_FIRMWARE ?= /usr/share/edk2/x64/OVMF_CODE.4m.fd
+LLVM_PREFIX   ?= /usr
+LLD_PREFIX    ?= /usr
+QEMU_PREFIX   ?= /usr
+QEMU_FIRMWARE ?= /usr/share/OVMF/OVMF_CODE.fd
 QEMU_DISPLAY  ?= gtk,show-cursor=on
 else
 $(error Unsupported host operating system: $(HOST_OS))
