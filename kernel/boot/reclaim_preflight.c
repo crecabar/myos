@@ -29,7 +29,7 @@ bool boot_reclaim_preflight(
      * The CPU must no longer depend on bootloader-installed descriptor
      * tables when general bootloader-memory reclamation begins.
      */
-     if (!arch_boot_reclaim_ready()) {
+    if (!arch_boot_reclaim_ready()) {
         return false;
     }
 

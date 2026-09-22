@@ -248,7 +248,7 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 
-    #if MYOS_RUNTIME_DIAGNOSTICS
+#if MYOS_RUNTIME_DIAGNOSTICS
     runtime_diagnostics_reclaimed_frame_reuse();
 #endif
 

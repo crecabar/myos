@@ -27,9 +27,9 @@ struct boot_reclaim_preflight_report {
  * Must run on the MyOS runtime stack after inherited page-table
  * reclamation and before general bootloader-memory reclamation.
  *
- * This is a read-only diagnostic gate, not permission to transfer the
- * remaining pending frames. A later slice must establish that no live
- * kernel dependency refers to any candidate frame.
+ * This is a read-only gate and does not itself transfer ownership.
+ * Successful completion establishes the prerequisites consumed by the
+ * physical-range and active-paging audits before general reclamation.
  *
  * @param boot_info Kernel-owned snapshot of boot information.
  * @param report Receives the verified accounting snapshot.
