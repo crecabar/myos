@@ -11,6 +11,7 @@
 #include "arch/x86_64/stack.h"
 #include "boot/active_paging_audit.h"
 #include "boot/boot.h"
+#include "boot/memory_reclaim.h"
 #include "boot/physical_range_audit.h"
 #include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
@@ -352,6 +353,108 @@ static _Noreturn void kernel_main_continue(void)
 
     runtime_diagnostics_bootloader_frame_inventory(
         &kernel_boot_info
+    );
+#endif
+
+    /*
+     * All bootloader-data consumers have finished, the kernel owns
+     * its runtime mappings and stack, and the read-only audits have
+     * completed. Transfer the remaining eligible frames before arch_init().
+     */
+    struct boot_memory_reclaim_result general_reclaim;
+
+    if (
+        !boot_memory_reclaim_remaining(
+            &kernel_boot_info,
+            &general_reclaim
+        )
+    ) {
+        kernel_panic(
+            "General bootloader memory reclamation rejected"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-memory] Reclaimed %u remaining frames: "
+        "free before=%u free after=%u\n",
+        general_reclaim.reclaimed_frames,
+        general_reclaim.free_before,
+        general_reclaim.free_after
+    );
+
+#if MYOS_RUNTIME_DIAGNOSTICS
+    /*
+     * Reclamation must be one-shot. A rejected second call must not
+     * change the physical allocator's accounting.
+     */
+    struct boot_memory_reclaim_result repeated_reclaim;
+
+    if (
+        boot_memory_reclaim_remaining(
+            &kernel_boot_info,
+            &repeated_reclaim
+        ) ||
+        physical_free_frame_count() !=
+            general_reclaim.free_after
+    ) {
+        kernel_panic(
+            "General bootloader reclaim accepted a repeated transfer"
+        );
+    }
+
+    /*
+     * Exercise a frame that was actually recovered by this operation,
+     * rather than relying on the allocator's normal allocation order.
+     */
+    if (general_reclaim.reclaimed_frames != 0) {
+        uint64_t probe_frame =
+            general_reclaim.first_reclaimed_frame;
+
+        if (
+            memory_bootloader_frame_reclaim_pending(
+                probe_frame
+            ) ||
+            !physical_alloc_frame_at(
+                probe_frame
+            )
+        ) {
+            kernel_panic(
+                "Unable to allocate a generally reclaimed frame"
+            );
+        }
+
+        volatile uint64_t *probe =
+            memory_physical_to_virtual(
+                probe_frame
+            );
+
+        probe[0] =
+            0x1122334455667788ULL;
+
+        if (
+            probe[0] !=
+            0x1122334455667788ULL
+        ) {
+            kernel_panic(
+                "Generally reclaimed frame readback failed"
+            );
+        }
+
+        if (
+            !physical_free_frame(
+                probe_frame
+            ) ||
+            physical_free_frame_count() !=
+                general_reclaim.free_after
+        ) {
+            kernel_panic(
+                "Generally reclaimed frame reuse leaked ownership"
+            );
+        }
+    }
+
+    diagnostics_write(
+        "[tests] General bootloader reclaim and frame reuse passed\n"
     );
 #endif
 
