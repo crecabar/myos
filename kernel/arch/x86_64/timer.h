@@ -10,6 +10,7 @@
 
 #include "interrupts.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define TIMER_INTERRUPT_VECTOR 0x20
@@ -47,5 +48,19 @@ uint64_t timer_ticks(void);
  * @return Number of timer ticks that interrupted ring 3 execution.
  */
 uint64_t timer_user_ticks(void);
+
+/**
+ * Waits for at least the requested number of periodic timer ticks.
+ *
+ * Uses interruptible CPU idle rather than busy waiting. This is a
+ * kernel-context primitive; it does not suspend a user process.
+ *
+ * Requires maskable interrupts to be enabled on entry. A zero-tick
+ * request succeeds immediately. Rejects excessively large intervals.
+ *
+ * @return true when the requested ticks elapsed; false when the
+ *         preconditions are not satisfied.
+ */
+bool timer_sleep_ticks(uint64_t duration_ticks);
 
 #endif

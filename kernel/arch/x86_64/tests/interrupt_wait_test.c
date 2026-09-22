@@ -32,8 +32,8 @@ void interrupt_wait_test_run(void)
         timer_ticks();
 
     /*
-     * A spurious interrupt could wake HLT before the PIT does, so keep waiting
-     * until the timer itself proves that an interrupt was delivered.
+     * A spurious interrupt could wake HLT before the PIT does, so keep
+     * waiting until the timer proves that an interrupt was delivered.
      */
     while (timer_ticks() == tick_before) {
         interrupts_wait();
@@ -51,13 +51,65 @@ void interrupt_wait_test_run(void)
     }
 
     /*
-     * Restore the normal post-arch_init kernel state for subsequent tests and
-     * scheduler startup.
+     * A timer-driven wait must reject entry with maskable interrupts
+     * disabled rather than halt the CPU with no valid wakeup path.
      */
+    if (timer_sleep_ticks(1)) {
+        kernel_panic(
+            "Timer wait accepted disabled interrupts"
+        );
+    }
+
+    rflags = interrupt_wait_test_read_rflags();
+
+    if (
+        (rflags & X86_RFLAGS_INTERRUPT_FLAG) != 0
+    ) {
+        kernel_panic(
+            "Rejected timer wait changed interrupt state"
+        );
+    }
+
     interrupts_enable();
 
-    diagnostics_write(
-        "[arch] Interruptible wait test passed\n"
+    if (!timer_sleep_ticks(0)) {
+        kernel_panic(
+            "Zero-tick timer wait failed"
+        );
+    }
+
+    uint64_t sleep_start = timer_ticks();
+
+    if (!timer_sleep_ticks(3)) {
+        kernel_panic(
+            "Three-tick timer wait failed"
+        );
+    }
+
+    uint64_t sleep_end = timer_ticks();
+
+    if (
+        (uint64_t) (sleep_end - sleep_start) < 3
+    ) {
+        kernel_panic(
+            "Timer wait returned before requested ticks elapsed"
+        );
+    }
+
+    rflags = interrupt_wait_test_read_rflags();
+
+    if (
+        (rflags & X86_RFLAGS_INTERRUPT_FLAG) == 0
+    ) {
+        kernel_panic(
+            "Timer wait failed to restore enabled interrupts"
+        );
+    }
+
+    diagnostics_printf(
+        "[arch] Interruptible wait and timer sleep tests passed: "
+        "elapsed=%u ticks\n",
+        sleep_end - sleep_start
     );
 }
 
