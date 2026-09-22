@@ -17,21 +17,32 @@ struct framebuffer;
  * Must be called after the MyOS-owned direct map has been installed and
  * before any inherited page-table frame is transferred to the allocator.
  */
- void runtime_diagnostics_pre_reclaim(void);
+void runtime_diagnostics_pre_reclaim(void);
 
- /**
-  * Tests allocation and release of the historical boot PML4 frame.
-  *
-  * Must run immediately after successful inherited page-table reclamation,
-  * before other kernel components can allocate the recovered frame.
-  */
-  void runtime_diagnostics_reclaimed_frame_reuse(void);
+/**
+ * Tests allocation and release of the historical boot PML4 frame.
+ *
+ * Must run immediately after successful inherited page-table reclamation,
+ * before other kernel components can allocate the recovered frame.
+ */
+void runtime_diagnostics_reclaimed_frame_reuse(void);
 
 /**
  * Reports the bootloader-reclaimable frame inventory after the inherited
  * page-table frames have been transferred to MyOS.
  */
- void runtime_diagnostics_bootloader_frame_inventory(
+void runtime_diagnostics_bootloader_frame_inventory(
+    const struct boot_info *boot_info
+);
+
+/**
+ * Verifies that general bootloader-memory reclamation rejects invalid
+ * inputs without modifying physical-frame ownership.
+ *
+ * Must run after the inherited page-table reclamation and before
+ * the general bootloader-memory transfer.
+ */
+void runtime_diagnostics_general_reclaim_rejections(
     const struct boot_info *boot_info
 );
 

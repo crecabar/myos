@@ -7,6 +7,7 @@
 #include "../arch/x86_64/lapic.h"
 #include "../arch/x86_64/paging.h"
 #include "../boot/boot.h"
+#include "../boot/memory_reclaim.h"
 #include "../boot/reclaim_preflight.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
@@ -427,6 +428,226 @@ void runtime_diagnostics_bootloader_frame_inventory(
         "  missing framebuffer rejected\n"
         "  free before=%u\n"
         "  free after=%u\n",
+        free_before,
+        free_after
+    );
+}
+
+void runtime_diagnostics_general_reclaim_rejections(
+    const struct boot_info *boot_info)
+{
+    if (
+        boot_info == NULL ||
+        boot_info->memory_region_count < 2 ||
+        boot_info->memory_region_count >
+            BOOT_MEMORY_REGION_MAX
+    ) {
+        kernel_panic(
+            "Invalid boot information for general reclaim tests"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct memory_bootloader_frame_inventory before;
+
+    if (
+        !memory_bootloader_frame_inventory_collect(
+            &before
+        )
+    ) {
+        kernel_panic(
+            "Unable to collect pre-test boot memory inventory"
+        );
+    }
+
+    /*
+     * A failed attempt must not modify either allocator ownership
+     * or the caller's result.
+     */
+    struct boot_memory_reclaim_result result = {
+        .reclaimed_frames = UINT64_MAX,
+        .first_reclaimed_frame = UINT64_MAX,
+        .free_before = UINT64_MAX,
+        .free_after = UINT64_MAX,
+    };
+
+    if (
+        boot_memory_reclaim_remaining(
+            NULL,
+            &result
+        ) ||
+        boot_memory_reclaim_remaining(
+            boot_info,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "General reclaim accepted NULL arguments"
+        );
+    }
+
+    /*
+     * Use a kernel-owned fixture. Do not mutate the live boot_info
+     * or the memory map already copied into the physical allocator.
+     */
+    static struct boot_info invalid;
+
+    invalid.direct_map_offset =
+        boot_info->direct_map_offset;
+
+    invalid.command_line = NULL;
+    invalid.smbios_entry_32 = NULL;
+    invalid.smbios_entry_64 = NULL;
+
+    invalid.framebuffer.address =
+        boot_info->framebuffer.address;
+
+    invalid.framebuffer.pitch =
+        boot_info->framebuffer.pitch;
+
+    invalid.framebuffer.height =
+        boot_info->framebuffer.height;
+
+    invalid.memory_region_count =
+        boot_info->memory_region_count;
+
+    for (
+        size_t index = 0;
+        index < invalid.memory_region_count;
+        ++index
+    ) {
+        invalid.memory_regions[index].base =
+            boot_info->memory_regions[index].base;
+
+        invalid.memory_regions[index].length =
+            boot_info->memory_regions[index].length;
+
+        invalid.memory_regions[index].type =
+            boot_info->memory_regions[index].type;
+    }
+
+    /*
+     * A stale bootloader-provided pointer must stop reclamation
+     * at the preflight, before reaching the transfer loop.
+     */
+    invalid.command_line =
+        "stale bootloader command line";
+
+    if (
+        boot_memory_reclaim_remaining(
+            &invalid,
+            &result
+        )
+    ) {
+        kernel_panic(
+            "General reclaim accepted a stale command line"
+        );
+    }
+
+    invalid.command_line = NULL;
+
+    /*
+     * An invalid memory-map entry must be rejected by the physical
+     * range audit. No transfer may occur before that audit passes.
+     */
+    uint64_t original_length =
+        invalid.memory_regions[0].length;
+
+    invalid.memory_regions[0].length = 0;
+
+    if (
+        boot_memory_reclaim_remaining(
+            &invalid,
+            &result
+        )
+    ) {
+        kernel_panic(
+            "General reclaim accepted a zero-length memory region"
+        );
+    }
+
+    invalid.memory_regions[0].length =
+        original_length;
+
+    /*
+     * Force an overlap between two otherwise valid map entries.
+     */
+    uint64_t original_base =
+        invalid.memory_regions[1].base;
+
+    invalid.memory_regions[1].base =
+        invalid.memory_regions[0].base;
+
+    if (
+        boot_memory_reclaim_remaining(
+            &invalid,
+            &result
+        )
+    ) {
+        kernel_panic(
+            "General reclaim accepted overlapping memory regions"
+        );
+    }
+
+    invalid.memory_regions[1].base =
+        original_base;
+
+    /*
+     * Confirm that all failed attempts preserved the result and
+     * every component of the allocator ownership inventory.
+     */
+    if (
+        result.reclaimed_frames != UINT64_MAX ||
+        result.first_reclaimed_frame != UINT64_MAX ||
+        result.free_before != UINT64_MAX ||
+        result.free_after != UINT64_MAX
+    ) {
+        kernel_panic(
+            "Rejected general reclaim modified its result"
+        );
+    }
+
+    struct memory_bootloader_frame_inventory after;
+
+    if (
+        !memory_bootloader_frame_inventory_collect(
+            &after
+        )
+    ) {
+        kernel_panic(
+            "Unable to collect post-test boot memory inventory"
+        );
+    }
+
+    uint64_t free_after =
+        physical_free_frame_count();
+
+    if (
+        free_after != free_before ||
+        after.eligible_frames != before.eligible_frames ||
+        after.pending_frames != before.pending_frames ||
+        after.transferred_free_frames !=
+            before.transferred_free_frames ||
+        after.transferred_used_frames !=
+            before.transferred_used_frames
+    ) {
+        kernel_panic(
+            "Rejected general reclaim modified allocator ownership"
+        );
+    }
+
+    diagnostics_printf(
+        "[tests] General bootloader reclaim rejections passed\n"
+        "  NULL arguments rejected\n"
+        "  stale command line rejected\n"
+        "  zero-length memory region rejected\n"
+        "  overlapping memory regions rejected\n"
+        "  pending before=%u pending after=%u\n"
+        "  free before=%u free after=%u\n",
+        before.pending_frames,
+        after.pending_frames,
         free_before,
         free_after
     );

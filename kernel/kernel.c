@@ -354,6 +354,10 @@ static _Noreturn void kernel_main_continue(void)
     runtime_diagnostics_bootloader_frame_inventory(
         &kernel_boot_info
     );
+
+    runtime_diagnostics_general_reclaim_rejections(
+        &kernel_boot_info
+    );
 #endif
 
     /*

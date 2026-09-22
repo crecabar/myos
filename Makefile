@@ -31,8 +31,9 @@ LLVM_READELF ?= $(LLVM_PREFIX)/bin/llvm-readelf
 LLVM_OBJDUMP ?= $(LLVM_PREFIX)/bin/llvm-objdump
 LLVM_NM      ?= $(LLVM_PREFIX)/bin/llvm-nm
 
-QEMU    ?= qemu-system-x86_64
-GDB     ?= gdb
+QEMU             ?= qemu-system-x86_64
+QEMU_TEST_MEMORY ?= 512M
+GDB              ?= gdb
 XORRISO ?= xorriso
 BEAR    ?= bear
 SGDISK        ?= sgdisk
@@ -510,7 +511,7 @@ run-qemu-tests: $(TEST_ISO_IMAGE)
 	$(QEMU) \
 		-machine q35 \
 		-cpu qemu64 \
-		-m 512M \
+		-m $(QEMU_TEST_MEMORY) \
 		-smp 1 \
 		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
 		-cdrom $(TEST_ISO_IMAGE) \
