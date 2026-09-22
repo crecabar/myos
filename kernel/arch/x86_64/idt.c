@@ -413,6 +413,27 @@ void idt_init(void)
     );
 }
 
+bool idt_kernel_state_active(void)
+{
+    struct idt_descriptor active_idtr;
+
+    __asm__ volatile (
+        "sidt %0"
+        : "=m" (active_idtr)
+        :
+        : "memory"
+    );
+
+    return
+        active_idtr.base == (uint64_t) idt &&
+        active_idtr.limit ==
+            (uint16_t) (sizeof(idt) - 1) &&
+        (idt[X86_EXCEPTION_DOUBLE_FAULT].type_attributes &
+         0x80U) != 0 &&
+        idt[X86_EXCEPTION_DOUBLE_FAULT].ist ==
+            IDT_IST_DOUBLE_FAULT;
+}
+
 static uint64_t read_cr2(void)
 {
     uint64_t value;

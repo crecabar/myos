@@ -341,6 +341,130 @@ bool memory_bootloader_frame_reclaim(
     return true;
 }
 
+bool memory_bootloader_frame_inventory_collect(
+    struct memory_bootloader_frame_inventory *inventory)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    if (inventory == NULL) {
+        return false;
+    }
+
+    inventory->eligible_frames = 0;
+    inventory->pending_frames = 0;
+    inventory->transferred_free_frames = 0;
+    inventory->transferred_used_frames = 0;
+
+    for (
+        size_t index = 0;
+        index < region_count;
+        ++index
+    ) {
+        const struct memory_region *region =
+            &regions[index];
+
+        if (
+            region->type !=
+            MEMORY_REGION_BOOTLOADER_RECLAIMABLE
+        ) {
+            continue;
+        }
+
+        if (
+            region->length >
+            UINT64_MAX - region->base
+        ) {
+            kernel_panic(
+                "Bootloader memory region end overflows"
+            );
+        }
+
+        uint64_t region_end =
+            region->base +
+            region->length;
+
+        uint64_t first_frame_address =
+            align_up(
+                region->base,
+                MEMORY_FRAME_SIZE
+            );
+
+        uint64_t last_frame_address =
+            align_down(
+                region_end,
+                MEMORY_FRAME_SIZE
+            );
+
+        if (
+            first_frame_address <
+            MEMORY_BITMAP_MIN_ADDRESS
+        ) {
+            first_frame_address =
+                MEMORY_BITMAP_MIN_ADDRESS;
+        }
+
+        for (
+            uint64_t physical_address =
+                first_frame_address;
+            physical_address <
+                last_frame_address;
+            physical_address += MEMORY_FRAME_SIZE
+        ) {
+            uint64_t frame_number =
+                physical_address /
+                MEMORY_FRAME_SIZE;
+
+            if (
+                frame_number >=
+                managed_frame_count
+            ) {
+                kernel_panic(
+                    "Bootloader inventory frame exceeds bitmap capacity"
+                );
+            }
+
+            bool pending =
+                boot_reclaim_pending_bitmap_is_set(
+                    frame_number
+                );
+
+            bool used =
+                frame_bitmap_is_used(
+                    frame_number
+                );
+
+            ++inventory->eligible_frames;
+
+            if (pending) {
+                /*
+                 * A pending frame must not be visible as free to the
+                 * physical allocator.
+                 */
+                if (!used) {
+                    kernel_panic(
+                        "Pending bootloader frame is unexpectedly free"
+                    );
+                }
+
+                ++inventory->pending_frames;
+                continue;
+            }
+
+            if (used) {
+                ++inventory->transferred_used_frames;
+            } else {
+                ++inventory->transferred_free_frames;
+            }
+        }
+    }
+
+    return true;
+}
+
 bool physical_alloc_frame(uint64_t *physical_address)
 {
     if (!memory_initialized) {

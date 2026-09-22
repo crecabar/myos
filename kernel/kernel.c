@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "arch/x86_64/arch.h"
@@ -8,7 +9,11 @@
 #include "arch/x86_64/rtc.h"
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/stack.h"
+#include "boot/active_paging_audit.h"
 #include "boot/boot.h"
+#include "boot/memory_reclaim.h"
+#include "boot/physical_range_audit.h"
+#include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
 #include "core/panic.h"
 #include "diagnostics/diagnostics.h"
@@ -67,6 +72,12 @@ _Noreturn void kernel_main(void)
         kernel_boot_info.command_line,
         &kernel_boot_config
     );
+
+    /*
+     * The command line has been converted into kernel-owned configuration.
+     * Do not retain its bootloader-provided character buffer.
+     */
+    kernel_boot_info.command_line = NULL;
 
     memory_init(
         kernel_boot_info.direct_map_offset,
@@ -128,6 +139,13 @@ static _Noreturn void kernel_main_continue(void)
         &system
     );
 
+    /*
+     * System identification has been copied into kernel-owned storage.
+     * The original SMBIOS entry-point pointers are no longer needed.
+     */
+    kernel_boot_info.smbios_entry_32 = NULL;
+    kernel_boot_info.smbios_entry_64 = NULL;
+
     enum boot_mode boot_mode =
         kernel_boot_config.mode == KERNEL_BOOT_MODE_TEST
             ? BOOT_MODE_TEST
@@ -138,6 +156,35 @@ static _Noreturn void kernel_main_continue(void)
         &system,
         boot_mode
     );
+
+    /*
+     * The bootloader-provided command line and SMBIOS entry points
+     * must not remain reachable through the persistent boot_info.
+     */
+    if (
+        kernel_boot_info.command_line != NULL ||
+        kernel_boot_info.smbios_entry_32 != NULL ||
+        kernel_boot_info.smbios_entry_64 != NULL
+    ) {
+        kernel_panic(
+            "Transient boot information remains referenced"
+        );
+    }
+
+    #if MYOS_RUNTIME_DIAGNOSTICS
+    diagnostics_write(
+        "[boot] Transient boot-info references released\n"
+    );
+#endif
+
+    /*
+     * Install kernel-owned GDT, TSS and IDT before returning any
+     * bootloader-reclaimable frame to the physical allocator.
+     *
+     * Interrupt controllers and maskable interrupts remain disabled
+     * until arch_init(), after general memory reclamation.
+     */
+    arch_early_init();
 
     struct boot_paging_inventory boot_inventory;
 
@@ -163,6 +210,23 @@ static _Noreturn void kernel_main_continue(void)
 
 #if MYOS_RUNTIME_DIAGNOSTICS
     runtime_diagnostics_pre_reclaim();
+
+    struct boot_reclaim_preflight_report premature_report;
+
+    if (
+        boot_reclaim_preflight(
+            &kernel_boot_info,
+            &premature_report
+        )
+    ) {
+        kernel_panic(
+            "General boot-memory preflight accepted inherited page tables"
+        );
+    }
+
+    diagnostics_write(
+        "[boot-memory] Premature preflight rejected\n"
+    );
 #endif
 
     uint64_t reclaimed_table_frames = 0;
@@ -192,6 +256,220 @@ static _Noreturn void kernel_main_continue(void)
         "[boot-paging] Reclaimed %u inherited page-table frames\n",
         reclaimed_table_frames
     );
+
+    struct boot_reclaim_preflight_report reclaim_report;
+
+    if (
+        !boot_reclaim_preflight(
+            &kernel_boot_info,
+            &reclaim_report
+        )
+    ) {
+        kernel_panic(
+            "General boot-memory preflight failed"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-memory] Read-only preflight passed: "
+        "pending=%u free=%u\n",
+        reclaim_report.inventory.pending_frames,
+        reclaim_report.free_frames
+    );
+
+    struct boot_physical_range_audit_report range_audit;
+
+    if (
+        !boot_physical_range_audit(
+            &kernel_boot_info,
+            &reclaim_report,
+            &range_audit
+        )
+    ) {
+        kernel_panic(
+            "Bootloader physical-range audit failed"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-memory] Physical-range audit passed: "
+        "regions=%u pending=%u "
+        "kernel-pages=%u framebuffer-pages=%u\n",
+        range_audit.reclaimable_regions,
+        range_audit.pending_frames,
+        range_audit.kernel_image_pages_checked,
+        range_audit.framebuffer_pages_checked
+    );
+
+    struct boot_active_paging_audit_report paging_audit;
+
+    if (
+        !boot_active_paging_audit(
+            &kernel_boot_info,
+            &paging_audit
+        )
+    ) {
+        kernel_panic(
+            "Active paging-structure audit failed"
+        );
+    }
+
+    if (paging_audit.pml4_tables != 1) {
+        kernel_panic(
+            "Active paging audit found an unexpected PML4 count"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-memory] Active paging audit passed: "
+        "PML4=%u PDPT=%u PD=%u PT=%u "
+        "1G-leaves=%u 2M-leaves=%u free=%u\n",
+        paging_audit.pml4_tables,
+        paging_audit.pdpt_tables,
+        paging_audit.pd_tables,
+        paging_audit.pt_tables,
+        paging_audit.large_1g_mappings,
+        paging_audit.large_2m_mappings,
+        paging_audit.free_frames
+    );
+
+#if MYOS_RUNTIME_DIAGNOSTICS
+    diagnostics_write(
+        "\n--- Bootloader-reclaimable physical ranges ---\n"
+    );
+
+    for (
+        size_t index = 0;
+        index < kernel_boot_info.memory_region_count;
+        ++index
+    ) {
+        const struct memory_region *region =
+            &kernel_boot_info.memory_regions[index];
+
+        if (
+            region->type !=
+            MEMORY_REGION_BOOTLOADER_RECLAIMABLE
+        ) {
+            continue;
+        }
+
+        diagnostics_printf(
+            "  [%x, %x)\n",
+            region->base,
+            region->base + region->length
+        );
+    }
+
+    runtime_diagnostics_bootloader_frame_inventory(
+        &kernel_boot_info
+    );
+
+    runtime_diagnostics_general_reclaim_rejections(
+        &kernel_boot_info
+    );
+#endif
+
+    /*
+     * All bootloader-data consumers have finished, the kernel owns
+     * its runtime mappings and stack, and the read-only audits have
+     * completed. Transfer the remaining eligible frames before arch_init().
+     */
+    struct boot_memory_reclaim_result general_reclaim;
+
+    if (
+        !boot_memory_reclaim_remaining(
+            &kernel_boot_info,
+            &general_reclaim
+        )
+    ) {
+        kernel_panic(
+            "General bootloader memory reclamation rejected"
+        );
+    }
+
+    diagnostics_printf(
+        "[boot-memory] Reclaimed %u remaining frames: "
+        "free before=%u free after=%u\n",
+        general_reclaim.reclaimed_frames,
+        general_reclaim.free_before,
+        general_reclaim.free_after
+    );
+
+#if MYOS_RUNTIME_DIAGNOSTICS
+    /*
+     * Reclamation must be one-shot. A rejected second call must not
+     * change the physical allocator's accounting.
+     */
+    struct boot_memory_reclaim_result repeated_reclaim;
+
+    if (
+        boot_memory_reclaim_remaining(
+            &kernel_boot_info,
+            &repeated_reclaim
+        ) ||
+        physical_free_frame_count() !=
+            general_reclaim.free_after
+    ) {
+        kernel_panic(
+            "General bootloader reclaim accepted a repeated transfer"
+        );
+    }
+
+    /*
+     * Exercise a frame that was actually recovered by this operation,
+     * rather than relying on the allocator's normal allocation order.
+     */
+    if (general_reclaim.reclaimed_frames != 0) {
+        uint64_t probe_frame =
+            general_reclaim.first_reclaimed_frame;
+
+        if (
+            memory_bootloader_frame_reclaim_pending(
+                probe_frame
+            ) ||
+            !physical_alloc_frame_at(
+                probe_frame
+            )
+        ) {
+            kernel_panic(
+                "Unable to allocate a generally reclaimed frame"
+            );
+        }
+
+        volatile uint64_t *probe =
+            memory_physical_to_virtual(
+                probe_frame
+            );
+
+        probe[0] =
+            0x1122334455667788ULL;
+
+        if (
+            probe[0] !=
+            0x1122334455667788ULL
+        ) {
+            kernel_panic(
+                "Generally reclaimed frame readback failed"
+            );
+        }
+
+        if (
+            !physical_free_frame(
+                probe_frame
+            ) ||
+            physical_free_frame_count() !=
+                general_reclaim.free_after
+        ) {
+            kernel_panic(
+                "Generally reclaimed frame reuse leaked ownership"
+            );
+        }
+    }
+
+    diagnostics_write(
+        "[tests] General bootloader reclaim and frame reuse passed\n"
+    );
+#endif
 
     arch_init();
     diagnostics_write("[arch] x86-64 initialized\n");

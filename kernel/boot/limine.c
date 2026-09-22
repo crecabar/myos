@@ -3,6 +3,7 @@
 #include "boot.h"
 #include "../core/panic.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -56,6 +57,11 @@ __attribute__((used, section(".limine_requests_end")))
 static volatile uint64_t limine_requests_end_marker[] =
     LIMINE_REQUESTS_END_MARKER;
 
+/*
+ * Stored in kernel-owned .bss, not in bootloader-reclaimable memory.
+ */
+static bool boot_snapshot_complete;
+
 static enum memory_region_type memory_region_type_from_limine(uint64_t limine_type)
 {
     switch (limine_type) {
@@ -87,14 +93,20 @@ static enum memory_region_type memory_region_type_from_limine(uint64_t limine_ty
 
 void boot_init(struct boot_info *boot_info)
 {
-    boot_info->smbios_entry_32 = NULL;
-    boot_info->smbios_entry_64 = NULL;
-
     if (boot_info == NULL) {
         kernel_panic(
             "boot_init received NULL boot_info"
         );
     }
+
+    if (boot_snapshot_complete) {
+        kernel_panic(
+            "Boot protocol snapshot already completed"
+        );
+    }
+
+    boot_info->smbios_entry_32 = NULL;
+    boot_info->smbios_entry_64 = NULL;
 
     if (!LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision)) {
         kernel_panic(
@@ -239,10 +251,45 @@ void boot_init(struct boot_info *boot_info)
         boot_info->memory_regions[index].length =
             entry->length;
 
-        boot_info->memory_regions[index].type =
+            boot_info->memory_regions[index].type =
             memory_region_type_from_limine(
                 entry->type
             );
     }
+
+    /*
+     * Every Limine response used by boot_init() has now been consumed.
+     *
+     * Clear these persistent references while .limine_requests is still
+     * writable. kernel_mapping_install() will later remap the section
+     * read-only, so this must not be deferred until kernel_main_continue().
+     *
+     * The boot_info SMBIOS pointers and the original framebuffer address
+     * have their own, later consumption and remapping points.
+     */
+    framebuffer_request.response = NULL;
+    hhdm_request.response = NULL;
+    memmap_request.response = NULL;
+    smbios_request.response = NULL;
+    executable_cmdline_request.response = NULL;
+
+    boot_snapshot_complete = true;
 }
 
+bool boot_protocol_snapshot_complete(void)
+{
+    if (!boot_snapshot_complete) {
+        return false;
+    }
+
+    /*
+     * Inspect the request fields themselves; never dereference an old
+     * response address after bootloader-memory reclamation.
+     */
+    return
+        framebuffer_request.response == NULL &&
+        hhdm_request.response == NULL &&
+        memmap_request.response == NULL &&
+        smbios_request.response == NULL &&
+        executable_cmdline_request.response == NULL;
+}

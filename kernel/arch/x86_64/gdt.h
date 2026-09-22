@@ -8,6 +8,7 @@
 #ifndef MYOS_ARCH_X86_64_GDT_H
 #define MYOS_ARCH_X86_64_GDT_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /**
@@ -51,5 +52,10 @@ void gdt_init(void);
  *         to kernel mode.
  */
 uint64_t gdt_kernel_stack_top(void);
+
+/**
+ * Verifies that the CPU uses the kernel-owned GDT and TSS.
+ */
+bool gdt_kernel_state_active(void);
 
 #endif

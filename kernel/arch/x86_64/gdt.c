@@ -171,3 +171,49 @@ uint64_t gdt_kernel_stack_top(void)
 {
     return tss.rsp0;
 }
+
+bool gdt_kernel_state_active(void)
+{
+    struct gdt_descriptor active_gdtr;
+    uint16_t active_tr;
+    uint16_t active_cs;
+    uint16_t active_ss;
+
+    __asm__ volatile (
+        "sgdt %0"
+        : "=m" (active_gdtr)
+        :
+        : "memory"
+    );
+
+    __asm__ volatile (
+        "str %w0"
+        : "=r" (active_tr)
+    );
+
+    __asm__ volatile (
+        "mov %%cs, %w0"
+        : "=r" (active_cs)
+    );
+
+    __asm__ volatile (
+        "mov %%ss, %w0"
+        : "=r" (active_ss)
+    );
+
+    return
+        active_gdtr.base == (uint64_t) gdt &&
+        active_gdtr.limit ==
+            (uint16_t) (sizeof(gdt) - 1) &&
+        active_tr == GDT_TSS_SELECTOR &&
+        active_cs == GDT_KERNEL_CODE_SELECTOR &&
+        active_ss == GDT_KERNEL_DATA_SELECTOR &&
+        tss.rsp0 ==
+            (uint64_t) &kernel_stack[GDT_KERNEL_STACK_SIZE] &&
+        tss.ist1 ==
+            (uint64_t) &double_fault_stack[
+                GDT_DOUBLE_FAULT_STACK_SIZE
+            ] &&
+        tss.io_map_base ==
+            (uint16_t) sizeof(struct task_state_segment);
+}

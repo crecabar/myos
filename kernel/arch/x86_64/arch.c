@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "arch.h"
@@ -15,6 +16,8 @@
 #include "../../core/panic.h"
 
 #define X86_CR0_TASK_SWITCHED (1ULL << 3)
+
+static bool early_arch_initialized;
 
 static void fp_simd_trap_on_use(void)
 {
@@ -35,17 +38,72 @@ static void fp_simd_trap_on_use(void)
     );
 }
 
-void arch_init(void)
+void arch_early_init(void)
 {
+    if (early_arch_initialized) {
+        kernel_panic(
+            "Early x86-64 initialization already completed"
+        );
+    }
+
+    /*
+     * Keep maskable interrupts disabled throughout the descriptor-table
+     * handoff and subsequent bootloader-memory reclamation.
+     */
+    __asm__ volatile ("cli" ::: "memory");
+
     diagnostics_write("[arch] Loading GDT\n");
     gdt_init();
-
     diagnostics_write("[arch] GDT loaded\n");
 
     diagnostics_write("[arch] Loading IDT\n");
     idt_init();
-
     diagnostics_write("[arch] IDT loaded\n");
+
+    early_arch_initialized = true;
+}
+
+bool arch_early_init_complete(void)
+{
+    return early_arch_initialized;
+}
+
+bool arch_boot_reclaim_ready(void)
+{
+    if (!arch_early_init_complete()) {
+        return false;
+    }
+
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r" (rflags)
+        :
+        : "memory"
+    );
+
+    /*
+     * RFLAGS.IF is bit 9. No maskable interrupt may run while
+     * ownership of bootloader-reclaimable memory is transferred.
+     */
+    if ((rflags & (1ULL << 9)) != 0) {
+        return false;
+    }
+
+    return
+        gdt_kernel_state_active() &&
+        idt_kernel_state_active();
+}
+
+void arch_init(void)
+{
+    if (!arch_early_init_complete()) {
+        kernel_panic(
+            "Early x86-64 initialization has not completed"
+        );
+    }
 
     struct interrupt_topology topology;
 
@@ -81,7 +139,7 @@ void arch_init(void)
     diagnostics_write(
         "[arch] Enabling FP/SIMD trap-on-use policy\n"
     );
-    
+
     fp_simd_trap_on_use();
 
     __asm__ volatile ("sti");
