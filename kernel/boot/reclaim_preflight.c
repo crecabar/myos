@@ -2,6 +2,7 @@
 
 #include "reclaim_preflight.h"
 
+#include "../arch/x86_64/arch.h"
 #include "../arch/x86_64/paging.h"
 #include "../memory/boot_paging.h"
 #include "../memory/direct_mapping.h"
@@ -21,6 +22,14 @@ bool boot_reclaim_preflight(
         boot_info == NULL ||
         report == NULL
     ) {
+        return false;
+    }
+
+    /*
+     * The CPU must no longer depend on bootloader-installed descriptor
+     * tables when general bootloader-memory reclamation begins.
+     */
+     if (!arch_boot_reclaim_ready()) {
         return false;
     }
 

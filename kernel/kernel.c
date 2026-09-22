@@ -171,11 +171,20 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 
-#if MYOS_RUNTIME_DIAGNOSTICS
+    #if MYOS_RUNTIME_DIAGNOSTICS
     diagnostics_write(
         "[boot] Transient boot-info references released\n"
     );
 #endif
+
+    /*
+     * Install kernel-owned GDT, TSS and IDT before returning any
+     * bootloader-reclaimable frame to the physical allocator.
+     *
+     * Interrupt controllers and maskable interrupts remain disabled
+     * until arch_init(), after general memory reclamation.
+     */
+    arch_early_init();
 
     struct boot_paging_inventory boot_inventory;
 
