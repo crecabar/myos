@@ -60,6 +60,12 @@ void interrupt_wait_test_run(void)
         );
     }
 
+    if (timer_sleep_ticks(0)) {
+        kernel_panic(
+            "Zero-tick timer wait accepted disabled interrupts"
+        );
+    }
+
     rflags = interrupt_wait_test_read_rflags();
 
     if (
@@ -75,6 +81,75 @@ void interrupt_wait_test_run(void)
     if (!timer_sleep_ticks(0)) {
         kernel_panic(
             "Zero-tick timer wait failed"
+        );
+    }
+
+    /*
+     * Reject out-of-range intervals without entering the
+     * interruptible wait loop.
+     */
+    if (timer_sleep_ticks(TIMER_SLEEP_MAX_TICKS + 1U)) {
+        kernel_panic(
+            "Timer wait accepted an excessive interval"
+        );
+    }
+
+    if (timer_sleep_ticks(UINT64_MAX)) {
+        kernel_panic(
+            "Timer wait accepted UINT64_MAX ticks"
+        );
+    }
+
+    uint64_t rflags_after_rejection =
+        interrupt_wait_test_read_rflags();
+
+    if (
+        (rflags_after_rejection &
+        X86_RFLAGS_INTERRUPT_FLAG) == 0
+    ) {
+        kernel_panic(
+            "Rejected timer wait disabled interrupts"
+        );
+    }
+
+    /*
+     * Each wait must observe its own starting tick.
+     */
+    uint64_t consecutive_start = timer_ticks();
+
+    if (!timer_sleep_ticks(1)) {
+        kernel_panic(
+            "First consecutive timer wait failed"
+        );
+    }
+
+    uint64_t consecutive_middle = timer_ticks();
+
+    if (
+        (uint64_t) (
+            consecutive_middle - consecutive_start
+        ) < 1
+    ) {
+        kernel_panic(
+            "First consecutive timer wait returned early"
+        );
+    }
+
+    if (!timer_sleep_ticks(1)) {
+        kernel_panic(
+            "Second consecutive timer wait failed"
+        );
+    }
+
+    uint64_t consecutive_end = timer_ticks();
+
+    if (
+        (uint64_t) (
+            consecutive_end - consecutive_middle
+        ) < 1
+    ) {
+        kernel_panic(
+            "Second consecutive timer wait returned early"
         );
     }
 

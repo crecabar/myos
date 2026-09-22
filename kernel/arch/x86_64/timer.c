@@ -99,11 +99,28 @@ bool timer_sleep_ticks(uint64_t duration_ticks)
     );
 
     /*
-     * interrupts_wait() requires an interrupt-disabled caller and
-     * relies on an interrupt to resume execution. Reject callers
-     * that cannot satisfy the wait contract.
+     * Waiting for an interrupt with maskable interrupts disabled
+     * could leave the CPU halted indefinitely.
+     *
+     * Reject the request without modifying the caller's state.
      */
     if ((rflags & X86_RFLAGS_INTERRUPT_FLAG) == 0) {
+        return false;
+    }
+
+    /*
+     * An active user process cannot be suspended through this
+     * primitive. Process sleep/wakeup belongs to the scheduler.
+     */
+    if (scheduler_current() != NULL) {
+        return false;
+    }
+
+    /*
+     * Restrict the requested interval to the supported range
+     * of the wrapping tick counter.
+     */
+    if (duration_ticks > TIMER_SLEEP_MAX_TICKS) {
         return false;
     }
 
@@ -112,8 +129,8 @@ bool timer_sleep_ticks(uint64_t duration_ticks)
     }
 
     /*
-     * On the current single-CPU kernel, disabling interrupts makes
-     * the starting tick snapshot and the subsequent wait atomic
+     * On the current single-CPU kernel, disabling interrupts
+     * makes the initial tick snapshot and subsequent wait atomic
      * with respect to timer interrupt delivery.
      */
     interrupts_disable();
@@ -121,17 +138,22 @@ bool timer_sleep_ticks(uint64_t duration_ticks)
     uint64_t start = timer_ticks();
 
     while (
-        (uint64_t) (timer_ticks() - start) <
-        (uint64_t) duration_ticks
+        (uint64_t) (timer_ticks() - start) < duration_ticks
     ) {
         /*
-         * STI; HLT; CLI. A timer interrupt may advance tick_count,
-         * while an unrelated interrupt may wake us early. In either
-         * case, recheck the elapsed ticks with interrupts disabled.
+         * interrupts_wait() executes STI; HLT; CLI.
+         *
+         * Unrelated interrupts may wake the CPU before the
+         * requested interval has elapsed. Always recheck the
+         * timer counter before completing the wait.
          */
         interrupts_wait();
     }
 
+    /*
+     * The caller entered with interrupts enabled.
+     * Restore that state before returning.
+     */
     interrupts_enable();
 
     return true;

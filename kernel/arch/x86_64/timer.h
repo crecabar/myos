@@ -15,6 +15,18 @@
 
 #define TIMER_INTERRUPT_VECTOR 0x20
 
+/*
+ * Maximum supported interval for timer-driven waits.
+ *
+ * Reserve half of the uint64_t counter range as a
+ * conservative upper bound for timer interval operations.
+ *
+ * This also allows future deadline comparisons to use
+ * modular ordering without supporting intervals spanning
+ * half or more of the counter range.
+ */
+#define TIMER_SLEEP_MAX_TICKS (UINT64_MAX / 2U)
+
 /**
  * Initializes the periodic PIT timer.
  *
@@ -52,14 +64,28 @@ uint64_t timer_user_ticks(void);
 /**
  * Waits for at least the requested number of periodic timer ticks.
  *
- * Uses interruptible CPU idle rather than busy waiting. This is a
- * kernel-context primitive; it does not suspend a user process.
+ * Uses interruptible CPU idle rather than busy waiting.
  *
- * Requires maskable interrupts to be enabled on entry. A zero-tick
- * request succeeds immediately. Rejects excessively large intervals.
+ * This primitive is intended for kernel execution outside an
+ * active user-process context. It does not suspend a process
+ * or allow the scheduler to execute another process while
+ * the wait is in progress.
  *
- * @return true when the requested ticks elapsed; false when the
- *         preconditions are not satisfied.
+ * Preconditions:
+ * - The periodic timer must be initialized.
+ * - Maskable interrupts must be enabled on entry.
+ * - No user process may be currently executing.
+ * - duration_ticks must not exceed TIMER_SLEEP_MAX_TICKS.
+ *
+ * A zero-tick request succeeds immediately when all
+ * preconditions are satisfied.
+ *
+ * The function preserves the caller's interrupt state.
+ *
+ * @param duration_ticks Minimum number of timer ticks to wait.
+ *
+ * @return true when the requested interval has elapsed,
+ *         or false when a precondition is not satisfied.
  */
 bool timer_sleep_ticks(uint64_t duration_ticks);
 
