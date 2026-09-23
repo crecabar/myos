@@ -537,10 +537,13 @@ usb-image-diagnostics:
 QEMU_DEBUG_PID := $(BUILD_DIR)/qemu-debug.pid
 QEMU_DISPLAY_RESOLUTION := "xres=1280,yres=1024"
 
+# Keep firmware serial output from resizing the host terminal.
+QEMU_SERIAL_RUNNER := python3 scripts/qemu-serial-console.py
+
 .PHONY: run run-usb run-usb-tests run-usb-diagnostics debug debug-stop run-qemu-tests
 
 run: $(ISO_IMAGE)
-	$(QEMU) \
+	$(QEMU_SERIAL_RUNNER) $(QEMU) \
 		-machine q35 \
 		-cpu qemu64 \
 		-m 512M \
@@ -557,7 +560,7 @@ run: $(ISO_IMAGE)
 
 run-qemu-tests: $(TEST_ISO_IMAGE)
 	@set +e; \
-	$(QEMU) \
+	$(QEMU_SERIAL_RUNNER) $(QEMU) \
 		-machine q35 \
 		-cpu qemu64 \
 		-m $(QEMU_TEST_MEMORY) \
@@ -588,7 +591,7 @@ run-qemu-tests: $(TEST_ISO_IMAGE)
 	exit 1
 
 run-usb: $(USB_IMAGE)
-	$(QEMU) \
+	$(QEMU_SERIAL_RUNNER) $(QEMU) \
 		-machine q35 \
 		-cpu qemu64 \
 		-m 512M \
@@ -617,7 +620,7 @@ run-usb-diagnostics:
 
 debug: $(ISO_IMAGE)
 	@rm -f $(QEMU_DEBUG_PID)
-	$(QEMU) \
+	$(QEMU_SERIAL_RUNNER) $(QEMU) \
 		-machine q35 \
 		-cpu qemu64 \
 		-m 512M \
