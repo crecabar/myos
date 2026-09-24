@@ -751,6 +751,24 @@ void syscall_handler(struct interrupt_context *context)
         return;
     }
 
+    #if MYOS_KERNEL_TESTS
+    if (context->rax == SYSCALL_TEST_SLEEP) {
+        if (!scheduler_sleep_current(context, context->rdi)) {
+            context->rax = UINT64_MAX;
+        }
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_TEST_BLOCK) {
+        if (!scheduler_block_current(context)) {
+            context->rax = UINT64_MAX;
+        }
+
+        return;
+    }
+#endif
+
     if (context->rax == SYSCALL_EXIT) {
         scheduler_exit_current(
             context,

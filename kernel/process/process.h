@@ -32,10 +32,23 @@
 
 /**
  * Represents the execution state of a process.
+ *
+ * READY processes may be selected by the scheduler.
+ * RUNNING identifies the process currently executing.
+ *
+ * BLOCKED processes wait for an explicit event-driven wakeup.
+ * SLEEPING processes wait for a timer-driven wakeup.
+ *
+ * Neither BLOCKED nor SLEEPING processes are runnable.
+ * TERMINATED processes cannot transition back to a runnable state.
+ *
+ * Execution-state transitions are managed by the scheduler.
  */
 enum process_state {
     PROCESS_STATE_READY,
     PROCESS_STATE_RUNNING,
+    PROCESS_STATE_BLOCKED,
+    PROCESS_STATE_SLEEPING,
     PROCESS_STATE_TERMINATED,
 };
 
@@ -131,11 +144,30 @@ _Static_assert(offsetof(struct process_context, rflags) == 136, "process_context
  * Their descriptor, layout, memory, PID, and termination information remain
  * valid until the lifecycle owner explicitly reclaims or recycles them.
  */
-struct process {
+ struct process {
     uint64_t id;
     enum process_state state;
     enum process_termination_reason termination_reason;
     uint64_t exit_status;
+
+    /*
+     * Timer-wait metadata owned by the scheduler.
+     *
+     * These fields are meaningful only while the process is
+     * SLEEPING. The requested duration must be greater than zero
+     * and must not exceed TIMER_SLEEP_MAX_TICKS.
+     *
+     * The scheduler will determine expiration using unsigned
+     * elapsed-tick arithmetic:
+     *
+     *     (uint64_t) (now - sleep_start_ticks)
+     *         >= sleep_duration_ticks
+     *
+     * Both fields are zero for a newly initialized process.
+     * They must be cleared when its timed wait completes.
+     */
+    uint64_t sleep_start_ticks;
+    uint64_t sleep_duration_ticks;
 
     struct process_memory *memory;
     struct process_layout *layout;

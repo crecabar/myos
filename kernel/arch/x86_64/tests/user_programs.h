@@ -89,4 +89,21 @@ const struct user_program *user_program_malicious_x87(void);
  */
 const struct user_program *user_program_survivor(void);
 
+/**
+ * Returns a user-mode regression program that sleeps for 50
+ * timer ticks, resumes with its registers preserved, and exits
+ * with status 42.
+ *
+ * @return Pointer to the immutable sleep/resume test program.
+ */
+const struct user_program *user_program_sleep_probe(void);
+
+/**
+ * Returns a regression program that blocks until an explicit
+ * wakeup, verifies its resumed CPU context, and exits with 43.
+ *
+ * @return Pointer to the immutable block/resume test program.
+ */
+const struct user_program *user_program_block_probe(void);
+
 #endif

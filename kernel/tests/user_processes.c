@@ -33,6 +33,16 @@
 #define USER_PROCESS_LIFECYCLE_STRESS_CYCLES 12
 #define USER_PROCESS_LIFECYCLE_STRESS_PID_BASE 100
 
+#define USER_PROCESS_SLEEP_TEST_PID 112
+#define USER_PROCESS_SLEEP_TEST_EXIT_STATUS 42
+
+#define USER_PROCESS_MULTI_SLEEP_TEST_PID 113
+#define USER_PROCESS_MULTI_WORKER_TEST_PID 114
+
+#define USER_PROCESS_BLOCK_TEST_PID 115
+#define USER_PROCESS_EVENT_WORKER_TEST_PID 116
+#define USER_PROCESS_BLOCK_TEST_EXIT_STATUS 43
+
 extern const uint8_t process_elf_entry_fixture_start[];
 extern const uint8_t process_elf_entry_fixture_end[];
 
@@ -47,6 +57,16 @@ static struct user_process_fixture fixtures[
 ];
 
 static struct user_process_fixture lifecycle_stress_fixture;
+static struct user_process_fixture sleep_test_fixture;
+
+static struct user_process_fixture multi_sleep_test_fixture;
+static struct user_process_fixture multi_worker_test_fixture;
+
+static struct user_process_fixture block_test_fixture;
+static struct user_process_fixture event_worker_test_fixture;
+
+static bool multi_worker_completed;
+static bool event_worker_completed;
 
 static size_t lifecycle_stress_cycle;
 static uint64_t lifecycle_stress_free_frame_baseline;
@@ -73,6 +93,18 @@ static void user_process_tests_prepare_standard(void);
 static void user_process_lifecycle_stress_prepare_cycle(void);
 
 static void user_process_lifecycle_stress_terminated(
+    struct process *process
+);
+
+static void user_process_sleep_test_terminated(
+    struct process *process
+);
+
+static void user_process_multi_test_terminated(
+    struct process *process
+);
+
+static void user_process_block_test_terminated(
     struct process *process
 );
 
@@ -366,12 +398,349 @@ static void user_process_lifecycle_stress_terminated(
         return;
     }
 
-    scheduler_set_terminated_handler(
-        user_process_standard_terminated
-    );
-
     diagnostics_write(
         "[process] Repeated process lifecycle stress test passed\n"
+    );
+
+    /*
+     * No standard processes have been registered yet.
+     * The sleep probe will therefore be the only runnable
+     * process and must pass through scheduler_idle().
+     */
+    scheduler_set_terminated_handler(
+        user_process_sleep_test_terminated
+    );
+
+    user_process_test_prepare(
+        &sleep_test_fixture,
+        USER_PROCESS_SLEEP_TEST_PID,
+        user_program_sleep_probe()
+    );
+}
+
+static void user_process_sleep_test_terminated(
+    struct process *process)
+{
+    if (process != &sleep_test_fixture.process) {
+        kernel_panic(
+            "Sleep test terminated an unexpected process"
+        );
+    }
+
+    if (
+        process->id != USER_PROCESS_SLEEP_TEST_PID ||
+        process->state != PROCESS_STATE_TERMINATED ||
+        process->termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        process->exit_status !=
+            USER_PROCESS_SLEEP_TEST_EXIT_STATUS
+    ) {
+        kernel_panic(
+            "Sleep test did not resume with the expected result"
+        );
+    }
+
+    if (
+        process->sleep_start_ticks != 0 ||
+        process->sleep_duration_ticks != 0
+    ) {
+        kernel_panic(
+            "Sleep test retained timer metadata after wakeup"
+        );
+    }
+
+    if (!process_reclaim_resources(process)) {
+        kernel_panic(
+            "Unable to reclaim sleep test process resources"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        lifecycle_stress_free_frame_baseline
+    ) {
+        kernel_panic(
+            "Sleep test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[scheduler] User sleep/resume via idle test passed\n"
+    );
+
+    /*
+     * The idle regression has released its scheduler slot.
+     *
+     * Register the sleeper first so it is selected before
+     * the worker. When the sleeper blocks, the worker must
+     * remain available for immediate scheduling.
+     */
+    multi_worker_completed = false;
+
+    scheduler_set_terminated_handler(
+        user_process_multi_test_terminated
+    );
+
+    user_process_test_prepare(
+        &multi_sleep_test_fixture,
+        USER_PROCESS_MULTI_SLEEP_TEST_PID,
+        user_program_sleep_probe()
+    );
+
+    user_process_test_prepare(
+        &multi_worker_test_fixture,
+        USER_PROCESS_MULTI_WORKER_TEST_PID,
+        user_program_survivor()
+    );
+}
+
+static void user_process_multi_test_terminated(
+    struct process *process)
+{
+    /*
+     * The worker must finish while the sleeper is still
+     * SLEEPING. This proves that the sleeping process did
+     * not consume a scheduling turn while the worker ran.
+     */
+    if (process == &multi_worker_test_fixture.process) {
+        if (multi_worker_completed) {
+            kernel_panic(
+                "Multi-process sleep worker completed twice"
+            );
+        }
+
+        if (
+            multi_sleep_test_fixture.process.state !=
+            PROCESS_STATE_SLEEPING
+        ) {
+            kernel_panic(
+                "Worker did not execute while sleeper was sleeping"
+            );
+        }
+
+        if (
+            process->id != USER_PROCESS_MULTI_WORKER_TEST_PID ||
+            process->state != PROCESS_STATE_TERMINATED ||
+            process->termination_reason !=
+                PROCESS_TERMINATION_EXITED ||
+            process->exit_status != 0
+        ) {
+            kernel_panic(
+                "Multi-process sleep worker produced unexpected result"
+            );
+        }
+
+        if (!process_reclaim_resources(process)) {
+            kernel_panic(
+                "Unable to reclaim multi-process sleep worker"
+            );
+        }
+
+        multi_worker_completed = true;
+
+        diagnostics_write(
+            "[scheduler] Worker completed while sleeper was sleeping\n"
+        );
+
+        return;
+    }
+
+    if (process != &multi_sleep_test_fixture.process) {
+        kernel_panic(
+            "Multi-process sleep test received unexpected process"
+        );
+    }
+
+    /*
+     * The sleeper must not complete before the worker has
+     * executed and terminated.
+     */
+    if (!multi_worker_completed) {
+        kernel_panic(
+            "Sleeper completed before multi-process worker"
+        );
+    }
+
+    if (
+        process->id != USER_PROCESS_MULTI_SLEEP_TEST_PID ||
+        process->state != PROCESS_STATE_TERMINATED ||
+        process->termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        process->exit_status !=
+            USER_PROCESS_SLEEP_TEST_EXIT_STATUS ||
+        process->sleep_start_ticks != 0 ||
+        process->sleep_duration_ticks != 0
+    ) {
+        kernel_panic(
+            "Multi-process sleeper did not resume correctly"
+        );
+    }
+
+    if (!process_reclaim_resources(process)) {
+        kernel_panic(
+            "Unable to reclaim multi-process sleeper resources"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        lifecycle_stress_free_frame_baseline
+    ) {
+        kernel_panic(
+            "Multi-process sleep test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[scheduler] Multi-process sleep/resume test passed\n"
+    );
+
+    /*
+     * Register the blocking process first. Its syscall must
+     * transfer execution to the event worker, which remains READY.
+     */
+    event_worker_completed = false;
+
+    scheduler_set_terminated_handler(
+        user_process_block_test_terminated
+    );
+
+    user_process_test_prepare(
+        &block_test_fixture,
+        USER_PROCESS_BLOCK_TEST_PID,
+        user_program_block_probe()
+    );
+
+    user_process_test_prepare(
+        &event_worker_test_fixture,
+        USER_PROCESS_EVENT_WORKER_TEST_PID,
+        user_program_survivor()
+    );
+}
+
+static void user_process_block_test_terminated(
+    struct process *process)
+{
+    if (process == &event_worker_test_fixture.process) {
+        if (event_worker_completed) {
+            kernel_panic(
+                "Event worker completed more than once"
+            );
+        }
+
+        /*
+         * The worker's termination is the event that releases
+         * the blocked process. Verify its state before waking it.
+         */
+        if (
+            block_test_fixture.process.state !=
+            PROCESS_STATE_BLOCKED
+        ) {
+            kernel_panic(
+                "Event worker found process outside BLOCKED state"
+            );
+        }
+
+        if (
+            process->id != USER_PROCESS_EVENT_WORKER_TEST_PID ||
+            process->state != PROCESS_STATE_TERMINATED ||
+            process->termination_reason !=
+                PROCESS_TERMINATION_EXITED ||
+            process->exit_status != 0
+        ) {
+            kernel_panic(
+                "Event worker produced unexpected termination result"
+            );
+        }
+
+        if (!process_reclaim_resources(process)) {
+            kernel_panic(
+                "Unable to reclaim event worker resources"
+            );
+        }
+
+        /*
+         * The scheduler has detached the terminated worker
+         * and activated kernel address space before invoking
+         * this handler. The interrupt path still has IF disabled.
+         */
+        if (!scheduler_wake_blocked(&block_test_fixture.process)) {
+            kernel_panic(
+                "Unable to wake process after event worker termination"
+            );
+        }
+
+        if (
+            block_test_fixture.process.state !=
+                PROCESS_STATE_READY ||
+            scheduler_wake_blocked(&block_test_fixture.process)
+        ) {
+            kernel_panic(
+                "Explicit event wakeup violated state transition"
+            );
+        }
+
+        event_worker_completed = true;
+
+        diagnostics_write(
+            "[scheduler] Event worker woke BLOCKED process\n"
+        );
+
+        return;
+    }
+
+    if (process != &block_test_fixture.process) {
+        kernel_panic(
+            "BLOCKED test received unexpected terminated process"
+        );
+    }
+
+    if (!event_worker_completed) {
+        kernel_panic(
+            "BLOCKED process resumed before event completion"
+        );
+    }
+
+    if (
+        process->id != USER_PROCESS_BLOCK_TEST_PID ||
+        process->state != PROCESS_STATE_TERMINATED ||
+        process->termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        process->exit_status !=
+            USER_PROCESS_BLOCK_TEST_EXIT_STATUS ||
+        process->sleep_start_ticks != 0 ||
+        process->sleep_duration_ticks != 0
+    ) {
+        kernel_panic(
+            "BLOCKED process did not resume with preserved context"
+        );
+    }
+
+    if (!process_reclaim_resources(process)) {
+        kernel_panic(
+            "Unable to reclaim BLOCKED test process resources"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        lifecycle_stress_free_frame_baseline
+    ) {
+        kernel_panic(
+            "BLOCKED test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[scheduler] User BLOCKED/event wakeup test passed\n"
+    );
+
+    /*
+     * The event worker and blocked process have both terminated,
+     * been detached, and had their resources reclaimed.
+     */
+    scheduler_set_terminated_handler(
+        user_process_standard_terminated
     );
 
     user_process_tests_prepare_standard();

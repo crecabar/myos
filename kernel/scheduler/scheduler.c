@@ -6,6 +6,7 @@
 #include "../arch/x86_64/usermode.h"
 #include "../arch/x86_64/gdt.h"
 #include "../arch/x86_64/interrupts.h"
+#include "../arch/x86_64/timer.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 
@@ -138,6 +139,105 @@ struct process *scheduler_current(void)
     return current_process;
 }
 
+void scheduler_wake_sleepers(uint64_t now_ticks)
+{
+    if (process_count == 0) {
+        return;
+    }
+
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        struct process *process = processes[index];
+
+        if (
+            process == NULL ||
+            process->state != PROCESS_STATE_SLEEPING
+        ) {
+            continue;
+        }
+
+        uint64_t duration = process->sleep_duration_ticks;
+
+        /*
+         * Every SLEEPING process must have been assigned a
+         * valid, bounded interval before entering this state.
+         */
+        if (
+            duration == 0 ||
+            duration > TIMER_SLEEP_MAX_TICKS
+        ) {
+            kernel_panic(
+                "Sleeping process has invalid timer metadata"
+            );
+        }
+
+        uint64_t elapsed =
+            (uint64_t) (
+                now_ticks - process->sleep_start_ticks
+            );
+
+        if (elapsed < duration) {
+            continue;
+        }
+
+        process->sleep_start_ticks = 0;
+        process->sleep_duration_ticks = 0;
+        process->state = PROCESS_STATE_READY;
+    }
+}
+
+bool scheduler_wake_blocked(struct process *process)
+{
+    if (process == NULL) {
+        return false;
+    }
+
+    /*
+     * On this single-CPU scheduler, callers must serialize
+     * event-driven wakeups against interrupt-driven scheduling.
+     */
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0) {
+        return false;
+    }
+
+    if (process == current_process) {
+        return false;
+    }
+
+    /*
+     * Check scheduler registration before inspecting process
+     * state. An unrelated descriptor must not be awakened.
+     */
+    for (size_t index = 0;
+         index < SCHEDULER_MAX_PROCESSES;
+         ++index) {
+        if (processes[index] != process) {
+            continue;
+        }
+
+        if (process->state != PROCESS_STATE_BLOCKED) {
+            return false;
+        }
+
+        process->state = PROCESS_STATE_READY;
+
+        return true;
+    }
+
+    return false;
+}
+
 static struct process *scheduler_find_next_ready(void)
 {
     if (process_count == 0) {
@@ -176,11 +276,26 @@ static _Noreturn void scheduler_enter_process(struct process *process)
         kernel_panic("Scheduler attempted to run null process");
     }
 
+    if (process->state != PROCESS_STATE_READY) {
+        kernel_panic("Scheduler attempted to enter non-READY process");
+    }
+
     if (!paging_address_space_activate(
         &process->memory->address_space
     )) {
         kernel_panic("Unable to activate scheduled process address space");
     }
+
+    /*
+     * A newly initialized process already has an initial
+     * user context. A previously suspended process instead
+     * has the context saved when it stopped executing.
+     *
+     * Both cases enter user mode through the same path.
+     */
+    struct interrupt_context context;
+
+    scheduler_load_context(&context, process);
 
     current_quantum_ticks = 0;
 
@@ -192,10 +307,7 @@ static _Noreturn void scheduler_enter_process(struct process *process)
         process->id
     );
 
-    usermode_enter(
-        process->layout->entry_point,
-        process->layout->stack.stack_top
-    );
+    usermode_resume(&context);
 }
 
 _Noreturn void scheduler_run(void)
@@ -222,6 +334,26 @@ static _Noreturn void scheduler_idle(void)
      * sleep race-free on the current single-CPU scheduler.
      */
     interrupts_disable();
+
+    /*
+     * No user process owns the CPU while the scheduler is idle.
+     * Do not retain the address space of a process that has just
+     * entered SLEEPING or BLOCKED.
+     *
+     * A process selected after wakeup activates its own address
+     * space in scheduler_enter_process().
+     */
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (
+        kernel_space == NULL ||
+        !paging_address_space_activate(kernel_space)
+    ) {
+        kernel_panic(
+            "Unable to activate kernel address space during idle"
+        );
+    }
 
     for (;;) {
         struct process *next =
@@ -394,6 +526,174 @@ void scheduler_yield_current(struct interrupt_context *context)
         context,
         next
     );
+}
+
+bool scheduler_sleep_current(
+    struct interrupt_context *context,
+    uint64_t duration_ticks)
+{
+    if (context == NULL || current_process == NULL) {
+        return false;
+    }
+
+    if (
+        current_process->state != PROCESS_STATE_RUNNING ||
+        (context->cs & 0x3) != 3
+    ) {
+        return false;
+    }
+
+    /*
+     * This operation is called from the syscall interrupt path.
+     * Interrupts must remain disabled while the scheduler
+     * modifies the current process and selects its successor.
+     */
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0) {
+        return false;
+    }
+
+    /*
+     * A process that resumes with interrupts disabled could
+     * prevent further timer-driven scheduling and wakeups.
+     */
+    if ((context->rflags & (1ULL << 9)) == 0) {
+        return false;
+    }
+
+    if (duration_ticks > TIMER_SLEEP_MAX_TICKS) {
+        return false;
+    }
+
+    if (duration_ticks == 0) {
+        context->rax = 0;
+        return true;
+    }
+
+    struct process *sleeping_process = current_process;
+
+    /*
+     * Preserve the interrupted user context before selecting
+     * another process. The saved RAX is the eventual return
+     * value of the sleep request.
+     */
+    scheduler_save_context(
+        sleeping_process,
+        context
+    );
+
+    sleeping_process->context.rax = 0;
+
+    sleeping_process->sleep_start_ticks = timer_ticks();
+    sleeping_process->sleep_duration_ticks = duration_ticks;
+    sleeping_process->state = PROCESS_STATE_SLEEPING;
+
+    current_process = NULL;
+
+    struct process *next = scheduler_find_next_ready();
+
+    if (next == NULL) {
+        /*
+         * The idle loop continues receiving timer interrupts.
+         * scheduler_wake_sleepers() will eventually move this
+         * process back to READY.
+         */
+        scheduler_idle();
+    }
+
+    /*
+     * The interrupt frame now belongs to the next process.
+     * The caller must not overwrite it on successful return.
+     */
+    scheduler_switch_from_interrupt(
+        context,
+        next
+    );
+
+    return true;
+}
+
+bool scheduler_block_current(struct interrupt_context *context)
+{
+    if (context == NULL || current_process == NULL) {
+        return false;
+    }
+
+    if (
+        current_process->state != PROCESS_STATE_RUNNING ||
+        (context->cs & 0x3) != 3
+    ) {
+        return false;
+    }
+
+    /*
+     * The state transition and successor selection must be
+     * atomic with respect to timer interrupts on this CPU.
+     */
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0) {
+        return false;
+    }
+
+    if ((context->rflags & (1ULL << 9)) == 0) {
+        return false;
+    }
+
+    struct process *blocked_process = current_process;
+
+    /*
+     * BLOCKED is an event-driven wait, not a timed wait.
+     * The process must not retain timer-wait metadata.
+     */
+    if (
+        blocked_process->sleep_start_ticks != 0 ||
+        blocked_process->sleep_duration_ticks != 0
+    ) {
+        kernel_panic(
+            "Running process retained sleep metadata"
+        );
+    }
+
+    scheduler_save_context(
+        blocked_process,
+        context
+    );
+
+    blocked_process->context.rax = 0;
+    blocked_process->state = PROCESS_STATE_BLOCKED;
+
+    current_process = NULL;
+
+    struct process *next = scheduler_find_next_ready();
+
+    if (next == NULL) {
+        scheduler_idle();
+    }
+
+    scheduler_switch_from_interrupt(
+        context,
+        next
+    );
+
+    return true;
 }
 
 void scheduler_preempt_current(struct interrupt_context *context)

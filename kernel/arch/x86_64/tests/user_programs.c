@@ -309,6 +309,178 @@ static const struct user_program survivor_program = {
     .size = sizeof(survivor_program_data),
 };
 
+/*
+ * Sleep/resume and syscall-boundary regression program.
+ *
+ * Checks:
+ *   sleep(0)          returns 0
+ *   sleep(UINT64_MAX) returns UINT64_MAX
+ *   sleep(50)         returns 0 after suspension
+ *   RBX               remains 42
+ *
+ * R8B accumulates the result of the checks. The program exits
+ * with status 42 when all succeed, or 41 otherwise.
+ */
+static const uint8_t sleep_probe_program_data[] = {
+    /* mov rbx, 42 */
+    0x48, 0xC7, 0xC3, 0x2A, 0x00, 0x00, 0x00,
+
+    /*
+     * sleep(0)
+     */
+
+    /* mov eax, SYSCALL_TEST_SLEEP (5) */
+    0xB8, 0x05, 0x00, 0x00, 0x00,
+
+    /* xor edi, edi */
+    0x31, 0xFF,
+
+    /* int 0x80 */
+    0xCD, 0x80,
+
+    /* test rax, rax */
+    0x48, 0x85, 0xC0,
+
+    /* sete r8b: first check succeeded */
+    0x41, 0x0F, 0x94, 0xC0,
+
+    /*
+     * sleep(UINT64_MAX): must reject the requested duration.
+     */
+
+    /* mov eax, SYSCALL_TEST_SLEEP (5) */
+    0xB8, 0x05, 0x00, 0x00, 0x00,
+
+    /* mov rdi, -1 */
+    0x48, 0xC7, 0xC7, 0xFF, 0xFF, 0xFF, 0xFF,
+
+    /* int 0x80 */
+    0xCD, 0x80,
+
+    /* cmp rax, -1 */
+    0x48, 0x83, 0xF8, 0xFF,
+
+    /* sete r9b */
+    0x41, 0x0F, 0x94, 0xC1,
+
+    /* and r8b, r9b */
+    0x45, 0x20, 0xC8,
+
+    /*
+     * sleep(50): must suspend and subsequently resume.
+     */
+
+    /* mov eax, SYSCALL_TEST_SLEEP (5) */
+    0xB8, 0x05, 0x00, 0x00, 0x00,
+
+    /* mov edi, 50 */
+    0xBF, 0x32, 0x00, 0x00, 0x00,
+
+    /* int 0x80 */
+    0xCD, 0x80,
+
+    /* test rax, rax */
+    0x48, 0x85, 0xC0,
+
+    /* sete r9b */
+    0x41, 0x0F, 0x94, 0xC1,
+
+    /* and r8b, r9b */
+    0x45, 0x20, 0xC8,
+
+    /*
+     * Check that RBX survived the syscall and context switch.
+     */
+
+    /* cmp rbx, 42 */
+    0x48, 0x83, 0xFB, 0x2A,
+
+    /* sete r9b */
+    0x41, 0x0F, 0x94, 0xC1,
+
+    /* and r8b, r9b */
+    0x45, 0x20, 0xC8,
+
+    /*
+     * Exit with 42 when every check succeeded, or 41 otherwise.
+     */
+
+    /* movzx edi, r8b */
+    0x41, 0x0F, 0xB6, 0xF8,
+
+    /* add edi, 41 */
+    0x83, 0xC7, 0x29,
+
+    /* mov eax, SYSCALL_EXIT (2) */
+    0xB8, 0x02, 0x00, 0x00, 0x00,
+
+    /* int 0x80 */
+    0xCD, 0x80,
+
+    /* Unreachable fallback loop. */
+    0xEB, 0xFE,
+};
+
+static const struct user_program sleep_probe_program = {
+    .data = sleep_probe_program_data,
+    .size = sizeof(sleep_probe_program_data),
+};
+
+/*
+ * BLOCKED/resume regression program.
+ *
+ * On successful resumption:
+ *   RAX == 0
+ *   RBX == 43
+ *
+ * Exit status is 43 when both conditions hold, or 42 otherwise.
+ */
+static const uint8_t block_probe_program_data[] = {
+    /* mov rbx, 43 */
+    0x48, 0xC7, 0xC3, 0x2B, 0x00, 0x00, 0x00,
+
+    /* mov rax, SYSCALL_TEST_BLOCK (6) */
+    0x48, 0xC7, 0xC0, 0x06, 0x00, 0x00, 0x00,
+
+    /* int 0x80 */
+    0xCD, 0x80,
+
+    /* test rax, rax */
+    0x48, 0x85, 0xC0,
+
+    /* setz al: AL = 1 when RAX was zero */
+    0x0F, 0x94, 0xC0,
+
+    /* cmp rbx, 43 */
+    0x48, 0x83, 0xFB, 0x2B,
+
+    /* sete cl: CL = 1 when RBX was preserved */
+    0x0F, 0x94, 0xC1,
+
+    /* and al, cl */
+    0x20, 0xC8,
+
+    /* movzx edi, al */
+    0x0F, 0xB6, 0xF8,
+
+    /* add rdi, 42 */
+    0x48, 0x83, 0xC7, 0x2A,
+
+    /* mov eax, SYSCALL_EXIT (2) */
+    0xB8, 0x02, 0x00, 0x00, 0x00,
+
+    /* int 0x80 */
+    0xCD, 0x80,
+
+    /* Unreachable fallback loop. */
+    0xEB, 0xFE,
+};
+
+static const struct user_program block_probe_program = {
+    .data = block_probe_program_data,
+    .size = sizeof(block_probe_program_data),
+};
+
 const struct user_program *user_program_hello(void)
 {
     return &hello_program;
@@ -342,4 +514,14 @@ const struct user_program *user_program_malicious_x87(void)
 const struct user_program *user_program_survivor(void)
 {
     return &survivor_program;
+}
+
+const struct user_program *user_program_sleep_probe(void)
+{
+    return &sleep_probe_program;
+}
+
+const struct user_program *user_program_block_probe(void)
+{
+    return &block_probe_program;
 }
