@@ -196,6 +196,56 @@ _Noreturn void scheduler_run(void);
 void scheduler_yield_current(struct interrupt_context *context);
 
 /**
+ * Suspends the current user process for a bounded number of timer ticks.
+ *
+ * A zero-tick request succeeds without changing process state.
+ *
+ * For a positive duration, the current user context is saved and
+ * the process enters PROCESS_STATE_SLEEPING. Another READY process
+ * is selected, or the scheduler enters interruptible idle when
+ * none is available.
+ *
+ * The saved process context is prepared to return zero in RAX
+ * when the process eventually resumes.
+ *
+ * This operation is intended to be called from the user-process
+ * syscall interrupt path, with maskable interrupts disabled.
+ * The caller must not modify the interrupt frame after a
+ * successful positive-duration suspension: that frame may
+ * already describe a different process.
+ *
+ * @param context Current user-mode syscall interrupt frame.
+ * @param duration_ticks Requested wait in timer ticks.
+ *
+ * @return true when the request was accepted; false when its
+ *         preconditions were not satisfied.
+ */
+ bool scheduler_sleep_current(
+    struct interrupt_context *context,
+    uint64_t duration_ticks
+);
+
+/**
+ * Blocks the current user process until an explicit wakeup.
+ *
+ * Saves the interrupted user context, marks the process BLOCKED,
+ * and selects another READY process. If none is available,
+ * the scheduler enters interruptible idle.
+ *
+ * The saved context returns zero in RAX when the process resumes.
+ *
+ * This operation must be called from the syscall interrupt path
+ * with maskable interrupts disabled. On successful suspension,
+ * the supplied interrupt frame may describe another process;
+ * the caller must not overwrite it.
+ *
+ * @param context Current user-mode syscall interrupt frame.
+ *
+ * @return true when the request was accepted; false otherwise.
+ */
+bool scheduler_block_current(struct interrupt_context *context);
+
+/**
  * Preempts the currently running process.
  *
  * The interrupted user context is saved, the current process returns to the
@@ -218,5 +268,37 @@ void scheduler_preempt_current(struct interrupt_context *context);
  * @param context CPU context interrupted by the timer.
  */
 void scheduler_tick(struct interrupt_context *context);
+
+/**
+ * Makes registered sleeping processes runnable when their timer
+ * wait has elapsed.
+ *
+ * Called once per timer tick. This operation updates process
+ * states but does not select a process or switch CPU context.
+ *
+ * BLOCKED processes do not have timer-driven wakeup semantics.
+ *
+ * @param now_ticks Current monotonically advancing timer count.
+ */
+void scheduler_wake_sleepers(uint64_t now_ticks);
+
+/**
+ * Explicitly wakes a registered BLOCKED process.
+ *
+ * The caller must hold the scheduler's single-CPU critical
+ * section by entering with maskable interrupts disabled.
+ *
+ * A successful wakeup changes BLOCKED to READY without
+ * immediately selecting or executing the process.
+ *
+ * Processes in any other state, unregistered processes,
+ * and repeated wakeup requests are rejected.
+ *
+ * @param process Borrowed descriptor of the process to wake.
+ *
+ * @return true when the registered process was awakened;
+ *         false when the request was not applicable.
+ */
+bool scheduler_wake_blocked(struct process *process);
 
 #endif

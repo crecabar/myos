@@ -53,6 +53,14 @@ void timer_handle_interrupt(struct interrupt_context *context)
 {
     ++tick_count;
 
+    /*
+     * Wakeup accounting runs on every timer tick, including
+     * ticks that interrupt kernel execution or scheduler idle.
+     *
+     * Waking a process does not switch CPU context here.
+     */
+    scheduler_wake_sleepers(tick_count);
+
     bool user_mode =
         context != NULL &&
         (context->cs & 0x3) == 3;

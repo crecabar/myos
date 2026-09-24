@@ -8,6 +8,8 @@
 #ifndef MYOS_ARCH_X86_64_USERMODE_H
 #define MYOS_ARCH_X86_64_USERMODE_H
 
+#include "interrupts.h"
+
 #include <stdint.h>
 
 /**
@@ -25,6 +27,23 @@
 _Noreturn void usermode_enter(
     uint64_t instruction_pointer,
     uint64_t stack_pointer
+);
+
+/**
+ * Enters user mode using a complete, prepared interrupt frame.
+ *
+ * The caller must activate the process address space before entry.
+ * The frame must contain valid user-mode selectors, RIP, RSP,
+ * RFLAGS, and the general-purpose register values to restore.
+ *
+ * The frame may be a temporary object on the current kernel stack:
+ * this function consumes it during the non-returning transition
+ * to user mode.
+ *
+ * @param context Prepared user-mode interrupt frame.
+ */
+_Noreturn void usermode_resume(
+    const struct interrupt_context *context
 );
 
 #endif

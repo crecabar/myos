@@ -5,10 +5,12 @@
  * @brief Scheduler registration-slot recycling regression tests.
  */
 
-#include "scheduler_slot_test.h"
+ #include "scheduler_slot_test.h"
 
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
+ #include "../arch/x86_64/interrupts.h"
+ #include "../arch/x86_64/timer.h"
+ #include "../core/panic.h"
+ #include "../diagnostics/diagnostics.h"
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"
 
@@ -64,6 +66,29 @@ void scheduler_slot_test_run(void)
 
     scheduler_slot_test_initialize_processes();
 
+    /*
+     * Only READY processes may enter the scheduler.
+     * Test this while registration capacity is still available,
+     * so a rejection cannot be attributed to a full slot table.
+     */
+    test_processes[0].state = PROCESS_STATE_BLOCKED;
+
+    if (scheduler_add(&test_processes[0])) {
+        kernel_panic(
+            "Scheduler registered a BLOCKED process"
+        );
+    }
+
+    test_processes[0].state = PROCESS_STATE_SLEEPING;
+
+    if (scheduler_add(&test_processes[0])) {
+        kernel_panic(
+            "Scheduler registered a SLEEPING process"
+        );
+    }
+
+    test_processes[0].state = PROCESS_STATE_READY;
+
     if (!scheduler_add(&test_processes[0])) {
         kernel_panic(
             "Unable to register first scheduler slot test process"
@@ -77,14 +102,178 @@ void scheduler_slot_test_run(void)
     }
 
     for (size_t index = 1;
-         index < SCHEDULER_MAX_PROCESSES;
-         ++index) {
+        index < SCHEDULER_MAX_PROCESSES;
+        ++index) {
         if (!scheduler_add(&test_processes[index])) {
             kernel_panic(
                 "Unable to fill scheduler slot table"
             );
         }
     }
+
+    /*
+     * Exercise wakeup accounting on registered test processes.
+     *
+     * Interrupts remain disabled while synthetic timer values
+     * are supplied so real timer interrupts cannot interfere
+     * with the test metadata.
+     *
+     * The direct state assignments below are test-only setup.
+     * Production transitions will be owned by the scheduler.
+     */
+    struct process *sleeper = &test_processes[0];
+    struct process *blocked = &test_processes[1];
+
+    interrupts_disable();
+
+    sleeper->sleep_start_ticks = UINT64_MAX - 1U;
+    sleeper->sleep_duration_ticks = 3;
+    sleeper->state = PROCESS_STATE_SLEEPING;
+
+    blocked->state = PROCESS_STATE_BLOCKED;
+
+    /*
+     * The interval begins two ticks before the uint64_t
+     * counter wraps. Tick zero must not wake this process.
+     */
+    scheduler_wake_sleepers(0);
+
+    if (
+        sleeper->state != PROCESS_STATE_SLEEPING ||
+        blocked->state != PROCESS_STATE_BLOCKED
+    ) {
+        kernel_panic(
+            "Scheduler woke a process before timer expiration"
+        );
+    }
+
+    /*
+     * At tick one, three ticks have elapsed across wraparound.
+     */
+    scheduler_wake_sleepers(1);
+
+    if (
+        sleeper->state != PROCESS_STATE_READY ||
+        sleeper->sleep_start_ticks != 0 ||
+        sleeper->sleep_duration_ticks != 0
+    ) {
+        kernel_panic(
+            "Scheduler failed to wake expired sleeping process"
+        );
+    }
+
+    if (blocked->state != PROCESS_STATE_BLOCKED) {
+        kernel_panic(
+            "Timer incorrectly woke a BLOCKED process"
+        );
+    }
+
+    /*
+     * Verify integration with actual timer interrupts.
+     *
+     * This test executes in kernel mode, so periodic timer
+     * interrupts may update process states without invoking
+     * user-mode scheduling.
+     */
+    uint64_t live_start = timer_ticks();
+
+    sleeper->sleep_start_ticks = live_start;
+    sleeper->sleep_duration_ticks = 2;
+    sleeper->state = PROCESS_STATE_SLEEPING;
+
+    while (
+        sleeper->state == PROCESS_STATE_SLEEPING &&
+        (uint64_t) (timer_ticks() - live_start) < 8
+    ) {
+        interrupts_wait();
+    }
+
+    if (
+        sleeper->state != PROCESS_STATE_READY ||
+        sleeper->sleep_start_ticks != 0 ||
+        sleeper->sleep_duration_ticks != 0
+    ) {
+        kernel_panic(
+            "Timer interrupt failed to wake sleeping process"
+        );
+    }
+
+    if (
+        (uint64_t) (timer_ticks() - live_start) < 2
+    ) {
+        kernel_panic(
+            "Timer woke sleeping process before requested interval"
+        );
+    }
+
+    if (blocked->state != PROCESS_STATE_BLOCKED) {
+        kernel_panic(
+            "Timer interrupt incorrectly woke BLOCKED process"
+        );
+    }
+
+    /*
+     * Reject an unregistered descriptor, even when its
+     * state field says BLOCKED.
+     */
+    struct process *unregistered =
+        &test_processes[SCHEDULER_MAX_PROCESSES];
+
+    unregistered->state = PROCESS_STATE_BLOCKED;
+
+    if (
+        scheduler_wake_blocked(unregistered) ||
+        unregistered->state != PROCESS_STATE_BLOCKED
+    ) {
+        kernel_panic(
+            "Scheduler woke an unregistered BLOCKED process"
+        );
+    }
+
+    unregistered->state = PROCESS_STATE_READY;
+
+    /*
+     * A READY process cannot be woken again.
+     */
+    if (
+        scheduler_wake_blocked(sleeper) ||
+        sleeper->state != PROCESS_STATE_READY
+    ) {
+        kernel_panic(
+            "Scheduler accepted wakeup of a READY process"
+        );
+    }
+
+    /*
+     * Explicitly wake the registered BLOCKED process.
+     */
+    if (
+        !scheduler_wake_blocked(blocked) ||
+        blocked->state != PROCESS_STATE_READY
+    ) {
+        kernel_panic(
+            "Scheduler failed to wake a BLOCKED process"
+        );
+    }
+
+    /*
+     * The transition must be one-shot.
+     */
+    if (scheduler_wake_blocked(blocked)) {
+        kernel_panic(
+            "Scheduler accepted duplicate BLOCKED wakeup"
+        );
+    }
+
+    interrupts_enable();
+
+    diagnostics_write(
+        "[scheduler] Timer-driven wakeup tests passed\n"
+    );
+
+    diagnostics_write(
+        "[scheduler] Explicit BLOCKED wakeup tests passed\n"
+    );
 
     struct process *replacement =
         &test_processes[SCHEDULER_MAX_PROCESSES];
@@ -256,9 +445,16 @@ static void scheduler_slot_test_initialize_processes(void)
             SCHEDULER_SLOT_TEST_ENTRY_BASE +
             ((uint64_t) index * 0x1000ULL);
 
-        test_layouts[index].stack.stack_top =
+            test_layouts[index].stack.stack_top =
             SCHEDULER_SLOT_TEST_STACK_TOP -
             ((uint64_t) index * 0x1000ULL);
+
+        /*
+         * Simulate stale metadata in reused process storage.
+         * process_init() must reset both timer-wait fields.
+         */
+        test_processes[index].sleep_start_ticks = UINT64_MAX;
+        test_processes[index].sleep_duration_ticks = UINT64_MAX;
 
         if (!process_init(
             &test_processes[index],
@@ -268,6 +464,16 @@ static void scheduler_slot_test_initialize_processes(void)
         )) {
             kernel_panic(
                 "Unable to initialize scheduler slot test process"
+            );
+        }
+
+        if (
+            test_processes[index].state != PROCESS_STATE_READY ||
+            test_processes[index].sleep_start_ticks != 0 ||
+            test_processes[index].sleep_duration_ticks != 0
+        ) {
+            kernel_panic(
+                "Process initialization retained stale sleep metadata"
             );
         }
     }

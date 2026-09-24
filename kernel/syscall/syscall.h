@@ -18,6 +18,11 @@
 #define SYSCALL_YIELD      3    // no arguments
 #define SYSCALL_WRITE      4    // RDI = buffer, RSI = length
 
+#if MYOS_KERNEL_TESTS
+#define SYSCALL_TEST_SLEEP 5    // RDI = duration in timer ticks
+#define SYSCALL_TEST_BLOCK 6    // no arguments
+#endif
+
 /**
  * Dispatches one system call requested by user mode.
  *

@@ -31,6 +31,10 @@ bool process_init(
     process->state = PROCESS_STATE_READY;
     process->termination_reason = PROCESS_TERMINATION_NONE;
     process->exit_status = 0;
+
+    process->sleep_start_ticks = 0;
+    process->sleep_duration_ticks = 0;
+
     process->memory = memory;
     process->layout = layout;
 
