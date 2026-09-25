@@ -11,8 +11,22 @@
 
 #define BOOT_MEMORY_REGION_MAX 128
 
+#define BOOT_ACPI_RSDP_V1_SIZE 20
+#define BOOT_ACPI_RSDP_V2_SIZE 36
+
 struct boot_info {
     uint64_t direct_map_offset;
+
+    /*
+     * Kernel-owned snapshot of the RSDP's standardized
+     * initial bytes. A size of zero means Limine did not
+     * provide an RSDP.
+     *
+     * The ACPI parser will validate the signature, revision,
+     * checksums and declared length before consuming the data.
+     */
+    uint8_t rsdp_snapshot[BOOT_ACPI_RSDP_V2_SIZE];
+    size_t rsdp_snapshot_size;
 
     void *smbios_entry_32;
     void *smbios_entry_64;
