@@ -46,6 +46,9 @@
 extern const uint8_t process_elf_entry_fixture_start[];
 extern const uint8_t process_elf_entry_fixture_end[];
 
+extern const uint8_t process_syscall_abi_fixture_start[];
+extern const uint8_t process_syscall_abi_fixture_end[];
+
 struct user_process_fixture {
     struct process_memory memory;
     struct process_layout layout;
@@ -73,6 +76,9 @@ static uint64_t lifecycle_stress_free_frame_baseline;
 
 static struct process_instance *elf_test_instance;
 
+static struct process_instance
+    *syscall_abi_test_instance;
+
 static bool standard_process_completed[
     USER_PROCESS_TEST_COUNT
 ];
@@ -87,6 +93,12 @@ static void user_process_test_prepare(
 );
 
 static void user_process_elf_test_prepare(void);
+
+static void user_process_syscall_abi_test_prepare(void);
+
+static void user_process_syscall_abi_test_terminated(
+    struct process *process
+);
 
 static void user_process_tests_prepare_standard(void);
 
@@ -290,6 +302,67 @@ static void user_process_elf_test_prepare(void)
     if (elf_test_instance == NULL) {
         kernel_panic(
             "Unable to dynamically create ELF user test process"
+        );
+    }
+}
+
+static void user_process_syscall_abi_test_prepare(void)
+{
+    uintptr_t image_start =
+        (uintptr_t)
+        process_syscall_abi_fixture_start;
+
+    uintptr_t image_end =
+        (uintptr_t)
+        process_syscall_abi_fixture_end;
+
+    if (image_end <= image_start) {
+        kernel_panic(
+            "Syscall ABI ELF fixture has invalid bounds"
+        );
+    }
+
+    uintptr_t image_size_value =
+        image_end -
+        image_start;
+
+    if (image_size_value > SIZE_MAX) {
+        kernel_panic(
+            "Syscall ABI ELF fixture is too large"
+        );
+    }
+
+    size_t image_size =
+        (size_t) image_size_value;
+
+    struct elf64_image image;
+
+    if (!elf64_parse(
+        process_syscall_abi_fixture_start,
+        image_size,
+        &image
+    )) {
+        kernel_panic(
+            "Unable to parse syscall ABI ELF fixture"
+        );
+    }
+
+    const char *argv[] = {
+        "syscall-abi",
+    };
+
+    syscall_abi_test_instance =
+        process_create_elf64(
+            &image,
+            1,
+            argv,
+            0,
+            NULL
+        );
+
+    if (syscall_abi_test_instance == NULL) {
+        kernel_panic(
+            "Unable to create syscall ABI test process"
         );
     }
 }
@@ -739,6 +812,65 @@ static void user_process_block_test_terminated(
      * The event worker and blocked process have both terminated,
      * been detached, and had their resources reclaimed.
      */
+     /*
+     * Before launching the full standard process set, exercise the
+     * published syscall ABI from an independently built Ring-3 ELF.
+     */
+    scheduler_set_terminated_handler(
+        user_process_syscall_abi_test_terminated
+    );
+
+    user_process_syscall_abi_test_prepare();
+}
+
+static void user_process_syscall_abi_test_terminated(
+    struct process *process)
+{
+    if (
+        syscall_abi_test_instance == NULL ||
+        process !=
+            &syscall_abi_test_instance->process
+    ) {
+        kernel_panic(
+            "Syscall ABI test received unexpected process"
+        );
+    }
+
+    if (
+        process->state !=
+            PROCESS_STATE_TERMINATED ||
+        process->termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        process->exit_status != 0
+    ) {
+        kernel_panic(
+            "Ring-3 syscall ABI contract test failed"
+        );
+    }
+
+    if (!process_release_terminated(
+        syscall_abi_test_instance
+    )) {
+        kernel_panic(
+            "Unable to release syscall ABI test process"
+        );
+    }
+
+    syscall_abi_test_instance = NULL;
+
+    if (
+        physical_free_frame_count() !=
+        lifecycle_stress_free_frame_baseline
+    ) {
+        kernel_panic(
+            "Syscall ABI test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[syscall] Ring-3 register and RFLAGS contract test passed\n"
+    );
+
     scheduler_set_terminated_handler(
         user_process_standard_terminated
     );

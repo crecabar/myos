@@ -266,6 +266,15 @@ isr_syscall:
 
     movq %rsp, %rdi
 
+    /*
+     * C code assumes the x86-64 ABI direction-flag invariant.
+     *
+     * The user's original RFLAGS are already saved in the interrupt
+     * frame, so clearing DF here protects kernel C code while iretq
+     * later restores the exact userspace flag state.
+     */
+    cld
+
     subq $8, %rsp
     call syscall_handler
     addq $8, %rsp

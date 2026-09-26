@@ -773,10 +773,13 @@ void syscall_handler(struct interrupt_context *context)
         return;
     }
 
-    #if MYOS_KERNEL_TESTS
+#if MYOS_KERNEL_TESTS
     if (context->rax == SYSCALL_TEST_SLEEP) {
         if (!scheduler_sleep_current(context, context->rdi)) {
-            context->rax = UINT64_MAX;
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
         }
 
         return;
@@ -784,7 +787,10 @@ void syscall_handler(struct interrupt_context *context)
 
     if (context->rax == SYSCALL_TEST_BLOCK) {
         if (!scheduler_block_current(context)) {
-            context->rax = UINT64_MAX;
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
         }
 
         return;
@@ -800,7 +806,8 @@ void syscall_handler(struct interrupt_context *context)
         return;
     }
 
-    context->rax = syscall_dispatch(
+    context->rax =
+    (uint64_t) syscall_dispatch(
         context->rax,
         context->rdi,
         context->rsi,
