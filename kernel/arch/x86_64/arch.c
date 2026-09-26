@@ -7,9 +7,12 @@
 #include "gdt.h"
 #include "idt.h"
 #include "interrupt_topology.h"
+#include "i8042.h"
 #include "ioapic.h"
 #include "lapic.h"
 #include "pic.h"
+#include "ps2_keyboard.h"
+#include "ps2_mouse.h"
 #include "timer.h"
 #include "../../firmware/acpi.h"
 #include "../../firmware/acpi_discovery.h"
@@ -215,6 +218,125 @@ void arch_init(
     }
 
     pic_disable();
+
+    if (!i8042_init()) {
+        diagnostics_write(
+            "[arch] i8042 controller unavailable\n"
+        );
+    } else {
+        /*
+         * First port: keyboard.
+         */
+        if (ps2_keyboard_init()) {
+            struct interrupt_route keyboard_route;
+
+            if (
+                !interrupt_topology_isa_route_from_madt(
+                    &madt,
+                    PS2_KEYBOARD_ISA_IRQ,
+                    &keyboard_route
+                )
+            ) {
+                kernel_panic(
+                    "Unable to resolve PS/2 keyboard interrupt route"
+                );
+            }
+
+            if (
+                !ioapic_route(
+                    keyboard_route.gsi,
+                    PS2_KEYBOARD_INTERRUPT_VECTOR,
+                    lapic_id(),
+                    keyboard_route.active_low,
+                    keyboard_route.level_triggered
+                )
+            ) {
+                kernel_panic(
+                    "Unable to route PS/2 keyboard interrupt"
+                );
+            }
+
+            if (
+                !i8042_first_port_interrupt_enable()
+            ) {
+                kernel_panic(
+                    "Unable to enable PS/2 keyboard interrupt"
+                );
+            }
+
+            diagnostics_printf(
+                "[arch] PS/2 keyboard: IRQ=%u GSI=%u vector=%x "
+                "active-low=%u level=%u\n",
+                (uint64_t) keyboard_route.irq,
+                (uint64_t) keyboard_route.gsi,
+                (uint64_t) PS2_KEYBOARD_INTERRUPT_VECTOR,
+                (uint64_t) keyboard_route.active_low,
+                (uint64_t) keyboard_route.level_triggered
+            );
+        } else {
+            diagnostics_write(
+                "[arch] PS/2 keyboard unavailable\n"
+            );
+        }
+
+        /*
+         * Second port: mouse.
+         */
+        if (
+            i8042_second_port_enable() &&
+            ps2_mouse_init()
+        ) {
+            struct interrupt_route mouse_route;
+
+            if (
+                !interrupt_topology_isa_route_from_madt(
+                    &madt,
+                    PS2_MOUSE_ISA_IRQ,
+                    &mouse_route
+                )
+            ) {
+                kernel_panic(
+                    "Unable to resolve PS/2 mouse interrupt route"
+                );
+            }
+
+            if (
+                !ioapic_route(
+                    mouse_route.gsi,
+                    PS2_MOUSE_INTERRUPT_VECTOR,
+                    lapic_id(),
+                    mouse_route.active_low,
+                    mouse_route.level_triggered
+                )
+            ) {
+                kernel_panic(
+                    "Unable to route PS/2 mouse interrupt"
+                );
+            }
+
+            if (
+                !i8042_second_port_interrupt_enable()
+            ) {
+                kernel_panic(
+                    "Unable to enable PS/2 mouse interrupt"
+                );
+            }
+
+            diagnostics_printf(
+                "[arch] PS/2 mouse: IRQ=%u GSI=%u vector=%x "
+                "active-low=%u level=%u\n",
+                (uint64_t) mouse_route.irq,
+                (uint64_t) mouse_route.gsi,
+                (uint64_t) PS2_MOUSE_INTERRUPT_VECTOR,
+                (uint64_t) mouse_route.active_low,
+                (uint64_t) mouse_route.level_triggered
+            );
+        } else {
+            diagnostics_write(
+                "[arch] PS/2 mouse unavailable\n"
+            );
+        }
+    }
 
     /*
      * ioapic_route() checks that the selected GSI belongs to

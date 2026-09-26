@@ -3,6 +3,8 @@
 #include "idt.h"
 #include "interrupts.h"
 #include "timer.h"
+#include "ps2_keyboard.h"
+#include "ps2_mouse.h"
 #include "../../core/panic.h"
 #include "../../diagnostics/diagnostics.h"
 #include "../../process/process.h"
@@ -64,6 +66,8 @@ extern void isr_control_protection(void);
 extern void isr_syscall(void);
 extern void isr_timer(void);
 extern void isr_spurious(void);
+extern void isr_ps2_keyboard(void);
+extern void isr_ps2_mouse(void);
 
 static void idt_set_gate(
     uint8_t vector, 
@@ -378,6 +382,24 @@ void idt_init(void)
     idt_set_gate(
         TIMER_INTERRUPT_VECTOR,
         (uint64_t) isr_timer,
+        code_selector,
+        IDT_IST_NONE,
+        0x8E
+    );
+
+    // PS/2 keyboard interrupt
+    idt_set_gate(
+        PS2_KEYBOARD_INTERRUPT_VECTOR,
+        (uint64_t) isr_ps2_keyboard,
+        code_selector,
+        IDT_IST_NONE,
+        0x8E
+    );
+
+    // PS/2 mouse interrupt
+    idt_set_gate(
+        PS2_MOUSE_INTERRUPT_VECTOR,
+        (uint64_t) isr_ps2_mouse,
         code_selector,
         IDT_IST_NONE,
         0x8E

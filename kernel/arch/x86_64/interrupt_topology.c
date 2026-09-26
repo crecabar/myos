@@ -77,6 +77,105 @@ static bool interrupt_topology_isa_flags_decode(
     return true;
 }
 
+bool interrupt_topology_isa_route_from_madt(
+    const struct acpi_madt *madt,
+    uint8_t irq,
+    struct interrupt_route *route)
+{
+    if (
+        madt == NULL ||
+        route == NULL ||
+        madt->data == NULL
+    ) {
+        return false;
+    }
+
+    struct interrupt_route candidate = {
+        .irq = irq,
+        .gsi = (uint32_t) irq,
+        .active_low = false,
+        .level_triggered = false,
+    };
+
+    bool override_found = false;
+
+    for (
+        size_t index = 0;
+        index < madt->record_count;
+        ++index
+    ) {
+        struct acpi_madt_record record;
+
+        if (
+            !acpi_madt_record_get(
+                madt,
+                index,
+                &record
+            )
+        ) {
+            return false;
+        }
+
+        if (
+            record.type !=
+            ACPI_MADT_RECORD_INTERRUPT_OVERRIDE
+        ) {
+            continue;
+        }
+
+        struct acpi_madt_interrupt_override
+            irq_override;
+
+        if (
+            !acpi_madt_interrupt_override_decode(
+                &record,
+                &irq_override
+            )
+        ) {
+            return false;
+        }
+
+        if (
+            irq_override.bus != ISA_BUS_ID ||
+            irq_override.source_irq != irq
+        ) {
+            continue;
+        }
+
+        if (override_found) {
+            return false;
+        }
+
+        bool active_low;
+        bool level_triggered;
+
+        if (
+            !interrupt_topology_isa_flags_decode(
+                irq_override.flags,
+                &active_low,
+                &level_triggered
+            )
+        ) {
+            return false;
+        }
+
+        candidate.gsi =
+            irq_override.gsi;
+
+        candidate.active_low =
+            active_low;
+
+        candidate.level_triggered =
+            level_triggered;
+
+        override_found = true;
+    }
+
+    *route = candidate;
+
+    return true;
+}
+
 bool interrupt_topology_from_madt(
     const struct acpi_madt *madt,
     struct interrupt_topology *topology)
@@ -95,18 +194,7 @@ bool interrupt_topology_from_madt(
      */
     struct interrupt_topology candidate = {0};
 
-    candidate.timer_route.irq = PIT_IRQ;
-    candidate.timer_route.gsi = PIT_IRQ;
-
-    /*
-     * ISA IRQ0 defaults to active-high, edge-triggered.
-     * An ISO may replace its GSI and signal characteristics.
-     */
-    candidate.timer_route.active_low = false;
-    candidate.timer_route.level_triggered = false;
-
     bool ioapic_found = false;
-    bool timer_override_found = false;
 
     for (
         size_t index = 0;
@@ -166,66 +254,19 @@ bool interrupt_topology_from_madt(
 
             continue;
         }
-
-        if (
-            record.type ==
-            ACPI_MADT_RECORD_INTERRUPT_OVERRIDE
-        ) {
-            struct acpi_madt_interrupt_override
-                irq_override;
-
-            if (
-                !acpi_madt_interrupt_override_decode(
-                    &record,
-                    &irq_override
-                )
-            ) {
-                return false;
-            }
-
-            /*
-             * Other ISA overrides are not required to route the
-             * PIT. Only an override for ISA IRQ0 changes this
-             * candidate topology.
-             */
-            if (
-                irq_override.bus != ISA_BUS_ID ||
-                irq_override.source_irq != PIT_IRQ
-            ) {
-                continue;
-            }
-
-            if (timer_override_found) {
-                return false;
-            }
-
-            bool active_low;
-            bool level_triggered;
-
-            if (
-                !interrupt_topology_isa_flags_decode(
-                    irq_override.flags,
-                    &active_low,
-                    &level_triggered
-                )
-            ) {
-                return false;
-            }
-
-            candidate.timer_route.gsi =
-                irq_override.gsi;
-
-            candidate.timer_route.active_low =
-                active_low;
-
-            candidate.timer_route.level_triggered =
-                level_triggered;
-
-            timer_override_found = true;
-        }
     }
 
     if (!ioapic_found) {
+        return false;
+    }
+
+    if (
+        !interrupt_topology_isa_route_from_madt(
+            madt,
+            PIT_IRQ,
+            &candidate.timer_route
+        )
+    ) {
         return false;
     }
 

@@ -7,6 +7,8 @@
 .extern exception_handler
 .extern syscall_handler
 .extern timer_handle_interrupt
+.extern ps2_keyboard_handle_interrupt
+.extern ps2_mouse_handle_interrupt
 
 // interrupts_disable: disable maskable interrupts
 .global interrupts_disable
@@ -376,6 +378,157 @@ isr_timer:
     iretq
 
 .size isr_timer, .-isr_timer
+
+// isr_ps2_keyboard global declaration
+.global isr_ps2_keyboard
+.type isr_ps2_keyboard, @function
+
+// isr_ps2_keyboard: PS/2 Keyboard Interrupt (#IRQ1)
+isr_ps2_keyboard:
+    /*
+     * Hardware IRQs do not push an error code.
+     *
+     * Normalize the frame consistently with struct interrupt_context:
+     *
+     *   vector = 0x21
+     *   error_code = 0
+     */
+    pushq $0
+    pushq $0x21
+
+    pushq %rax
+    pushq %rbx
+    pushq %rcx
+    pushq %rdx
+    pushq %rsi
+    pushq %rdi
+    pushq %rbp
+
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+
+    /*
+     * RSP now points to struct interrupt_context.
+     */
+    movq %rsp, %rdi
+
+    /*
+     * Preserve the exact interrupt frame while aligning the C stack.
+     */
+    movq %rsp, %r12
+    andq $-16, %rsp
+
+    cld
+
+    call ps2_keyboard_handle_interrupt
+
+    movq %r12, %rsp
+
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+
+    popq %rbp
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
+
+    /*
+     * Discard vector and synthetic error code.
+     */
+    addq $16, %rsp
+
+    iretq
+
+.size isr_ps2_keyboard, .-isr_ps2_keyboard
+
+// isr_ps2_mouse global declaration
+.global isr_ps2_mouse
+.type isr_ps2_mouse, @function
+
+// isr_ps2_mouse: PS/2 Mouse Interrupt (#IRQ12)
+isr_ps2_mouse:
+    /*
+     * Hardware IRQs do not push an error code.
+     *
+     * Normalize the frame consistently with struct interrupt_context:
+     *
+     *   vector = 0x2C
+     *   error_code = 0
+     */
+    pushq $0
+    pushq $0x2C
+
+    pushq %rax
+    pushq %rbx
+    pushq %rcx
+    pushq %rdx
+    pushq %rsi
+    pushq %rdi
+    pushq %rbp
+
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+
+    /*
+     * RSP now points to struct interrupt_context.
+     */
+    movq %rsp, %rdi
+
+    movq %rsp, %r12
+    andq $-16, %rsp
+
+    cld
+
+    call ps2_mouse_handle_interrupt
+
+    movq %r12, %rsp
+
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+
+    popq %rbp
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
+
+    /*
+     * Discard vector and synthetic error code.
+     */
+    addq $16, %rsp
+
+    iretq
+
+.size isr_ps2_mouse, .-isr_ps2_mouse
 
 // isr_spurious global declaration
 .global isr_spurious

@@ -19,6 +19,7 @@
 #include "diagnostics/diagnostics.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
+#include "input/input.h"
 #include "memory/boot_paging.h"
 #include "memory/device_mapping.h"
 #include "memory/direct_mapping.h"
@@ -38,10 +39,13 @@
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
+#include "tests/input_test.h"
 #include "tests/kernel_heap_test.h"
 #include "tests/process_elf_lifecycle_test.h"
 #include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
+#include "tests/ps2_scancode_set1_test.h"
+#include "tests/ps2_mouse_packet_test.h"
 #include "tests/scheduler_slot_test.h"
 #include "tests/user_processes.h"
 #endif
@@ -55,6 +59,10 @@ static struct kernel_display kernel_display;
 static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
 ] __attribute__((aligned(16)));
+
+static void kernel_input_system_action(
+    enum input_system_action action
+);
 
 static _Noreturn void kernel_main_continue(void);
 
@@ -110,6 +118,24 @@ _Noreturn void kernel_main(void)
         ],
         kernel_main_continue
     );
+}
+
+static void kernel_input_system_action(
+    enum input_system_action action)
+{
+    switch (action) {
+        case INPUT_SYSTEM_ACTION_RESET:
+            diagnostics_write(
+                "[input] Ctrl+Alt+Delete: resetting system\n"
+            );
+
+            arch_reset();
+
+        default:
+            kernel_panic(
+                "Unknown kernel input system action"
+            );
+    }
 }
 
 static _Noreturn void kernel_main_continue(void)
@@ -472,6 +498,8 @@ static _Noreturn void kernel_main_continue(void)
     );
 #endif
 
+    input_init();
+
     arch_init(
         kernel_boot_info.rsdp_snapshot,
         kernel_boot_info.rsdp_snapshot_size
@@ -526,6 +554,9 @@ static _Noreturn void kernel_main_continue(void)
         elf64_loader_test_run();
         interrupt_wait_test_run();
         framebuffer_test_run();
+        ps2_scancode_set1_test_run();
+        ps2_mouse_packet_test_run();
+        input_test_run();
         kernel_heap_test_run();
         process_memory_test_run();
         process_lifecycle_test_run();
@@ -534,6 +565,27 @@ static _Noreturn void kernel_main_continue(void)
         user_process_tests_prepare();
     }
 #endif
+
+    input_system_action_handler_set(
+        kernel_input_system_action
+    );
+
+    /*
+     * A chord may have been recognized before the immediate handler
+     * became active. Honor one pending action before entering the
+     * scheduler.
+     */
+    enum input_system_action pending_action;
+
+    if (
+        input_system_action_take(
+            &pending_action
+        )
+    ) {
+        kernel_input_system_action(
+            pending_action
+        );
+    }
 
     diagnostics_write("[kernel] Starting scheduler\n");
     scheduler_run();
