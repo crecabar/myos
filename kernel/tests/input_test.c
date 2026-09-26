@@ -376,6 +376,44 @@ void input_test_run(void)
         );
     }
 
+        /*
+     * Pointer events share the same normalized input queue.
+     */
+    struct input_event pointer_event = {
+        .type = INPUT_EVENT_POINTER,
+        .pointer = {
+            .delta_x = 12,
+            .delta_y = -7,
+            .delta_wheel = 0,
+            .buttons =
+                INPUT_POINTER_BUTTON_LEFT,
+        },
+    };
+
+    if (
+        !input_event_submit(
+            &pointer_event
+        )
+    ) {
+        kernel_panic(
+            "Input pointer event could not be submitted"
+        );
+    }
+
+    if (
+        !input_event_pop(&event) ||
+        event.type != INPUT_EVENT_POINTER ||
+        event.pointer.delta_x != 12 ||
+        event.pointer.delta_y != -7 ||
+        event.pointer.delta_wheel != 0 ||
+        event.pointer.buttons !=
+            INPUT_POINTER_BUTTON_LEFT
+    ) {
+        kernel_panic(
+            "Input queue returned incorrect pointer event"
+        );
+    }
+
     /*
      * Restore a clean input subsystem for the rest of the kernel
      * test execution.

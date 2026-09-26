@@ -140,7 +140,8 @@ enum input_key_code {
 };
 
 enum input_event_type {
-    INPUT_EVENT_KEY = 1
+    INPUT_EVENT_KEY = 1,
+    INPUT_EVENT_POINTER = 2
 };
 
 enum input_key_state {
@@ -165,6 +166,12 @@ enum input_lock_flags {
     INPUT_LOCK_SCROLL = 1U << 2
 };
 
+enum input_pointer_button_flags {
+    INPUT_POINTER_BUTTON_LEFT   = 1U << 0,
+    INPUT_POINTER_BUTTON_RIGHT  = 1U << 1,
+    INPUT_POINTER_BUTTON_MIDDLE = 1U << 2
+};
+
 enum input_system_action {
     INPUT_SYSTEM_ACTION_RESET = 1
 };
@@ -187,11 +194,34 @@ struct input_key_event {
     uint8_t locks;
 };
 
+struct input_pointer_event {
+    /*
+     * Relative movement since the previous pointer event.
+     *
+     * Positive X moves right.
+     * Positive Y moves down, matching framebuffer coordinates.
+     */
+    int16_t delta_x;
+    int16_t delta_y;
+
+    /*
+     * Reserved for wheel-capable pointing devices. A standard
+     * three-byte PS/2 mouse always reports zero here.
+     */
+    int16_t delta_wheel;
+
+    /*
+     * Snapshot of currently pressed pointer buttons.
+     */
+    uint8_t buttons;
+};
+
 struct input_event {
     enum input_event_type type;
 
     union {
         struct input_key_event key;
+        struct input_pointer_event pointer;
     };
 };
 

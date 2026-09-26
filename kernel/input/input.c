@@ -94,9 +94,14 @@ bool input_event_submit(
     struct input_event normalized_event =
         *event;
 
-    input_key_state_update(
-        &normalized_event.key
-    );
+    if (
+        normalized_event.type ==
+        INPUT_EVENT_KEY
+    ) {
+        input_key_state_update(
+            &normalized_event.key
+        );
+    }
 
     size_t head =
         __atomic_load_n(
@@ -248,22 +253,38 @@ static bool input_event_valid(
         return false;
     }
 
-    if (event->type != INPUT_EVENT_KEY) {
-        return false;
-    }
+    switch (event->type) {
+        case INPUT_EVENT_KEY:
+            if (
+                event->key.code ==
+                INPUT_KEY_NONE
+            ) {
+                return false;
+            }
 
-    if (event->key.code == INPUT_KEY_NONE) {
-        return false;
-    }
+            return
+                event->key.state ==
+                    INPUT_KEY_PRESSED ||
+                event->key.state ==
+                    INPUT_KEY_RELEASED;
 
-    if (
-        event->key.state != INPUT_KEY_PRESSED &&
-        event->key.state != INPUT_KEY_RELEASED
-    ) {
-        return false;
-    }
+        case INPUT_EVENT_POINTER:
+        {
+            const uint8_t valid_buttons =
+                INPUT_POINTER_BUTTON_LEFT |
+                INPUT_POINTER_BUTTON_RIGHT |
+                INPUT_POINTER_BUTTON_MIDDLE;
 
-    return true;
+            return
+                (
+                    event->pointer.buttons &
+                    (uint8_t) ~valid_buttons
+                ) == 0;
+        }
+
+        default:
+            return false;
+    }
 }
 
 static void input_key_state_update(
