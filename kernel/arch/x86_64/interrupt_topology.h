@@ -33,6 +33,28 @@ struct interrupt_topology {
 };
 
 /**
+ * Resolves one legacy ISA IRQ through a validated MADT.
+ *
+ * When no Interrupt Source Override exists for the requested IRQ, the
+ * identity ISA mapping is used: IRQ N -> GSI N, active-high and
+ * edge-triggered.
+ *
+ * Duplicate overrides and unsupported polarity/trigger encodings are
+ * rejected.
+ *
+ * @param madt Previously validated MADT.
+ * @param irq Legacy ISA IRQ number.
+ * @param route Receives the resolved interrupt route.
+ *
+ * @return true when an unambiguous route was obtained; false otherwise.
+ */
+bool interrupt_topology_isa_route_from_madt(
+    const struct acpi_madt *madt,
+    uint8_t irq,
+    struct interrupt_route *route
+);
+
+/**
  * Builds the interrupt topology required by MyOS from a validated MADT.
  *
  * This initial implementation supports one IOAPIC. It resolves the ISA

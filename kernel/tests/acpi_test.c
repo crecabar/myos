@@ -1824,6 +1824,42 @@ static void acpi_test_madt_parser(void)
         );
     }
 
+    struct interrupt_route keyboard_route;
+
+    if (
+        !interrupt_topology_isa_route_from_madt(
+            &madt,
+            1U,
+            &keyboard_route
+        ) ||
+        keyboard_route.irq != 1U ||
+        keyboard_route.gsi != 1U ||
+        keyboard_route.active_low ||
+        keyboard_route.level_triggered
+    ) {
+        kernel_panic(
+            "Synthetic ISA keyboard route decoded incorrectly"
+        );
+    }
+
+    struct interrupt_route mouse_route;
+
+    if (
+        !interrupt_topology_isa_route_from_madt(
+            &madt,
+            12U,
+            &mouse_route
+        ) ||
+        mouse_route.irq != 12U ||
+        mouse_route.gsi != 12U ||
+        mouse_route.active_low ||
+        mouse_route.level_triggered
+    ) {
+        kernel_panic(
+            "Synthetic ISA mouse route decoded incorrectly"
+        );
+    }
+
     /*
      * Replace the fixture with a different valid topology:
      *
