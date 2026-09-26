@@ -110,23 +110,34 @@ void ps2_mouse_handle_interrupt(
 
     lapic_send_eoi();
 
-    if (valid_mouse_byte) {
-        struct input_event event;
+    if (!valid_mouse_byte) {
+        /*
+         * A missing/corrupted byte invalidates the boundaries of any
+         * partially accumulated three-byte packet. Re-establish packet
+         * synchronization at the next valid first byte.
+         */
+        ps2_mouse_packet_reset(
+            &ps2_mouse_decoder
+        );
 
-        if (
-            ps2_mouse_packet_decode(
-                &ps2_mouse_decoder,
-                value,
-                &event
-            )
-        ) {
-            /*
-             * Never block in IRQ12 waiting for an input consumer.
-             */
-            (void) input_event_submit(
-                &event
-            );
-        }
+        return;
+    }
+
+    struct input_event event;
+
+    if (
+        ps2_mouse_packet_decode(
+            &ps2_mouse_decoder,
+            value,
+            &event
+        )
+    ) {
+        /*
+         * Queue backpressure must never make IRQ12 block.
+         */
+        (void) input_event_submit(
+            &event
+        );
     }
 }
 

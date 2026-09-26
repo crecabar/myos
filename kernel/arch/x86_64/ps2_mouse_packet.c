@@ -26,6 +26,10 @@ void ps2_mouse_packet_init(
     decoder->bytes[1] = 0;
     decoder->bytes[2] = 0;
     decoder->index = 0;
+
+    ps2_mouse_packet_reset(
+        decoder
+    );
 }
 
 bool ps2_mouse_packet_decode(
@@ -140,4 +144,14 @@ bool ps2_mouse_packet_decode(
     };
 
     return true;
+}
+
+void ps2_mouse_packet_reset(
+    struct ps2_mouse_packet_decoder *decoder)
+{
+    if (decoder == NULL) {
+        return;
+    }
+
+    decoder->index = 0;
 }

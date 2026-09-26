@@ -162,6 +162,30 @@ void ps2_mouse_packet_test_run(void)
         0
     );
 
+    /*
+     * Losing a byte in the middle of a packet requires the transport
+     * layer to discard the partial packet. The next synchronized packet
+     * must decode normally.
+     */
+    expect_no_event(
+        &decoder,
+        0x08U
+    );
+
+    ps2_mouse_packet_reset(
+        &decoder
+    );
+
+    expect_pointer(
+        &decoder,
+        0x08U,
+        0x06U,
+        0x00U,
+        6,
+        0,
+        0
+    );
+
     diagnostics_write(
         "[ps2] Mouse packet decoder tests passed\n"
     );

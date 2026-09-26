@@ -33,4 +33,12 @@ bool ps2_mouse_packet_decode(
     struct input_event *event
 );
 
+/**
+ * Discards any partially accumulated packet and returns the decoder
+ * to first-byte synchronization.
+ */
+void ps2_mouse_packet_reset(
+    struct ps2_mouse_packet_decoder *decoder
+);
+
 #endif
