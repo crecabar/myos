@@ -33,6 +33,7 @@
 
 #if MYOS_KERNEL_TESTS
 #include "arch/x86_64/tests/interrupt_wait_test.h"
+#include "tests/acpi_test.h"
 #include "tests/boot_config_test.h"
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
@@ -471,7 +472,11 @@ static _Noreturn void kernel_main_continue(void)
     );
 #endif
 
-    arch_init();
+    arch_init(
+        kernel_boot_info.rsdp_snapshot,
+        kernel_boot_info.rsdp_snapshot_size
+    );
+
     diagnostics_write("[arch] x86-64 initialized\n");
 
     scheduler_init();
@@ -511,6 +516,12 @@ static _Noreturn void kernel_main_continue(void)
         );
 
         boot_config_test_run();
+
+        acpi_test_run(
+            kernel_boot_info.rsdp_snapshot,
+            kernel_boot_info.rsdp_snapshot_size
+        );
+
         elf64_test_run();
         elf64_loader_test_run();
         interrupt_wait_test_run();

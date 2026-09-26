@@ -11,6 +11,8 @@
 #include "lapic.h"
 #include "pic.h"
 #include "timer.h"
+#include "../../firmware/acpi.h"
+#include "../../firmware/acpi_discovery.h"
 
 #include "../../diagnostics/diagnostics.h"
 #include "../../core/panic.h"
@@ -97,7 +99,9 @@ bool arch_boot_reclaim_ready(void)
         idt_kernel_state_active();
 }
 
-void arch_init(void)
+void arch_init(
+    const uint8_t *rsdp,
+    size_t rsdp_size)
 {
     if (!arch_early_init_complete()) {
         kernel_panic(
@@ -105,33 +109,129 @@ void arch_init(void)
         );
     }
 
+    /*
+     * Discover the firmware topology before enabling maskable
+     * interrupts or programming the IOAPIC.
+     *
+     * No Q35 fallback is used: unsupported or invalid firmware
+     * topology must be reported explicitly.
+     */
+    struct acpi_madt madt;
+
+    if (
+        !acpi_madt_discover(
+            rsdp,
+            rsdp_size,
+            &madt
+        )
+    ) {
+        kernel_panic(
+            "Unable to discover ACPI MADT"
+        );
+    }
+
     struct interrupt_topology topology;
 
-    if (!interrupt_topology_discover(&topology)) {
-        kernel_panic("Unable to discover interrupt topology");
+    if (
+        !interrupt_topology_from_madt(
+            &madt,
+            &topology
+        )
+    ) {
+        kernel_panic(
+            "ACPI MADT describes an unsupported interrupt topology"
+        );
     }
 
+    uint64_t firmware_lapic_physical;
+
+    if (
+        !acpi_madt_local_apic_address_get(
+            &madt,
+            &firmware_lapic_physical
+        )
+    ) {
+        kernel_panic(
+            "Unable to resolve ACPI Local APIC address"
+        );
+    }
+
+    /*
+     * lapic_init() checks that the processor is using the
+     * xAPIC MMIO interface and maps the address advertised
+     * by IA32_APIC_BASE_MSR.
+     */
     if (!lapic_init()) {
-        kernel_panic("Unable to initialize Local APIC");
+        kernel_panic(
+            "Unable to initialize Local APIC"
+        );
     }
 
-    if (!ioapic_init(
+    uint64_t active_lapic_physical;
+    uint64_t active_lapic_virtual;
+
+    if (
+        !lapic_mapping_info(
+            &active_lapic_physical,
+            &active_lapic_virtual
+        )
+    ) {
+        kernel_panic(
+            "Unable to inspect active Local APIC mapping"
+        );
+    }
+
+    if (
+        active_lapic_physical !=
+        firmware_lapic_physical
+    ) {
+        kernel_panic(
+            "ACPI Local APIC address differs from active xAPIC"
+        );
+    }
+
+    diagnostics_printf(
+        "[arch] ACPI topology: LAPIC=%x IOAPIC=%x "
+        "GSI-base=%u PIT-IRQ=%u PIT-GSI=%u "
+        "active-low=%u level=%u\n",
+        firmware_lapic_physical,
         topology.ioapic_physical_address,
-        topology.ioapic_gsi_base
-    )) {
-        kernel_panic("Unable to initialize IOAPIC");
+        (uint64_t) topology.ioapic_gsi_base,
+        (uint64_t) topology.timer_route.irq,
+        (uint64_t) topology.timer_route.gsi,
+        (uint64_t) topology.timer_route.active_low,
+        (uint64_t) topology.timer_route.level_triggered
+    );
+
+    if (
+        !ioapic_init(
+            topology.ioapic_physical_address,
+            topology.ioapic_gsi_base
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize IOAPIC"
+        );
     }
 
     pic_disable();
 
-    if (!ioapic_route(
-        topology.timer_route.gsi,
-        TIMER_INTERRUPT_VECTOR,
-        lapic_id(),
-        topology.timer_route.active_low,
-        topology.timer_route.level_triggered
-    )) {
-        kernel_panic("Unable to route PIT interrupt");
+    /*
+     * ioapic_route() checks that the selected GSI belongs to
+     * the initialized IOAPIC's redirection-entry range.
+     */
+    if (
+        !ioapic_route(
+            topology.timer_route.gsi,
+            TIMER_INTERRUPT_VECTOR,
+            lapic_id(),
+            topology.timer_route.active_low,
+            topology.timer_route.level_triggered
+        )
+    ) {
+        kernel_panic(
+            "Unable to route PIT interrupt"
+        );
     }
 
     timer_init(100);

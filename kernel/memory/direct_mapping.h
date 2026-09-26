@@ -11,6 +11,8 @@
 #include "../arch/x86_64/paging.h"
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 /**
  * Installs a MyOS-owned direct physical-memory map.
@@ -25,6 +27,29 @@
  *         otherwise.
  */
 bool direct_mapping_install(void);
+
+/**
+ * Resolves a complete physical range through the MyOS-owned direct map.
+ *
+ * Every page touched by the range must be mapped to the expected physical
+ * address in the kernel address space. The function therefore establishes
+ * both arithmetic validity and actual paging coverage.
+ *
+ * The returned pointer borrows the direct-map mapping and remains valid only
+ * while that mapping remains installed.
+ *
+ * @param physical_address First physical byte in the range.
+ * @param size Number of bytes in the range.
+ * @param virtual_address Receives the corresponding direct-map address.
+ *
+ * @return true when the complete range is directly mapped to the expected
+ *         physical addresses; false otherwise.
+ */
+bool direct_mapping_resolve_physical_range(
+    uint64_t physical_address,
+    size_t size,
+    const void **virtual_address
+);
 
 /**
  * Returns the boot-time direct-map PML4 entry replaced by

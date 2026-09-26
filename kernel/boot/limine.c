@@ -39,6 +39,13 @@ static volatile struct limine_memmap_request memmap_request = {
 };
 
 __attribute__((used, section(".limine_requests")))
+static volatile struct limine_rsdp_request rsdp_request = {
+    .id = LIMINE_RSDP_REQUEST_ID,
+    .revision = 0,
+    .response = NULL,
+};
+
+__attribute__((used, section(".limine_requests")))
 static volatile struct limine_smbios_request smbios_request = {
     .id = LIMINE_SMBIOS_REQUEST_ID,
     .revision = 0,
@@ -108,6 +115,14 @@ void boot_init(struct boot_info *boot_info)
     boot_info->smbios_entry_32 = NULL;
     boot_info->smbios_entry_64 = NULL;
 
+    boot_info->rsdp_snapshot_size = 0;
+
+    for (size_t index = 0;
+         index < BOOT_ACPI_RSDP_V2_SIZE;
+         ++index) {
+        boot_info->rsdp_snapshot[index] = 0;
+    }
+
     if (!LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision)) {
         kernel_panic(
             "Unsupported Limine base revision"
@@ -163,6 +178,48 @@ void boot_init(struct boot_info *boot_info)
         kernel_panic(
             "Unsupported framebuffer color layout"
         );
+    }
+
+    /*
+     * Copy the RSDP header while Limine's response and the
+     * firmware-provided address are still accessible.
+     *
+     * Never retain the response pointer or its address in
+     * persistent boot information.
+     */
+    if (
+        rsdp_request.response != NULL &&
+        rsdp_request.response->address != NULL
+    ) {
+        const uint8_t *rsdp =
+            (const uint8_t *) rsdp_request.response->address;
+
+        for (size_t index = 0;
+            index < BOOT_ACPI_RSDP_V1_SIZE;
+            ++index) {
+            boot_info->rsdp_snapshot[index] = rsdp[index];
+        }
+
+        boot_info->rsdp_snapshot_size =
+           BOOT_ACPI_RSDP_V1_SIZE;
+
+        /*
+         * Revision is byte 15 of the RSDP. ACPI 2.0 and
+         * later define an extended header.
+         *
+         * Its signature, checksums and declared length
+         * have not yet been validated at this stage.
+         */
+        if (boot_info->rsdp_snapshot[15] >= 2) {
+            for (size_t index = BOOT_ACPI_RSDP_V1_SIZE;
+                    index < BOOT_ACPI_RSDP_V2_SIZE;
+                    ++index) {
+                boot_info->rsdp_snapshot[index] = rsdp[index];
+            }
+
+            boot_info->rsdp_snapshot_size =
+                BOOT_ACPI_RSDP_V2_SIZE;
+        }
     }
 
     if (smbios_request.response != NULL) {
@@ -270,6 +327,7 @@ void boot_init(struct boot_info *boot_info)
     framebuffer_request.response = NULL;
     hhdm_request.response = NULL;
     memmap_request.response = NULL;
+    rsdp_request.response = NULL;
     smbios_request.response = NULL;
     executable_cmdline_request.response = NULL;
 
@@ -290,6 +348,7 @@ bool boot_protocol_snapshot_complete(void)
         framebuffer_request.response == NULL &&
         hhdm_request.response == NULL &&
         memmap_request.response == NULL &&
+        rsdp_request.response == NULL &&
         smbios_request.response == NULL &&
         executable_cmdline_request.response == NULL;
 }

@@ -11,6 +11,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct acpi_madt;
+
 /**
  * Describes the routing of one legacy ISA interrupt through the IOAPIC.
  */
@@ -31,17 +33,23 @@ struct interrupt_topology {
 };
 
 /**
- * Discovers the platform interrupt topology.
+ * Builds the interrupt topology required by MyOS from a validated MADT.
  *
- * The current implementation supplies the known QEMU q35 topology as an
- * early bring-up mechanism. This function is intentionally isolated so it can
- * later be backed by ACPI MADT discovery without changing the LAPIC, IOAPIC,
- * timer, or scheduler interfaces.
+ * This initial implementation supports one IOAPIC. It resolves the ISA
+ * IRQ0 route using its interrupt source override, if present, or the
+ * identity mapping otherwise.
  *
- * @param topology Structure that receives the discovered topology.
+ * It does not initialize interrupt controllers or access MMIO.
  *
- * @return true when a usable interrupt topology was obtained; false otherwise.
+ * @param madt Previously validated MADT.
+ * @param topology Receives the resulting topology.
+ *
+ * @return true when the MADT describes a topology supported by this
+ *         implementation; false otherwise.
  */
-bool interrupt_topology_discover(struct interrupt_topology *topology);
+bool interrupt_topology_from_madt(
+    const struct acpi_madt *madt,
+    struct interrupt_topology *topology
+);
 
 #endif

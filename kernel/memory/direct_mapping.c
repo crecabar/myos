@@ -160,6 +160,119 @@ bool direct_mapping_install(void)
     return true;
 }
 
+bool direct_mapping_resolve_physical_range(
+    uint64_t physical_address,
+    size_t size,
+    const void **virtual_address)
+{
+    if (virtual_address == NULL) {
+        return false;
+    }
+
+    *virtual_address = NULL;
+
+    if (!direct_mapping_installed) {
+        return false;
+    }
+
+    if (size == 0) {
+        return false;
+    }
+
+    uint64_t range_size =
+        (uint64_t) size;
+
+    if (
+        range_size >
+        UINT64_MAX - physical_address
+    ) {
+        return false;
+    }
+
+    uint64_t direct_map_base =
+        memory_direct_map_base();
+
+    if (
+        physical_address >
+        UINT64_MAX - direct_map_base
+    ) {
+        return false;
+    }
+
+    uint64_t virtual_start =
+        direct_map_base +
+        physical_address;
+
+    /*
+     * Check the final byte separately. The half-open physical range
+     * may end at UINT64_MAX without requiring us to form end + 1.
+     */
+    if (
+        range_size - 1U >
+        UINT64_MAX - virtual_start
+    ) {
+        return false;
+    }
+
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (kernel_space == NULL) {
+        return false;
+    }
+
+    uint64_t remaining =
+        range_size;
+
+    uint64_t physical_cursor =
+        physical_address;
+
+    uint64_t virtual_cursor =
+        virtual_start;
+
+    while (remaining != 0) {
+        struct paging_translation translation;
+
+        if (
+            !paging_translate_address_space(
+                kernel_space,
+                virtual_cursor,
+                &translation
+            )
+        ) {
+            return false;
+        }
+
+        if (
+            translation.physical_address !=
+            physical_cursor
+        ) {
+            return false;
+        }
+
+        uint64_t page_offset =
+            physical_cursor &
+            (MEMORY_FRAME_SIZE - 1U);
+
+        uint64_t chunk =
+            MEMORY_FRAME_SIZE -
+            page_offset;
+
+        if (chunk > remaining) {
+            chunk = remaining;
+        }
+
+        physical_cursor += chunk;
+        virtual_cursor += chunk;
+        remaining -= chunk;
+    }
+
+    *virtual_address =
+        (const void *) virtual_start;
+
+    return true;
+}
+
 bool direct_mapping_replaced_branch_entry(
     uint64_t *entry)
 {

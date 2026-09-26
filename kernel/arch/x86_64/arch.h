@@ -4,6 +4,8 @@
 #define MYOS_ARCH_X86_64_ARCH_H
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 /**
  * Installs kernel-owned GDT, TSS and IDT before bootloader-memory
@@ -27,8 +29,16 @@ bool arch_boot_reclaim_ready(void);
 /**
  * Initializes interrupt controllers, timer and remaining CPU state.
  *
- * Requires arch_early_init() to have completed.
+ * Discovers the interrupt topology from the kernel-owned RSDP snapshot.
+ * Requires arch_early_init() and installation of the kernel-owned direct
+ * map to have completed.
+ *
+ * @param rsdp Kernel-owned RSDP snapshot.
+ * @param rsdp_size Number of available snapshot bytes.
  */
-void arch_init(void);
+void arch_init(
+    const uint8_t *rsdp,
+    size_t rsdp_size
+);
 
 #endif
