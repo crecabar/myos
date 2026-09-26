@@ -148,6 +148,23 @@ enum input_key_state {
     INPUT_KEY_PRESSED = 1
 };
 
+enum input_modifier_flags {
+    INPUT_MODIFIER_LEFT_CTRL   = 1U << 0,
+    INPUT_MODIFIER_LEFT_SHIFT  = 1U << 1,
+    INPUT_MODIFIER_LEFT_ALT    = 1U << 2,
+    INPUT_MODIFIER_LEFT_GUI    = 1U << 3,
+    INPUT_MODIFIER_RIGHT_CTRL  = 1U << 4,
+    INPUT_MODIFIER_RIGHT_SHIFT = 1U << 5,
+    INPUT_MODIFIER_RIGHT_ALT   = 1U << 6,
+    INPUT_MODIFIER_RIGHT_GUI   = 1U << 7
+};
+
+enum input_lock_flags {
+    INPUT_LOCK_CAPS   = 1U << 0,
+    INPUT_LOCK_NUM    = 1U << 1,
+    INPUT_LOCK_SCROLL = 1U << 2
+};
+
 enum input_system_action {
     INPUT_SYSTEM_ACTION_RESET = 1
 };
@@ -159,6 +176,15 @@ typedef void (*input_system_action_handler_fn)(
 struct input_key_event {
     enum input_key_code code;
     enum input_key_state state;
+
+    /*
+     * State snapshot after applying this key event.
+     *
+     * A modifier make event therefore includes its own modifier bit,
+     * while its break event no longer includes it.
+     */
+    uint16_t modifiers;
+    uint8_t locks;
 };
 
 struct input_event {

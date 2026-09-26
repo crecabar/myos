@@ -5,6 +5,7 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../input/input.h"
+#include "../input/keyboard_text.h"
 
 #include <stddef.h>
 
@@ -214,6 +215,160 @@ void input_test_run(void)
 
     input_system_action_handler_set(NULL);
 
+    input_test_submit_key(
+        INPUT_KEY_LEFT_SHIFT,
+        INPUT_KEY_PRESSED
+    );
+
+    input_test_submit_key(
+        INPUT_KEY_A,
+        INPUT_KEY_PRESSED
+    );
+
+    if (
+        !input_event_pop(&event) ||
+        event.key.code != INPUT_KEY_LEFT_SHIFT ||
+        (
+            event.key.modifiers &
+            INPUT_MODIFIER_LEFT_SHIFT
+        ) == 0
+    ) {
+        kernel_panic(
+            "Input event did not snapshot Shift press"
+        );
+    }
+
+    if (
+        !input_event_pop(&event) ||
+        event.key.code != INPUT_KEY_A ||
+        (
+            event.key.modifiers &
+            INPUT_MODIFIER_LEFT_SHIFT
+        ) == 0
+    ) {
+        kernel_panic(
+            "Input event did not retain Shift state"
+        );
+    }
+
+    char character;
+
+    if (
+        !keyboard_text_from_key_event(
+            &event.key,
+            &character
+        ) ||
+        character != 'A'
+    ) {
+        kernel_panic(
+            "Shift+A did not produce uppercase A"
+        );
+    }
+
+    input_test_submit_key(
+        INPUT_KEY_LEFT_SHIFT,
+        INPUT_KEY_RELEASED
+    );
+
+    input_test_submit_key(
+        INPUT_KEY_CAPS_LOCK,
+        INPUT_KEY_PRESSED
+    );
+
+    input_test_submit_key(
+        INPUT_KEY_CAPS_LOCK,
+        INPUT_KEY_RELEASED
+    );
+
+    input_test_submit_key(
+        INPUT_KEY_B,
+        INPUT_KEY_PRESSED
+    );
+
+    if (
+        !input_event_pop(&event) ||
+        event.key.code != INPUT_KEY_LEFT_SHIFT ||
+        (
+            event.key.modifiers &
+            INPUT_MODIFIER_LEFT_SHIFT
+        ) != 0
+    ) {
+        kernel_panic(
+            "Input event did not snapshot Shift release"
+        );
+    }
+
+    if (
+        !input_event_pop(&event) ||
+        (
+            event.key.locks &
+            INPUT_LOCK_CAPS
+        ) == 0
+    ) {
+        kernel_panic(
+            "Caps Lock make did not toggle lock state"
+        );
+    }
+
+    if (
+        !input_event_pop(&event) ||
+        (
+            event.key.locks &
+            INPUT_LOCK_CAPS
+        ) == 0
+    ) {
+        kernel_panic(
+            "Caps Lock break changed lock state"
+        );
+    }
+
+    if (
+        !input_event_pop(&event) ||
+        event.key.code != INPUT_KEY_B ||
+        !keyboard_text_from_key_event(
+            &event.key,
+            &character
+        ) ||
+        character != 'B'
+    ) {
+        kernel_panic(
+            "Caps Lock+B did not produce uppercase B"
+        );
+    }
+
+    input_test_submit_key(
+        INPUT_KEY_LEFT_SHIFT,
+        INPUT_KEY_PRESSED
+    );
+
+    input_test_submit_key(
+        INPUT_KEY_C,
+        INPUT_KEY_PRESSED
+    );
+
+    if (
+        !input_event_pop(&event) ||
+        event.key.code != INPUT_KEY_LEFT_SHIFT
+    ) {
+        kernel_panic(
+            "Unable to consume Shift event"
+        );
+    }
+
+    if (
+        !input_event_pop(&event) ||
+        event.key.code != INPUT_KEY_C ||
+        !keyboard_text_from_key_event(
+            &event.key,
+            &character
+        ) ||
+        character != 'c'
+    ) {
+        kernel_panic(
+            "Shift+Caps Lock+C did not produce lowercase c"
+        );
+    }
+
     /*
      * Restore a clean input subsystem for the rest of the kernel
      * test execution.
@@ -221,7 +376,8 @@ void input_test_run(void)
     input_init();
 
     diagnostics_write(
-        "[input] Event queue and Ctrl+Alt+Delete tests passed\n"
+        "[input] Event queue, keyboard state, text and "
+        "Ctrl+Alt+Delete tests passed\n"
     );
 }
 

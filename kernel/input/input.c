@@ -21,11 +21,8 @@ static input_system_action_handler_fn
     system_action_handler;
 //-----------------------------------------------------------------------------
 
-static bool left_ctrl_down;
-static bool right_ctrl_down;
-
-static bool left_alt_down;
-static bool right_alt_down;
+static uint16_t keyboard_modifiers;
+static uint8_t keyboard_locks;
 
 static bool reset_action_pending;
 
@@ -35,7 +32,15 @@ static bool input_event_valid(
 );
 
 static void input_key_state_update(
-    const struct input_key_event *event
+    struct input_key_event *event
+);
+
+static uint16_t input_modifier_for_key(
+    enum input_key_code code
+);
+
+static uint8_t input_lock_for_key(
+    enum input_key_code code
 );
 
 // PUBLIC FUNCTIONS IMPLEMENTATION
@@ -65,11 +70,8 @@ void input_init(void)
         __ATOMIC_RELAXED
     );
 
-    left_ctrl_down = false;
-    right_ctrl_down = false;
-
-    left_alt_down = false;
-    right_alt_down = false;
+    keyboard_modifiers = 0;
+    keyboard_locks = 0;
 
     __atomic_store_n(
         &reset_action_pending,
@@ -89,8 +91,11 @@ bool input_event_submit(
      * Update kernel input state before attempting to queue the
      * event. A full consumer queue must not disable system chords.
      */
+    struct input_event normalized_event =
+        *event;
+
     input_key_state_update(
-        &event->key
+        &normalized_event.key
     );
 
     size_t head =
@@ -119,7 +124,8 @@ bool input_event_submit(
         return false;
     }
 
-    event_queue[head] = *event;
+    event_queue[head] =
+        normalized_event;
 
     __atomic_store_n(
         &event_head,
@@ -261,44 +267,72 @@ static bool input_event_valid(
 }
 
 static void input_key_state_update(
-    const struct input_key_event *event)
+    struct input_key_event *event)
 {
     bool pressed =
         event->state == INPUT_KEY_PRESSED;
 
-    switch (event->code) {
-        case INPUT_KEY_LEFT_CTRL:
-            left_ctrl_down = pressed;
-            return;
+    uint16_t modifier =
+        input_modifier_for_key(
+            event->code
+        );
 
-        case INPUT_KEY_RIGHT_CTRL:
-            right_ctrl_down = pressed;
-            return;
-
-        case INPUT_KEY_LEFT_ALT:
-            left_alt_down = pressed;
-            return;
-
-        case INPUT_KEY_RIGHT_ALT:
-            right_alt_down = pressed;
-            return;
-
-        case INPUT_KEY_DELETE:
-            break;
-
-        default:
-            return;
+    if (modifier != 0) {
+        if (pressed) {
+            keyboard_modifiers |=
+                modifier;
+        } else {
+            keyboard_modifiers &=
+                (uint16_t) ~modifier;
+        }
     }
 
+    uint8_t lock =
+        input_lock_for_key(
+            event->code
+        );
+
     /*
-     * Ctrl+Alt+Delete is recognized only on the Delete make event.
-     * Autorepeat may request the action again, which is harmless while
-     * the action is represented as a single pending bit.
+     * Lock keys toggle only on make. The break event preserves
+     * the state established by the preceding make event.
      */
     if (
-        !pressed ||
-        (!left_ctrl_down && !right_ctrl_down) ||
-        (!left_alt_down && !right_alt_down)
+        lock != 0 &&
+        pressed
+    ) {
+        keyboard_locks ^=
+            lock;
+    }
+
+    event->modifiers =
+        keyboard_modifiers;
+
+    event->locks =
+        keyboard_locks;
+
+    /*
+     * Ctrl+Alt+Delete is transport independent. It operates on
+     * normalized key state whether the event originated in PS/2,
+     * USB HID or a future input driver.
+     */
+    if (
+        event->code != INPUT_KEY_DELETE ||
+        !pressed
+    ) {
+        return;
+    }
+
+    const uint16_t ctrl_mask =
+        INPUT_MODIFIER_LEFT_CTRL |
+        INPUT_MODIFIER_RIGHT_CTRL;
+
+    const uint16_t alt_mask =
+        INPUT_MODIFIER_LEFT_ALT |
+        INPUT_MODIFIER_RIGHT_ALT;
+
+    if (
+        (event->modifiers & ctrl_mask) == 0 ||
+        (event->modifiers & alt_mask) == 0
     ) {
         return;
     }
@@ -319,5 +353,56 @@ static void input_key_state_update(
         handler(
             INPUT_SYSTEM_ACTION_RESET
         );
+    }
+}
+
+static uint16_t input_modifier_for_key(
+    enum input_key_code code)
+{
+    switch (code) {
+        case INPUT_KEY_LEFT_CTRL:
+            return INPUT_MODIFIER_LEFT_CTRL;
+
+        case INPUT_KEY_LEFT_SHIFT:
+            return INPUT_MODIFIER_LEFT_SHIFT;
+
+        case INPUT_KEY_LEFT_ALT:
+            return INPUT_MODIFIER_LEFT_ALT;
+
+        case INPUT_KEY_LEFT_GUI:
+            return INPUT_MODIFIER_LEFT_GUI;
+
+        case INPUT_KEY_RIGHT_CTRL:
+            return INPUT_MODIFIER_RIGHT_CTRL;
+
+        case INPUT_KEY_RIGHT_SHIFT:
+            return INPUT_MODIFIER_RIGHT_SHIFT;
+
+        case INPUT_KEY_RIGHT_ALT:
+            return INPUT_MODIFIER_RIGHT_ALT;
+
+        case INPUT_KEY_RIGHT_GUI:
+            return INPUT_MODIFIER_RIGHT_GUI;
+
+        default:
+            return 0;
+    }
+}
+
+static uint8_t input_lock_for_key(
+    enum input_key_code code)
+{
+    switch (code) {
+        case INPUT_KEY_CAPS_LOCK:
+            return INPUT_LOCK_CAPS;
+
+        case INPUT_KEY_NUM_LOCK:
+            return INPUT_LOCK_NUM;
+
+        case INPUT_KEY_SCROLL_LOCK:
+            return INPUT_LOCK_SCROLL;
+
+        default:
+            return 0;
     }
 }
