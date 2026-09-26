@@ -10,6 +10,7 @@
 #include "ioapic.h"
 #include "lapic.h"
 #include "pic.h"
+#include "ps2_keyboard.h"
 #include "timer.h"
 #include "../../firmware/acpi.h"
 #include "../../firmware/acpi_discovery.h"
@@ -215,6 +216,54 @@ void arch_init(
     }
 
     pic_disable();
+
+    /*
+     * PS/2 is optional platform hardware. A machine without a usable
+     * i8042 controller must still be able to boot.
+     */
+    if (ps2_keyboard_init()) {
+        struct interrupt_route keyboard_route;
+
+        if (
+            !interrupt_topology_isa_route_from_madt(
+                &madt,
+                PS2_KEYBOARD_ISA_IRQ,
+                &keyboard_route
+            )
+        ) {
+            kernel_panic(
+                "Unable to resolve PS/2 keyboard interrupt route"
+            );
+        }
+
+        if (
+            !ioapic_route(
+                keyboard_route.gsi,
+                PS2_KEYBOARD_INTERRUPT_VECTOR,
+                lapic_id(),
+                keyboard_route.active_low,
+                keyboard_route.level_triggered
+            )
+        ) {
+            kernel_panic(
+                "Unable to route PS/2 keyboard interrupt"
+            );
+        }
+
+        diagnostics_printf(
+            "[arch] PS/2 keyboard: IRQ=%u GSI=%u vector=%x "
+            "active-low=%u level=%u\n",
+            (uint64_t) keyboard_route.irq,
+            (uint64_t) keyboard_route.gsi,
+            (uint64_t) PS2_KEYBOARD_INTERRUPT_VECTOR,
+            (uint64_t) keyboard_route.active_low,
+            (uint64_t) keyboard_route.level_triggered
+        );
+    } else {
+        diagnostics_write(
+            "[arch] PS/2 keyboard unavailable\n"
+        );
+    }
 
     /*
      * ioapic_route() checks that the selected GSI belongs to
