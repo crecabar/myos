@@ -43,4 +43,23 @@ bool i8042_init(void);
  */
 bool i8042_first_port_interrupt_enable(void);
 
+/**
+ * Enables the second PS/2 controller port.
+ */
+bool i8042_second_port_enable(void);
+
+/**
+ * Enables IRQ12 delivery for the second PS/2 port.
+ *
+ * Call only after the IOAPIC route for IRQ12 has been installed.
+ */
+bool i8042_second_port_interrupt_enable(void);
+
+/**
+ * Writes one byte to a device attached to the second PS/2 port.
+ */
+bool i8042_second_port_data_write(
+    uint8_t value
+);
+
 #endif

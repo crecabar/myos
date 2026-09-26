@@ -16,6 +16,8 @@
 #define I8042_COMMAND_DISABLE_SECOND_PORT  0xA7U
 #define I8042_COMMAND_DISABLE_FIRST_PORT   0xADU
 #define I8042_COMMAND_ENABLE_FIRST_PORT    0xAEU
+#define I8042_COMMAND_ENABLE_SECOND_PORT    0xA8U
+#define I8042_COMMAND_WRITE_SECOND_PORT     0xD4U
 
 #define I8042_CONFIG_FIRST_PORT_IRQ       (1U << 0)
 #define I8042_CONFIG_SECOND_PORT_IRQ      (1U << 1)
@@ -234,6 +236,53 @@ bool i8042_first_port_interrupt_enable(void)
 
     return i8042_configuration_write(
         configuration
+    );
+}
+
+bool i8042_second_port_enable(void)
+{
+    return i8042_command_write(
+        I8042_COMMAND_ENABLE_SECOND_PORT
+    );
+}
+
+bool i8042_second_port_interrupt_enable(void)
+{
+    uint8_t configuration;
+
+    if (
+        !i8042_configuration_read(
+            &configuration
+        )
+    ) {
+        return false;
+    }
+
+    configuration |=
+        I8042_CONFIG_SECOND_PORT_IRQ;
+
+    configuration &=
+        (uint8_t)
+        ~I8042_CONFIG_SECOND_PORT_DISABLED;
+
+    return i8042_configuration_write(
+        configuration
+    );
+}
+
+bool i8042_second_port_data_write(
+    uint8_t value)
+{
+    if (
+        !i8042_command_write(
+            I8042_COMMAND_WRITE_SECOND_PORT
+        )
+    ) {
+        return false;
+    }
+
+    return i8042_data_write(
+        value
     );
 }
 
