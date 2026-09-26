@@ -8,16 +8,28 @@
 
 #include <stddef.h>
 
+static uint64_t input_test_action_count;
+static enum input_system_action
+    input_test_last_action;
+
 // PRIVATE HELPERS DECLARATIONS
 static void input_test_submit_key(
     enum input_key_code code,
     enum input_key_state state
 );
+static void input_test_action_handler(
+    enum input_system_action action);
 
 // PUBLIC FUNCTIONS IMPLEMENTATIONS
 void input_test_run(void)
 {
     input_init();
+
+    input_test_action_count = 0;
+
+    input_system_action_handler_set(
+        input_test_action_handler
+    );
 
     if (
         input_event_pending() != 0 ||
@@ -129,6 +141,16 @@ void input_test_run(void)
         );
     }
 
+    if (
+        input_test_action_count != 1 ||
+        input_test_last_action !=
+            INPUT_SYSTEM_ACTION_RESET
+    ) {
+        kernel_panic(
+            "Input system-action handler was not invoked"
+        );
+    }
+
     /*
      * Taking the action must clear it.
      */
@@ -180,6 +202,18 @@ void input_test_run(void)
         );
     }
 
+    if (
+        input_test_action_count != 2 ||
+        input_test_last_action !=
+            INPUT_SYSTEM_ACTION_RESET
+    ) {
+        kernel_panic(
+            "Input system-action handler invocation count is incorrect"
+        );
+    }
+
+    input_system_action_handler_set(NULL);
+
     /*
      * Restore a clean input subsystem for the rest of the kernel
      * test execution.
@@ -209,4 +243,11 @@ static void input_test_submit_key(
             "Input test event could not be submitted"
         );
     }
+}
+
+static void input_test_action_handler(
+    enum input_system_action action)
+{
+    ++input_test_action_count;
+    input_test_last_action = action;
 }

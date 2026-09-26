@@ -78,6 +78,10 @@ enum input_system_action {
     INPUT_SYSTEM_ACTION_RESET = 1
 };
 
+typedef void (*input_system_action_handler_fn)(
+    enum input_system_action action
+);
+
 struct input_key_event {
     enum input_key_code code;
     enum input_key_state state;
@@ -140,6 +144,18 @@ uint64_t input_event_dropped(void);
  */
 bool input_system_action_take(
     enum input_system_action *action
+);
+
+/**
+ * Installs the kernel-level system-action handler.
+ *
+ * Passing NULL disables immediate dispatch while preserving action
+ * recognition through input_system_action_take().
+ *
+ * @return Previously installed handler.
+ */
+input_system_action_handler_fn input_system_action_handler_set(
+    input_system_action_handler_fn handler
 );
 
 #endif

@@ -41,4 +41,13 @@ void arch_init(
     size_t rsdp_size
 );
 
+/**
+ * Resets the machine.
+ *
+ * Attempts the legacy i8042 CPU-reset command first and falls back
+ * to an architectural triple fault if the controller does not reset
+ * the processor.
+ */
+_Noreturn void arch_reset(void);
+
 #endif

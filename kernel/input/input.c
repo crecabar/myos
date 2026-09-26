@@ -11,10 +11,15 @@ static struct input_event event_queue[
     INPUT_EVENT_QUEUE_CAPACITY
 ];
 
+// Current state --------------------------------------------------------------
 static size_t event_head;
 static size_t event_tail;
 
 static uint64_t dropped_events;
+
+static input_system_action_handler_fn
+    system_action_handler;
+//-----------------------------------------------------------------------------
 
 static bool left_ctrl_down;
 static bool right_ctrl_down;
@@ -51,6 +56,12 @@ void input_init(void)
     __atomic_store_n(
         &dropped_events,
         0,
+        __ATOMIC_RELAXED
+    );
+
+    __atomic_store_n(
+        &system_action_handler,
+        NULL,
         __ATOMIC_RELAXED
     );
 
@@ -213,6 +224,16 @@ bool input_system_action_take(
     return true;
 }
 
+input_system_action_handler_fn input_system_action_handler_set(
+    input_system_action_handler_fn handler)
+{
+    return __atomic_exchange_n(
+        &system_action_handler,
+        handler,
+        __ATOMIC_ACQ_REL
+    );
+}
+
 // PRIVATE HELPERS IMPLEMENTATION
 static bool input_event_valid(
     const struct input_event *event)
@@ -287,4 +308,16 @@ static void input_key_state_update(
         true,
         __ATOMIC_RELEASE
     );
+
+    input_system_action_handler_fn handler =
+        __atomic_load_n(
+            &system_action_handler,
+            __ATOMIC_ACQUIRE
+        );
+
+    if (handler != NULL) {
+        handler(
+            INPUT_SYSTEM_ACTION_RESET
+        );
+    }
 }

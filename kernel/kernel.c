@@ -58,6 +58,10 @@ static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
 ] __attribute__((aligned(16)));
 
+static void kernel_input_system_action(
+    enum input_system_action action
+);
+
 static _Noreturn void kernel_main_continue(void);
 
 _Noreturn void kernel_main(void)
@@ -112,6 +116,24 @@ _Noreturn void kernel_main(void)
         ],
         kernel_main_continue
     );
+}
+
+static void kernel_input_system_action(
+    enum input_system_action action)
+{
+    switch (action) {
+        case INPUT_SYSTEM_ACTION_RESET:
+            diagnostics_write(
+                "[input] Ctrl+Alt+Delete: resetting system\n"
+            );
+
+            arch_reset();
+
+        default:
+            kernel_panic(
+                "Unknown kernel input system action"
+            );
+    }
 }
 
 static _Noreturn void kernel_main_continue(void)
@@ -539,6 +561,27 @@ static _Noreturn void kernel_main_continue(void)
         user_process_tests_prepare();
     }
 #endif
+
+    input_system_action_handler_set(
+        kernel_input_system_action
+    );
+
+    /*
+     * A chord may have been recognized before the immediate handler
+     * became active. Honor one pending action before entering the
+     * scheduler.
+     */
+    enum input_system_action pending_action;
+
+    if (
+        input_system_action_take(
+            &pending_action
+        )
+    ) {
+        kernel_input_system_action(
+            pending_action
+        );
+    }
 
     diagnostics_write("[kernel] Starting scheduler\n");
     scheduler_run();
