@@ -19,10 +19,6 @@
 #define PS2_DEVICE_ACK    0xFAU
 #define PS2_DEVICE_RESEND 0xFEU
 
-#define PS2_KEYBOARD_ENABLE_SCANNING 0xF4U
-#define PS2_DEVICE_ACK              0xFAU
-#define PS2_DEVICE_RESEND           0xFEU
-
 #define PS2_DEVICE_RETRIES  3U
 
 static bool ps2_keyboard_initialized;

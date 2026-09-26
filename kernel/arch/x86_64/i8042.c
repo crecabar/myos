@@ -25,6 +25,9 @@
 #define I8042_CONFIG_SECOND_PORT_DISABLED (1U << 5)
 #define I8042_CONFIG_TRANSLATION          (1U << 6)
 
+static uint8_t i8042_configuration;
+static bool i8042_configuration_valid;
+
 // PRIVATE HELPERS AND FUNCTIONS DECLARATIONS
 static uint8_t i8042_in8(
     uint16_t port
@@ -154,6 +157,8 @@ void i8042_flush_output(void)
 
 bool i8042_init(void)
 {
+    i8042_configuration_valid = false;
+
     /*
      * Establish controller ownership independently of whatever state
      * firmware left behind.
@@ -212,20 +217,21 @@ bool i8042_init(void)
         return false;
     }
 
+    i8042_configuration &=
+        (uint8_t)
+        ~I8042_CONFIG_FIRST_PORT_DISABLED;
+
     return true;
 }
 
 bool i8042_first_port_interrupt_enable(void)
 {
-    uint8_t configuration;
-
-    if (
-        !i8042_configuration_read(
-            &configuration
-        )
-    ) {
+    if (!i8042_configuration_valid) {
         return false;
     }
+
+    uint8_t configuration =
+        i8042_configuration;
 
     configuration |=
         I8042_CONFIG_FIRST_PORT_IRQ;
@@ -241,22 +247,33 @@ bool i8042_first_port_interrupt_enable(void)
 
 bool i8042_second_port_enable(void)
 {
-    return i8042_command_write(
-        I8042_COMMAND_ENABLE_SECOND_PORT
-    );
-}
-
-bool i8042_second_port_interrupt_enable(void)
-{
-    uint8_t configuration;
+    if (!i8042_configuration_valid) {
+        return false;
+    }
 
     if (
-        !i8042_configuration_read(
-            &configuration
+        !i8042_command_write(
+            I8042_COMMAND_ENABLE_SECOND_PORT
         )
     ) {
         return false;
     }
+
+    i8042_configuration &=
+        (uint8_t)
+        ~I8042_CONFIG_SECOND_PORT_DISABLED;
+
+    return true;
+}
+
+bool i8042_second_port_interrupt_enable(void)
+{
+    if (!i8042_configuration_valid) {
+        return false;
+    }
+
+    uint8_t configuration =
+        i8042_configuration;
 
     configuration |=
         I8042_CONFIG_SECOND_PORT_IRQ;
@@ -337,11 +354,26 @@ static bool i8042_configuration_read(
 static bool i8042_configuration_write(
     uint8_t configuration)
 {
-    return
-        i8042_command_write(
+    if (
+        !i8042_command_write(
             I8042_COMMAND_WRITE_CONFIGURATION
-        ) &&
-        i8042_data_write(
+        ) ||
+        !i8042_data_write(
             configuration
-        );
+        )
+    ) {
+        return false;
+    }
+
+    /*
+     * Keep a software copy so later controller changes do not need
+     * to consume the shared device output buffer.
+     */
+    i8042_configuration =
+        configuration;
+
+    i8042_configuration_valid =
+        true;
+
+    return true;
 }

@@ -7,12 +7,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define I8042_STATUS_COMMAND_PORT 0x64U
-
-#define I8042_STATUS_INPUT_FULL (1U << 1)
 #define I8042_CPU_RESET_COMMAND 0xFEU
-
-#define RESET_WAIT_ITERATIONS   1000000U
 #define RESET_SETTLE_ITERATIONS 100000U
 
 struct reset_idt_descriptor {

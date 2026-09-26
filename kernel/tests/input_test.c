@@ -376,7 +376,7 @@ void input_test_run(void)
         );
     }
 
-        /*
+    /*
      * Pointer events share the same normalized input queue.
      */
     struct input_event pointer_event = {
@@ -421,7 +421,7 @@ void input_test_run(void)
     input_init();
 
     diagnostics_write(
-        "[input] Event queue, keyboard state, text and "
+        "[input] Event queue, pointer, keyboard state, text and "
         "Ctrl+Alt+Delete tests passed\n"
     );
 }

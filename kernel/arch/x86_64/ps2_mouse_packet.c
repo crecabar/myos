@@ -25,7 +25,6 @@ void ps2_mouse_packet_init(
     decoder->bytes[0] = 0;
     decoder->bytes[1] = 0;
     decoder->bytes[2] = 0;
-    decoder->index = 0;
 
     ps2_mouse_packet_reset(
         decoder
