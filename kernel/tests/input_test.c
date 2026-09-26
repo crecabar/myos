@@ -215,6 +215,13 @@ void input_test_run(void)
 
     input_system_action_handler_set(NULL);
 
+    /*
+     * Ctrl+Alt+Delete tests intentionally leave key events and
+     * modifier state behind. Start keyboard state/text tests from
+     * a clean input subsystem.
+     */
+    input_init();
+
     input_test_submit_key(
         INPUT_KEY_LEFT_SHIFT,
         INPUT_KEY_PRESSED

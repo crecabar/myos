@@ -8,9 +8,26 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+enum ps2_scancode_set1_state {
+    PS2_SET1_STATE_BASE = 0,
+
+    PS2_SET1_STATE_E0,
+
+    PS2_SET1_STATE_PRINT_MAKE_E0,
+    PS2_SET1_STATE_PRINT_MAKE_37,
+
+    PS2_SET1_STATE_PRINT_BREAK_E0,
+    PS2_SET1_STATE_PRINT_BREAK_AA,
+
+    PS2_SET1_STATE_PAUSE_1D,
+    PS2_SET1_STATE_PAUSE_45,
+    PS2_SET1_STATE_PAUSE_E1,
+    PS2_SET1_STATE_PAUSE_9D,
+    PS2_SET1_STATE_PAUSE_C5
+};
+
 struct ps2_scancode_set1_decoder {
-    bool extended_prefix;
-    uint8_t e1_bytes_remaining;
+    enum ps2_scancode_set1_state state;
 };
 
 /**

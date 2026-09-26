@@ -172,7 +172,13 @@ void ps2_scancode_set1_test_run(void)
     expect_no_event(&decoder, 0x45U);
     expect_no_event(&decoder, 0xE1U);
     expect_no_event(&decoder, 0x9DU);
-    expect_no_event(&decoder, 0xC5U);
+
+    expect_key(
+        &decoder,
+        0xC5U,
+        INPUT_KEY_PAUSE,
+        INPUT_KEY_PRESSED
+    );
 
     /*
      * The decoder must recover after the E1 sequence.
@@ -185,13 +191,49 @@ void ps2_scancode_set1_test_run(void)
     );
 
     /*
-     * Print Screen's special sequence must not leak fake Shift or
-     * keypad events until explicit Print Screen support is added.
+     * Print Screen make:
+     *
+     *   E0 2A E0 37
      */
     expect_no_event(&decoder, 0xE0U);
     expect_no_event(&decoder, 0x2AU);
     expect_no_event(&decoder, 0xE0U);
-    expect_no_event(&decoder, 0x37U);
+
+    expect_key(
+        &decoder,
+        0x37U,
+        INPUT_KEY_PRINT_SCREEN,
+        INPUT_KEY_PRESSED
+    );
+
+    /*
+     * Print Screen break:
+     *
+     *   E0 B7 E0 AA
+     */
+    expect_no_event(&decoder, 0xE0U);
+    expect_no_event(&decoder, 0xB7U);
+    expect_no_event(&decoder, 0xE0U);
+
+    expect_key(
+        &decoder,
+        0xAAU,
+        INPUT_KEY_PRINT_SCREEN,
+        INPUT_KEY_RELEASED
+    );
+
+    /*
+     * A malformed special sequence must not leave the decoder stuck.
+     */
+    expect_no_event(&decoder, 0xE0U);
+    expect_no_event(&decoder, 0x2AU);
+
+    expect_key(
+        &decoder,
+        0x1EU,
+        INPUT_KEY_A,
+        INPUT_KEY_PRESSED
+    );
 
     diagnostics_write(
         "[ps2] Scan Code Set 1 decoder tests passed\n"

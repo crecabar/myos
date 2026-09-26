@@ -21,8 +21,7 @@ void ps2_scancode_set1_init(
         return;
     }
 
-    decoder->extended_prefix = false;
-    decoder->e1_bytes_remaining = 0;
+    decoder->state = PS2_SET1_STATE_BASE;
 }
 
 bool ps2_scancode_set1_decode(
@@ -37,29 +36,227 @@ bool ps2_scancode_set1_decode(
         return false;
     }
 
-    /*
-     * Pause/Break is:
-     *
-     *   E1 1D 45 E1 9D C5
-     *
-     * It has unusual semantics and no ordinary break sequence.
-     * Consume it atomically for now instead of generating incorrect
-     * Ctrl/NumLock events.
-     */
-    if (decoder->e1_bytes_remaining != 0) {
-        --decoder->e1_bytes_remaining;
-        return false;
-    }
+retry:
+    switch (decoder->state) {
+        case PS2_SET1_STATE_BASE:
+            if (scancode == 0xE0U) {
+                decoder->state =
+                    PS2_SET1_STATE_E0;
 
-    if (scancode == 0xE1U) {
-        decoder->e1_bytes_remaining = 5U;
-        decoder->extended_prefix = false;
-        return false;
-    }
+                return false;
+            }
 
-    if (scancode == 0xE0U) {
-        decoder->extended_prefix = true;
-        return false;
+            if (scancode == 0xE1U) {
+                decoder->state =
+                    PS2_SET1_STATE_PAUSE_1D;
+
+                return false;
+            }
+
+            break;
+
+        case PS2_SET1_STATE_E0:
+            /*
+             * Print Screen make:
+             *
+             *   E0 2A E0 37
+             */
+            if (scancode == 0x2AU) {
+                decoder->state =
+                    PS2_SET1_STATE_PRINT_MAKE_E0;
+
+                return false;
+            }
+
+            /*
+             * Print Screen break:
+             *
+             *   E0 B7 E0 AA
+             */
+            if (scancode == 0xB7U) {
+                decoder->state =
+                    PS2_SET1_STATE_PRINT_BREAK_E0;
+
+                return false;
+            }
+
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            {
+                bool released =
+                    (scancode & 0x80U) != 0;
+
+                uint8_t make_code =
+                    scancode & 0x7FU;
+
+                enum input_key_code key =
+                    ps2_scancode_set1_extended_key(
+                        make_code
+                    );
+
+                if (key == INPUT_KEY_NONE) {
+                    return false;
+                }
+
+                *event = (struct input_event) {
+                    .type = INPUT_EVENT_KEY,
+                    .key = {
+                        .code = key,
+                        .state = released
+                            ? INPUT_KEY_RELEASED
+                            : INPUT_KEY_PRESSED,
+                    },
+                };
+
+                return true;
+            }
+
+        case PS2_SET1_STATE_PRINT_MAKE_E0:
+            if (scancode == 0xE0U) {
+                decoder->state =
+                    PS2_SET1_STATE_PRINT_MAKE_37;
+
+                return false;
+            }
+
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            goto retry;
+
+        case PS2_SET1_STATE_PRINT_MAKE_37:
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            if (scancode != 0x37U) {
+                goto retry;
+            }
+
+            *event = (struct input_event) {
+                .type = INPUT_EVENT_KEY,
+                .key = {
+                    .code =
+                        INPUT_KEY_PRINT_SCREEN,
+                    .state =
+                        INPUT_KEY_PRESSED,
+                },
+            };
+
+            return true;
+
+        case PS2_SET1_STATE_PRINT_BREAK_E0:
+            if (scancode == 0xE0U) {
+                decoder->state =
+                    PS2_SET1_STATE_PRINT_BREAK_AA;
+
+                return false;
+            }
+
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            goto retry;
+
+        case PS2_SET1_STATE_PRINT_BREAK_AA:
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            if (scancode != 0xAAU) {
+                goto retry;
+            }
+
+            *event = (struct input_event) {
+                .type = INPUT_EVENT_KEY,
+                .key = {
+                    .code =
+                        INPUT_KEY_PRINT_SCREEN,
+                    .state =
+                        INPUT_KEY_RELEASED,
+                },
+            };
+
+            return true;
+
+        case PS2_SET1_STATE_PAUSE_1D:
+            if (scancode == 0x1DU) {
+                decoder->state =
+                    PS2_SET1_STATE_PAUSE_45;
+
+                return false;
+            }
+
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            goto retry;
+
+        case PS2_SET1_STATE_PAUSE_45:
+            if (scancode == 0x45U) {
+                decoder->state =
+                    PS2_SET1_STATE_PAUSE_E1;
+
+                return false;
+            }
+
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            goto retry;
+
+        case PS2_SET1_STATE_PAUSE_E1:
+            if (scancode == 0xE1U) {
+                decoder->state =
+                    PS2_SET1_STATE_PAUSE_9D;
+
+                return false;
+            }
+
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            goto retry;
+
+        case PS2_SET1_STATE_PAUSE_9D:
+            if (scancode == 0x9DU) {
+                decoder->state =
+                    PS2_SET1_STATE_PAUSE_C5;
+
+                return false;
+            }
+
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            goto retry;
+
+        case PS2_SET1_STATE_PAUSE_C5:
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            if (scancode != 0xC5U) {
+                goto retry;
+            }
+
+            /*
+             * Pause/Break has no normal Set 1 break sequence.
+             * Emit one pressed event for the complete sequence.
+             */
+            *event = (struct input_event) {
+                .type = INPUT_EVENT_KEY,
+                .key = {
+                    .code = INPUT_KEY_PAUSE,
+                    .state = INPUT_KEY_PRESSED,
+                },
+            };
+
+            return true;
+
+        default:
+            decoder->state =
+                PS2_SET1_STATE_BASE;
+
+            return false;
     }
 
     bool released =
@@ -69,15 +266,9 @@ bool ps2_scancode_set1_decode(
         scancode & 0x7FU;
 
     enum input_key_code key =
-        decoder->extended_prefix
-            ? ps2_scancode_set1_extended_key(
-                make_code
-            )
-            : ps2_scancode_set1_base_key(
-                make_code
-            );
-
-    decoder->extended_prefix = false;
+        ps2_scancode_set1_base_key(
+            make_code
+        );
 
     if (key == INPUT_KEY_NONE) {
         return false;
