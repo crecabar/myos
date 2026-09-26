@@ -24,8 +24,17 @@
 #define PS2_COMMAND_DISABLE_FIRST_PORT  0xADU
 #define PS2_COMMAND_ENABLE_FIRST_PORT   0xAEU
 
+#define PS2_KEYBOARD_SET_SCANCODE_SET 0xF0U
+#define PS2_KEYBOARD_SCANCODE_SET_2   0x02U
+#define PS2_KEYBOARD_ENABLE_SCANNING  0xF4U
+#define PS2_KEYBOARD_DISABLE_SCANNING 0xF5U
+
+#define PS2_DEVICE_ACK    0xFAU
+#define PS2_DEVICE_RESEND 0xFEU
+
 #define PS2_CONFIG_FIRST_PORT_IRQ      (1U << 0)
 #define PS2_CONFIG_FIRST_PORT_DISABLED (1U << 4)
+#define PS2_CONFIG_TRANSLATION         (1U << 6)
 
 #define PS2_KEYBOARD_ENABLE_SCANNING 0xF4U
 #define PS2_DEVICE_ACK              0xFAU
@@ -89,8 +98,13 @@ bool ps2_keyboard_init(void)
     uint8_t configuration =
         ps2_in8(PS2_DATA_PORT);
 
+    /*
+     * MyOS decodes translated Scan Code Set 1. Configure the
+     * controller explicitly instead of inheriting firmware state.
+     */
     configuration |=
-        PS2_CONFIG_FIRST_PORT_IRQ;
+        PS2_CONFIG_FIRST_PORT_IRQ |
+        PS2_CONFIG_TRANSLATION;
 
     configuration &=
         (uint8_t) ~PS2_CONFIG_FIRST_PORT_DISABLED;
@@ -118,7 +132,23 @@ bool ps2_keyboard_init(void)
      */
     ps2_flush_output();
 
+    /*
+     * Stop asynchronous scan-code delivery while changing the
+     * keyboard's scan-code set.
+     *
+     * The keyboard emits Set 2 and the i8042 translates it to
+     * Set 1 before MyOS receives bytes from port 0x60.
+     */
     if (
+        !ps2_keyboard_send_command(
+            PS2_KEYBOARD_DISABLE_SCANNING
+        ) ||
+        !ps2_keyboard_send_command(
+            PS2_KEYBOARD_SET_SCANCODE_SET
+        ) ||
+        !ps2_keyboard_send_command(
+            PS2_KEYBOARD_SCANCODE_SET_2
+        ) ||
         !ps2_keyboard_send_command(
             PS2_KEYBOARD_ENABLE_SCANNING
         )
