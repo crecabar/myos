@@ -2,6 +2,8 @@
 
 #include "arch.h"
 
+#include "i8042.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -18,72 +20,9 @@ struct reset_idt_descriptor {
     uint64_t base;
 } __attribute__((packed));
 
-static uint8_t reset_in8(
-    uint16_t port
-);
+static _Noreturn void reset_via_triple_fault(void);
 
-static void reset_out8(
-    uint16_t port,
-    uint8_t value
-);
-
-static bool reset_wait_i8042_ready(void);
-
-static _Noreturn void
-reset_via_triple_fault(void);
-
-static uint8_t reset_in8(
-    uint16_t port)
-{
-    uint8_t value;
-
-    __asm__ volatile (
-        "inb %1, %0"
-        : "=a"(value)
-        : "Nd"(port)
-    );
-
-    return value;
-}
-
-static void reset_out8(
-    uint16_t port,
-    uint8_t value)
-{
-    __asm__ volatile (
-        "outb %0, %1"
-        :
-        : "a"(value), "Nd"(port)
-    );
-}
-
-static bool reset_wait_i8042_ready(void)
-{
-    for (
-        uint32_t iteration = 0;
-        iteration < RESET_WAIT_ITERATIONS;
-        ++iteration
-    ) {
-        uint8_t status =
-            reset_in8(
-                I8042_STATUS_COMMAND_PORT
-            );
-
-        if (
-            (status &
-             I8042_STATUS_INPUT_FULL) == 0
-        ) {
-            return true;
-        }
-
-        __asm__ volatile ("pause");
-    }
-
-    return false;
-}
-
-static _Noreturn void
-reset_via_triple_fault(void)
+static _Noreturn void reset_via_triple_fault(void)
 {
     struct reset_idt_descriptor descriptor = {
         .limit = 0,
@@ -125,15 +64,11 @@ _Noreturn void arch_reset(void)
      * QEMU's PS/2 controller implements this path and many PC systems
      * provide it for compatibility.
      */
-    if (reset_wait_i8042_ready()) {
-        reset_out8(
-            I8042_STATUS_COMMAND_PORT,
+     if (i8042_wait_input_empty()) {
+        i8042_command_write(
             I8042_CPU_RESET_COMMAND
         );
 
-        /*
-         * Give the platform time to act before invoking the fallback.
-         */
         for (
             uint32_t iteration = 0;
             iteration < RESET_SETTLE_ITERATIONS;
