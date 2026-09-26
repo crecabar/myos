@@ -7,6 +7,7 @@
 #include "gdt.h"
 #include "idt.h"
 #include "interrupt_topology.h"
+#include "i8042.h"
 #include "ioapic.h"
 #include "lapic.h"
 #include "pic.h"
@@ -217,11 +218,11 @@ void arch_init(
 
     pic_disable();
 
-    /*
-     * PS/2 is optional platform hardware. A machine without a usable
-     * i8042 controller must still be able to boot.
-     */
-    if (ps2_keyboard_init()) {
+    if (!i8042_init()) {
+        diagnostics_write(
+            "[arch] i8042 controller unavailable\n"
+        );
+    } else if (ps2_keyboard_init()) {
         struct interrupt_route keyboard_route;
 
         if (
@@ -247,6 +248,14 @@ void arch_init(
         ) {
             kernel_panic(
                 "Unable to route PS/2 keyboard interrupt"
+            );
+        }
+
+        if (
+            !i8042_first_port_interrupt_enable()
+        ) {
+            kernel_panic(
+                "Unable to enable PS/2 keyboard interrupt"
             );
         }
 

@@ -28,4 +28,19 @@ bool i8042_data_write(
 
 void i8042_flush_output(void);
 
+/**
+ * Prepares the controller for PS/2 device initialization.
+ *
+ * Both controller IRQs are disabled while devices are configured.
+ * The first port is enabled and Set-2-to-Set-1 translation is enabled.
+ */
+bool i8042_init(void);
+
+/**
+ * Enables IRQ1 delivery for the first PS/2 port.
+ *
+ * Call only after the IOAPIC route for IRQ1 has been installed.
+ */
+bool i8042_first_port_interrupt_enable(void);
+
 #endif

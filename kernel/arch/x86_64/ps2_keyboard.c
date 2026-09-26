@@ -11,11 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define PS2_COMMAND_READ_CONFIGURATION  0x20U
-#define PS2_COMMAND_WRITE_CONFIGURATION 0x60U
-#define PS2_COMMAND_DISABLE_FIRST_PORT  0xADU
-#define PS2_COMMAND_ENABLE_FIRST_PORT   0xAEU
-
 #define PS2_KEYBOARD_SET_SCANCODE_SET 0xF0U
 #define PS2_KEYBOARD_SCANCODE_SET_2   0x02U
 #define PS2_KEYBOARD_ENABLE_SCANNING  0xF4U
@@ -23,10 +18,6 @@
 
 #define PS2_DEVICE_ACK    0xFAU
 #define PS2_DEVICE_RESEND 0xFEU
-
-#define PS2_CONFIG_FIRST_PORT_IRQ      (1U << 0)
-#define PS2_CONFIG_FIRST_PORT_DISABLED (1U << 4)
-#define PS2_CONFIG_TRANSLATION         (1U << 6)
 
 #define PS2_KEYBOARD_ENABLE_SCANNING 0xF4U
 #define PS2_DEVICE_ACK              0xFAU
@@ -52,72 +43,12 @@ bool ps2_keyboard_init(void)
         return true;
     }
 
-    i8042_flush_output();
-
     /*
-     * Temporarily disable the first port while updating the
-     * controller configuration byte.
-     */
-    if (
-        !i8042_command_write(
-            PS2_COMMAND_DISABLE_FIRST_PORT
-        )
-    ) {
-        return false;
-    }
-
-    if (
-        !i8042_command_write(
-            PS2_COMMAND_READ_CONFIGURATION
-        ) ||
-        !i8042_wait_output_full()
-    ) {
-        return false;
-    }
-
-    uint8_t configuration = i8042_status_read(); // Not sure if data or status read
-
-    /*
-     * MyOS decodes translated Scan Code Set 1. Configure the
-     * controller explicitly instead of inheriting firmware state.
-     */
-    configuration |=
-        PS2_CONFIG_FIRST_PORT_IRQ |
-        PS2_CONFIG_TRANSLATION;
-
-    configuration &=
-        (uint8_t) ~PS2_CONFIG_FIRST_PORT_DISABLED;
-
-    if (
-        !i8042_command_write(
-            PS2_COMMAND_WRITE_CONFIGURATION
-        ) ||
-        !i8042_data_write(configuration)
-    ) {
-        return false;
-    }
-
-    if (
-        !i8042_command_write(
-            PS2_COMMAND_ENABLE_FIRST_PORT
-        )
-    ) {
-        return false;
-    }
-
-    /*
-     * Remove any byte left over from firmware interaction before
-     * issuing the keyboard command whose acknowledgement we expect.
+     * Controller ownership and first-port setup belong to i8042.
+     * At this level we only configure the keyboard device itself.
      */
     i8042_flush_output();
 
-    /*
-     * Stop asynchronous scan-code delivery while changing the
-     * keyboard's scan-code set.
-     *
-     * The keyboard emits Set 2 and the i8042 translates it to
-     * Set 1 before MyOS receives bytes from port 0x60.
-     */
     if (
         !ps2_keyboard_send_command(
             PS2_KEYBOARD_DISABLE_SCANNING
