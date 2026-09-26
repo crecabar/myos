@@ -19,6 +19,7 @@
 #include "diagnostics/diagnostics.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
+#include "input/input.h"
 #include "memory/boot_paging.h"
 #include "memory/device_mapping.h"
 #include "memory/direct_mapping.h"
@@ -38,6 +39,7 @@
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
+#include "tests/input_test.h"
 #include "tests/kernel_heap_test.h"
 #include "tests/process_elf_lifecycle_test.h"
 #include "tests/process_lifecycle_test.h"
@@ -472,6 +474,8 @@ static _Noreturn void kernel_main_continue(void)
     );
 #endif
 
+    input_init();
+
     arch_init(
         kernel_boot_info.rsdp_snapshot,
         kernel_boot_info.rsdp_snapshot_size
@@ -526,6 +530,7 @@ static _Noreturn void kernel_main_continue(void)
         elf64_loader_test_run();
         interrupt_wait_test_run();
         framebuffer_test_run();
+        input_test_run();
         kernel_heap_test_run();
         process_memory_test_run();
         process_lifecycle_test_run();

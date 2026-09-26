@@ -3,7 +3,8 @@
 #include "ps2_keyboard.h"
 
 #include "lapic.h"
-#include "../../diagnostics/diagnostics.h"
+
+#include "../../input/input.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,6 +36,161 @@
 
 static bool ps2_keyboard_initialized;
 
+static bool ps2_keyboard_extended_prefix;
+static uint8_t ps2_keyboard_e1_bytes_remaining;
+
+static enum input_key_code
+ps2_keyboard_set1_base_key(
+    uint8_t code)
+{
+    switch (code) {
+        case 0x01:
+            return INPUT_KEY_ESCAPE;
+
+        case 0x0E:
+            return INPUT_KEY_BACKSPACE;
+
+        case 0x0F:
+            return INPUT_KEY_TAB;
+
+        case 0x10:
+            return INPUT_KEY_Q;
+
+        case 0x11:
+            return INPUT_KEY_W;
+
+        case 0x12:
+            return INPUT_KEY_E;
+
+        case 0x13:
+            return INPUT_KEY_R;
+
+        case 0x14:
+            return INPUT_KEY_T;
+
+        case 0x15:
+            return INPUT_KEY_Y;
+
+        case 0x16:
+            return INPUT_KEY_U;
+
+        case 0x17:
+            return INPUT_KEY_I;
+
+        case 0x18:
+            return INPUT_KEY_O;
+
+        case 0x19:
+            return INPUT_KEY_P;
+
+        case 0x1C:
+            return INPUT_KEY_ENTER;
+
+        case 0x1D:
+            return INPUT_KEY_LEFT_CTRL;
+
+        case 0x1E:
+            return INPUT_KEY_A;
+
+        case 0x1F:
+            return INPUT_KEY_S;
+
+        case 0x20:
+            return INPUT_KEY_D;
+
+        case 0x21:
+            return INPUT_KEY_F;
+
+        case 0x22:
+            return INPUT_KEY_G;
+
+        case 0x23:
+            return INPUT_KEY_H;
+
+        case 0x24:
+            return INPUT_KEY_J;
+
+        case 0x25:
+            return INPUT_KEY_K;
+
+        case 0x26:
+            return INPUT_KEY_L;
+
+        case 0x2A:
+            return INPUT_KEY_LEFT_SHIFT;
+
+        case 0x2C:
+            return INPUT_KEY_Z;
+
+        case 0x2D:
+            return INPUT_KEY_X;
+
+        case 0x2E:
+            return INPUT_KEY_C;
+
+        case 0x2F:
+            return INPUT_KEY_V;
+
+        case 0x30:
+            return INPUT_KEY_B;
+
+        case 0x31:
+            return INPUT_KEY_N;
+
+        case 0x32:
+            return INPUT_KEY_M;
+
+        case 0x36:
+            return INPUT_KEY_RIGHT_SHIFT;
+
+        case 0x38:
+            return INPUT_KEY_LEFT_ALT;
+
+        case 0x39:
+            return INPUT_KEY_SPACE;
+
+        default:
+            return INPUT_KEY_NONE;
+    }
+}
+
+static enum input_key_code
+ps2_keyboard_set1_extended_key(
+    uint8_t code)
+{
+    switch (code) {
+        case 0x1D:
+            return INPUT_KEY_RIGHT_CTRL;
+
+        case 0x38:
+            return INPUT_KEY_RIGHT_ALT;
+
+        case 0x48:
+            return INPUT_KEY_UP;
+
+        case 0x4B:
+            return INPUT_KEY_LEFT;
+
+        case 0x4D:
+            return INPUT_KEY_RIGHT;
+
+        case 0x50:
+            return INPUT_KEY_DOWN;
+
+        case 0x53:
+            return INPUT_KEY_DELETE;
+
+        case 0x5B:
+            return INPUT_KEY_LEFT_GUI;
+
+        case 0x5C:
+            return INPUT_KEY_RIGHT_GUI;
+
+        default:
+            return INPUT_KEY_NONE;
+    }
+}
+
 static uint8_t ps2_in8(uint16_t port);
 static void ps2_out8(uint16_t port, uint8_t value);
 
@@ -48,6 +204,18 @@ static void ps2_flush_output(void);
 
 static bool ps2_keyboard_send_command(
     uint8_t command
+);
+
+static enum input_key_code ps2_keyboard_set1_base_key(
+    uint8_t code
+);
+
+static enum input_key_code ps2_keyboard_set1_extended_key(
+    uint8_t code
+);
+
+static void ps2_keyboard_decode_byte(
+    uint8_t scancode
 );
 
 static uint8_t ps2_in8(uint16_t port)
@@ -197,6 +365,68 @@ static bool ps2_keyboard_send_command(
     return false;
 }
 
+static void ps2_keyboard_decode_byte(
+    uint8_t scancode)
+{
+    /*
+     * Pause/Break begins with E1 and uses a multi-byte Set 1
+     * sequence. Ignore it for this first decoder increment rather
+     * than generating incorrect key events.
+     */
+    if (ps2_keyboard_e1_bytes_remaining != 0) {
+        --ps2_keyboard_e1_bytes_remaining;
+        return;
+    }
+
+    if (scancode == 0xE1U) {
+        ps2_keyboard_e1_bytes_remaining = 5U;
+        ps2_keyboard_extended_prefix = false;
+        return;
+    }
+
+    if (scancode == 0xE0U) {
+        ps2_keyboard_extended_prefix = true;
+        return;
+    }
+
+    bool released =
+        (scancode & 0x80U) != 0;
+
+    uint8_t make_code =
+        scancode & 0x7FU;
+
+    enum input_key_code key =
+        ps2_keyboard_extended_prefix
+            ? ps2_keyboard_set1_extended_key(
+                make_code
+            )
+            : ps2_keyboard_set1_base_key(
+                make_code
+            );
+
+    ps2_keyboard_extended_prefix = false;
+
+    if (key == INPUT_KEY_NONE) {
+        return;
+    }
+
+    struct input_event event = {
+        .type = INPUT_EVENT_KEY,
+        .key = {
+            .code = key,
+            .state = released
+                ? INPUT_KEY_RELEASED
+                : INPUT_KEY_PRESSED,
+        },
+    };
+
+    /*
+     * Queue overflow deliberately drops the newest event.
+     * The interrupt path must never block waiting for a consumer.
+     */
+     (void) input_event_submit(&event);
+}
+
 bool ps2_keyboard_init(void)
 {
     if (ps2_keyboard_initialized) {
@@ -308,17 +538,9 @@ void ps2_keyboard_handle_interrupt(
      */
     lapic_send_eoi();
 
-    /*
-     * Temporary bring-up instrumentation.
-     *
-     * Once IRQ1 delivery has been proven, this will be replaced by
-     * the kernel input-event queue. Do not keep formatted diagnostic
-     * output in the final interrupt path.
-     */
     if (valid_keyboard_byte) {
-        diagnostics_printf(
-            "[ps2] raw keyboard scancode=%x\n",
-            (uint64_t) scancode
+        ps2_keyboard_decode_byte(
+            scancode
         );
     }
 }
