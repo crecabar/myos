@@ -19,6 +19,14 @@
 #define ACPI_ROOT_RSDT_ENTRY_SIZE   4U
 #define ACPI_ROOT_XSDT_ENTRY_SIZE   8U
 
+#define ACPI_MADT_LOCAL_APIC_OFFSET \
+    ACPI_SDT_HEADER_SIZE
+
+#define ACPI_MADT_FLAGS_OFFSET \
+    (ACPI_SDT_HEADER_SIZE + 4U)
+
+#define ACPI_MADT_RECORD_HEADER_SIZE 2U
+
 static bool acpi_bytes_equal(
     const uint8_t *bytes,
     const char *string,
@@ -28,6 +36,10 @@ static bool acpi_bytes_equal(
 static bool acpi_checksum_valid(
     const uint8_t *bytes,
     size_t length
+);
+
+static uint16_t acpi_read_u16(
+    const uint8_t *bytes
 );
 
 static uint32_t acpi_read_u32(
@@ -84,6 +96,14 @@ static bool acpi_checksum_valid(
     }
 
     return checksum == 0;
+}
+
+static uint16_t acpi_read_u16(
+    const uint8_t *bytes)
+{
+    return
+        (uint16_t) bytes[0] |
+        ((uint16_t) bytes[1] << 8);
 }
 
 static uint32_t acpi_read_u32(
@@ -282,6 +302,43 @@ bool acpi_rsdp_parse(
     return true;
 }
 
+bool acpi_sdt_length_read(
+    const uint8_t *bytes,
+    size_t size,
+    uint32_t *length)
+{
+    if (length == NULL) {
+        return false;
+    }
+
+    *length = 0;
+
+    if (bytes == NULL) {
+        return false;
+    }
+
+    if (size < ACPI_SDT_HEADER_SIZE) {
+        return false;
+    }
+
+    uint32_t declared_length =
+        acpi_read_u32(
+            &bytes[ACPI_SDT_LENGTH_OFFSET]
+        );
+
+    if (
+        declared_length <
+        ACPI_SDT_HEADER_SIZE
+    ) {
+        return false;
+    }
+
+    *length =
+        declared_length;
+
+    return true;
+}
+
 bool acpi_sdt_parse(
     const uint8_t *bytes,
     size_t size,
@@ -297,16 +354,15 @@ bool acpi_sdt_parse(
         return false;
     }
 
-    if (size < ACPI_SDT_HEADER_SIZE) {
-        return false;
-    }
+    uint32_t length;
 
-    uint32_t length =
-        acpi_read_u32(
-            &bytes[ACPI_SDT_LENGTH_OFFSET]
-        );
-
-    if (length < ACPI_SDT_HEADER_SIZE) {
+    if (
+        !acpi_sdt_length_read(
+            bytes,
+            size,
+            &length
+        )
+    ) {
         return false;
     }
 
@@ -469,6 +525,325 @@ bool acpi_root_table_entry_get(
                 &table->data[offset]
             );
     }
+
+    return true;
+}
+
+bool acpi_madt_parse(
+    const uint8_t *bytes,
+    size_t size,
+    struct acpi_madt *madt)
+{
+    if (madt == NULL) {
+        return false;
+    }
+
+    madt->data = NULL;
+    madt->size = 0;
+    madt->local_apic_address = 0;
+    madt->flags = 0;
+    madt->record_count = 0;
+
+    if (bytes == NULL) {
+        return false;
+    }
+
+    struct acpi_sdt_info info;
+
+    if (
+        !acpi_sdt_parse(
+            bytes,
+            size,
+            &info
+        )
+    ) {
+        return false;
+    }
+
+    if (
+        !acpi_sdt_signature_equal(
+            &info,
+            "APIC"
+        )
+    ) {
+        return false;
+    }
+
+    if (info.length < ACPI_MADT_HEADER_SIZE) {
+        return false;
+    }
+
+    /*
+     * Validate the entire record sequence before exposing the
+     * MADT to callers.
+     */
+    size_t offset = ACPI_MADT_HEADER_SIZE;
+    size_t record_count = 0;
+
+    while (offset < info.length) {
+        size_t remaining =
+            (size_t) info.length - offset;
+
+        if (
+            remaining <
+            ACPI_MADT_RECORD_HEADER_SIZE
+        ) {
+            return false;
+        }
+
+        uint8_t record_length =
+            bytes[offset + 1U];
+
+        if (
+            record_length <
+            ACPI_MADT_RECORD_HEADER_SIZE
+        ) {
+            return false;
+        }
+
+        if ((size_t) record_length > remaining) {
+            return false;
+        }
+
+        offset += (size_t) record_length;
+        ++record_count;
+    }
+
+    madt->data = bytes;
+    madt->size = (size_t) info.length;
+
+    madt->local_apic_address =
+        acpi_read_u32(
+            &bytes[ACPI_MADT_LOCAL_APIC_OFFSET]
+        );
+
+    madt->flags =
+        acpi_read_u32(
+            &bytes[ACPI_MADT_FLAGS_OFFSET]
+        );
+
+    madt->record_count = record_count;
+
+    return true;
+}
+
+bool acpi_madt_record_get(
+    const struct acpi_madt *madt,
+    size_t index,
+    struct acpi_madt_record *record)
+{
+    if (
+        madt == NULL ||
+        record == NULL ||
+        madt->data == NULL ||
+        index >= madt->record_count
+    ) {
+        return false;
+    }
+
+    size_t offset = ACPI_MADT_HEADER_SIZE;
+
+    for (size_t current = 0;
+         current <= index;
+         ++current) {
+        if (
+            offset > madt->size ||
+            madt->size - offset <
+                ACPI_MADT_RECORD_HEADER_SIZE
+        ) {
+            return false;
+        }
+
+        const uint8_t *bytes =
+            &madt->data[offset];
+
+        uint8_t length = bytes[1];
+
+        if (
+            length <
+                ACPI_MADT_RECORD_HEADER_SIZE ||
+            (size_t) length >
+                madt->size - offset
+        ) {
+            return false;
+        }
+
+        if (current == index) {
+            record->data = bytes;
+            record->type = bytes[0];
+            record->length = length;
+
+            return true;
+        }
+
+        offset += (size_t) length;
+    }
+
+    return false;
+}
+
+bool acpi_madt_local_apic_decode(
+    const struct acpi_madt_record *record,
+    struct acpi_madt_local_apic *local_apic)
+{
+    if (
+        record == NULL ||
+        local_apic == NULL ||
+        record->data == NULL ||
+        record->type != ACPI_MADT_RECORD_LOCAL_APIC ||
+        record->length != 8U
+    ) {
+        return false;
+    }
+
+    const uint8_t *bytes = record->data;
+
+    local_apic->processor_uid = bytes[2];
+    local_apic->apic_id = bytes[3];
+    local_apic->flags = acpi_read_u32(&bytes[4]);
+
+    return true;
+}
+
+bool acpi_madt_ioapic_decode(
+    const struct acpi_madt_record *record,
+    struct acpi_madt_ioapic *ioapic)
+{
+    if (
+        record == NULL ||
+        ioapic == NULL ||
+        record->data == NULL ||
+        record->type != ACPI_MADT_RECORD_IOAPIC ||
+        record->length != 12U
+    ) {
+        return false;
+    }
+
+    const uint8_t *bytes = record->data;
+
+    ioapic->ioapic_id = bytes[2];
+    ioapic->physical_address =
+        acpi_read_u32(&bytes[4]);
+    ioapic->gsi_base =
+        acpi_read_u32(&bytes[8]);
+
+    return true;
+}
+
+bool acpi_madt_interrupt_override_decode(
+    const struct acpi_madt_record *record,
+    struct acpi_madt_interrupt_override *override)
+{
+    if (
+        record == NULL ||
+        override == NULL ||
+        record->data == NULL ||
+        record->type !=
+            ACPI_MADT_RECORD_INTERRUPT_OVERRIDE ||
+        record->length != 10U
+    ) {
+        return false;
+    }
+
+    const uint8_t *bytes = record->data;
+
+    override->bus = bytes[2];
+    override->source_irq = bytes[3];
+    override->gsi = acpi_read_u32(&bytes[4]);
+    override->flags = acpi_read_u16(&bytes[8]);
+
+    return true;
+}
+
+bool acpi_madt_local_apic_override_decode(
+    const struct acpi_madt_record *record,
+    struct acpi_madt_local_apic_override *override)
+{
+    if (
+        record == NULL ||
+        override == NULL ||
+        record->data == NULL ||
+        record->type !=
+            ACPI_MADT_RECORD_LOCAL_APIC_OVERRIDE ||
+        record->length != 12U
+    ) {
+        return false;
+    }
+
+    override->physical_address =
+        acpi_read_u64(&record->data[4]);
+
+    return true;
+}
+
+bool acpi_madt_local_apic_address_get(
+    const struct acpi_madt *madt,
+    uint64_t *physical_address)
+{
+    if (
+        madt == NULL ||
+        physical_address == NULL ||
+        madt->data == NULL
+    ) {
+        return false;
+    }
+
+    uint64_t candidate =
+        (uint64_t) madt->local_apic_address;
+
+    bool override_found = false;
+
+    for (
+        size_t index = 0;
+        index < madt->record_count;
+        ++index
+    ) {
+        struct acpi_madt_record record;
+
+        if (
+            !acpi_madt_record_get(
+                madt,
+                index,
+                &record
+            )
+        ) {
+            return false;
+        }
+
+        if (
+            record.type !=
+            ACPI_MADT_RECORD_LOCAL_APIC_OVERRIDE
+        ) {
+            continue;
+        }
+
+        if (override_found) {
+            return false;
+        }
+
+        struct acpi_madt_local_apic_override
+            address_override;
+
+        if (
+            !acpi_madt_local_apic_override_decode(
+                &record,
+                &address_override
+            )
+        ) {
+            return false;
+        }
+
+        candidate =
+            address_override.physical_address;
+
+        override_found = true;
+    }
+
+    if (candidate == 0) {
+        return false;
+    }
+
+    *physical_address = candidate;
 
     return true;
 }

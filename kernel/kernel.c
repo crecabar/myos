@@ -472,7 +472,11 @@ static _Noreturn void kernel_main_continue(void)
     );
 #endif
 
-    arch_init();
+    arch_init(
+        kernel_boot_info.rsdp_snapshot,
+        kernel_boot_info.rsdp_snapshot_size
+    );
+
     diagnostics_write("[arch] x86-64 initialized\n");
 
     scheduler_init();

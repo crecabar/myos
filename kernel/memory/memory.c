@@ -30,6 +30,9 @@ static uint64_t next_free_frame_hint;
 /* Helpers and private functions */
 static uint64_t memory_highest_managed_address(void);
 static const char *memory_region_type_name(enum memory_region_type type);
+static bool memory_region_is_acpi(
+    const struct memory_region *region
+);
 static uint64_t align_up(uint64_t value, uint64_t alignment);
 static uint64_t align_down(uint64_t value, uint64_t alignment);
 static size_t frame_bitmap_size_for(uint64_t frame_count);
@@ -151,6 +154,100 @@ void *memory_physical_to_virtual(uint64_t physical_address)
     }
 
     return direct_map_physical_address(physical_address);
+}
+
+bool memory_physical_range_is_acpi(
+    uint64_t physical_address,
+    size_t size)
+{
+    if (!memory_initialized) {
+        kernel_panic(
+            "Memory subsystem not initialized"
+        );
+    }
+
+    if (size == 0) {
+        return false;
+    }
+
+    uint64_t range_size =
+        (uint64_t) size;
+
+    if (
+        range_size >
+        UINT64_MAX - physical_address
+    ) {
+        return false;
+    }
+
+    uint64_t range_end =
+        physical_address + range_size;
+
+    /*
+     * Advance through the requested interval. At each position,
+     * find the ACPI region that covers the current byte and extends
+     * coverage furthest.
+     *
+     * This intentionally permits coverage to continue through
+     * adjacent or overlapping ACPI regions without relying on the
+     * memory map being sorted.
+     */
+    uint64_t cursor =
+        physical_address;
+
+    while (cursor < range_end) {
+        uint64_t covered_until =
+            cursor;
+
+        for (
+            size_t index = 0;
+            index < region_count;
+            ++index
+        ) {
+            const struct memory_region *region =
+                &regions[index];
+
+            if (!memory_region_is_acpi(region)) {
+                continue;
+            }
+
+            if (
+                region->length >
+                UINT64_MAX - region->base
+            ) {
+                return false;
+            }
+
+            uint64_t region_end =
+                region->base +
+                region->length;
+
+            if (
+                cursor < region->base ||
+                cursor >= region_end
+            ) {
+                continue;
+            }
+
+            if (region_end > covered_until) {
+                covered_until =
+                    region_end;
+            }
+        }
+
+        if (covered_until == cursor) {
+            return false;
+        }
+
+        if (covered_until >= range_end) {
+            return true;
+        }
+
+        cursor =
+            covered_until;
+    }
+
+    return true;
 }
 
 uint64_t memory_direct_map_base(void)
@@ -793,6 +890,20 @@ uint64_t memory_usable_byte_count(void)
     }
 
     return usable_bytes;
+}
+
+static bool memory_region_is_acpi(
+    const struct memory_region *region)
+{
+    if (region == NULL) {
+        return false;
+    }
+
+    return
+        region->type ==
+            MEMORY_REGION_ACPI_RECLAIMABLE ||
+        region->type ==
+            MEMORY_REGION_ACPI_NVS;
 }
 
 static const char *memory_region_type_name(enum memory_region_type type)

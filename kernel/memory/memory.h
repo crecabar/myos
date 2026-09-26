@@ -45,6 +45,29 @@ void memory_init(
 void *memory_physical_to_virtual(uint64_t physical_address);
 
 /**
+ * Reports whether a complete physical-address range belongs to memory
+ * reserved by firmware for ACPI data.
+ *
+ * Both ACPI reclaimable and ACPI NVS memory are accepted. The complete
+ * half-open range [physical_address, physical_address + size) must be
+ * covered by ACPI regions. Coverage may span adjacent ACPI regions.
+ *
+ * This function validates physical-memory ownership only. It does not
+ * guarantee that the corresponding direct-map virtual addresses are
+ * currently mapped.
+ *
+ * @param physical_address First physical byte in the range.
+ * @param size Number of bytes in the range.
+ *
+ * @return true when every byte belongs to ACPI memory; false for an empty,
+ *         overflowing, partially covered, or non-ACPI range.
+ */
+bool memory_physical_range_is_acpi(
+     uint64_t physical_address,
+     size_t size
+);
+
+/**
  * Returns the virtual base of the kernel direct physical-memory map.
  *
  * @return Direct-map virtual base address.
