@@ -10,6 +10,7 @@
 #include "create.h"
 
 #include "../core/panic.h"
+#include "../scheduler/scheduler.h"
 
 #include <stddef.h>
 
@@ -104,6 +105,128 @@ enum process_wait_result process_wait_try_reap(
     return PROCESS_WAIT_RESULT_NOT_TERMINATED;
 }
 
+bool process_wait_register(
+    struct process_instance *parent,
+    uint64_t child_pid)
+{
+    if (parent == NULL) {
+        return false;
+    }
+
+    if (
+        parent->process.instance != parent ||
+        parent->process.state ==
+            PROCESS_STATE_TERMINATED ||
+        parent->wait_active
+    ) {
+        return false;
+    }
+
+    struct process_instance *child =
+        parent->first_child;
+
+    bool matching_child_found = false;
+
+    while (child != NULL) {
+        if (
+            child_pid == 0 ||
+            child->process.id == child_pid
+        ) {
+            matching_child_found = true;
+
+            /*
+             * A terminated child is already immediately waitable.
+             * The caller must reap it rather than entering BLOCKED.
+             */
+            if (
+                child->process.state ==
+                PROCESS_STATE_TERMINATED
+            ) {
+                return false;
+            }
+
+            if (child_pid != 0) {
+                break;
+            }
+        }
+
+        child = child->next_sibling;
+    }
+
+    if (!matching_child_found) {
+        return false;
+    }
+
+    parent->wait_active = true;
+    parent->wait_child_pid = child_pid;
+
+    return true;
+}
+
+bool process_wait_cancel(
+    struct process_instance *parent)
+{
+    if (parent == NULL) {
+        return false;
+    }
+
+    if (
+        parent->process.instance != parent ||
+        !parent->wait_active
+    ) {
+        return false;
+    }
+
+    parent->wait_active = false;
+    parent->wait_child_pid = 0;
+
+    return true;
+}
+
+bool process_wait_notify_terminated(
+    struct process_instance *child)
+{
+    if (child == NULL) {
+        return false;
+    }
+
+    if (
+        child->process.instance != child ||
+        child->process.state !=
+            PROCESS_STATE_TERMINATED
+    ) {
+        return false;
+    }
+
+    struct process_instance *parent =
+        child->parent;
+
+    if (parent == NULL) {
+        return false;
+    }
+
+    if (
+        parent->process.instance != parent ||
+        !parent->wait_active ||
+        parent->process.state !=
+            PROCESS_STATE_BLOCKED
+    ) {
+        return false;
+    }
+
+    if (
+        parent->wait_child_pid != 0 &&
+        parent->wait_child_pid !=
+            child->process.id
+    ) {
+        return false;
+    }
+
+    return scheduler_wake_blocked(
+        &parent->process
+    );
+}
+
 // Private functions and helpers implementations
 static enum process_wait_result process_wait_reap_child(
     struct process_instance *parent,
@@ -129,6 +252,18 @@ static enum process_wait_result process_wait_reap_child(
 
     child->parent = NULL;
     child->next_sibling = NULL;
+
+    if (
+        parent->wait_active &&
+        (
+            parent->wait_child_pid == 0 ||
+            parent->wait_child_pid ==
+                child->process.id
+        )
+    ) {
+        parent->wait_active = false;
+        parent->wait_child_pid = 0;
+    }
 
     if (!process_release_terminated(
         child

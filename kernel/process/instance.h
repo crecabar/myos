@@ -42,6 +42,18 @@
     struct process_instance *parent;
     struct process_instance *first_child;
     struct process_instance *next_sibling;
+
+    /*
+     * Active parent wait request.
+     *
+     * child_pid == 0 means any direct child.
+     *
+     * The request remains active while the parent is BLOCKED and is cleared
+     * when the matching terminated child is reaped or the request is
+     * explicitly cancelled.
+     */
+    bool wait_active;
+    uint64_t wait_child_pid;
 };
 
 /**

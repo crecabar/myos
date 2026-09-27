@@ -25,6 +25,55 @@ struct process_wait_status {
     uint64_t exit_status;
 };
 
+/**
+ * Registers a blocking wait request for a direct child.
+ *
+ * child_pid == 0 selects any direct child.
+ *
+ * This operation only records the request. It does not change scheduler state;
+ * the caller must subsequently block the parent through the scheduler.
+ *
+ * A terminated matching child must be consumed synchronously through
+ * process_waitpid_try_reap() or process_wait_try_reap() instead.
+ *
+ * @param parent Parent lifecycle instance.
+ * @param child_pid Direct child PID, or zero for any child.
+ *
+ * @return true when the wait request was registered; false otherwise.
+ */
+bool process_wait_register(
+    struct process_instance *parent,
+    uint64_t child_pid
+);
+
+/**
+ * Cancels an active wait request.
+ *
+ * @param parent Parent lifecycle instance.
+ *
+ * @return true when an active request was cancelled; false otherwise.
+ */
+bool process_wait_cancel(
+    struct process_instance *parent
+);
+
+/**
+ * Notifies the wait layer that a child has terminated and been detached.
+ *
+ * If the direct parent is BLOCKED on this child, or on any child, the parent
+ * is made READY through the scheduler.
+ *
+ * The child is not reaped by this operation. Its termination information
+ * remains available until the parent consumes it.
+ *
+ * @param child Detached terminated child process.
+ *
+ * @return true when a matching blocked parent was awakened; false otherwise.
+ */
+bool process_wait_notify_terminated(
+    struct process_instance *child
+);
+
 enum process_wait_result process_waitpid_try_reap(
     struct process_instance *parent,
     uint64_t child_pid,

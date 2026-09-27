@@ -7,6 +7,7 @@
 
 #include "process_elf_lifecycle_test.h"
 
+#include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/paging.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
@@ -1186,6 +1187,28 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    if (!process_wait_register(
+        wait_parent,
+        wait_child_pid
+    )) {
+        kernel_panic(
+            "Unable to register wait lifecycle request"
+        );
+    }
+
+    if (
+        !wait_parent->wait_active ||
+        wait_parent->wait_child_pid !=
+            wait_child_pid
+    ) {
+        kernel_panic(
+            "Wait lifecycle request metadata is incorrect"
+        );
+    }
+
+    wait_parent->process.state =
+        PROCESS_STATE_BLOCKED;
+
     wait_child->process.state =
         PROCESS_STATE_TERMINATED;
 
@@ -1202,6 +1225,42 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    uint64_t wait_notify_rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(wait_notify_rflags)
+        :
+        : "memory"
+    );
+
+    interrupts_disable();
+
+    if (!process_wait_notify_terminated(
+        wait_child
+    )) {
+        kernel_panic(
+            "Terminated child failed to wake waiting parent"
+        );
+    }
+
+    if ((wait_notify_rflags & (1ULL << 9)) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        wait_parent->process.state !=
+            PROCESS_STATE_READY ||
+        !wait_parent->wait_active ||
+        wait_parent->wait_child_pid !=
+            wait_child_pid
+    ) {
+        kernel_panic(
+            "Waiting parent resumed with incorrect wait state"
+        );
+    }
+
     if (
         process_waitpid_try_reap(
             wait_parent,
@@ -1211,6 +1270,15 @@ void process_elf_lifecycle_test_run(void)
     ) {
         kernel_panic(
             "waitpid failed to reap terminated child"
+        );
+    }
+
+    if (
+        wait_parent->wait_active ||
+        wait_parent->wait_child_pid != 0
+    ) {
+        kernel_panic(
+            "Reaped wait request remained active"
         );
     }
 

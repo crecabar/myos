@@ -90,7 +90,9 @@ bool process_release_terminated(
     if (
         instance->parent != NULL ||
         instance->first_child != NULL ||
-        instance->next_sibling != NULL
+        instance->next_sibling != NULL ||
+        instance->wait_active ||
+        instance->wait_child_pid != 0
     ) {
         return false;
     }

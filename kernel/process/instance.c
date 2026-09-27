@@ -38,6 +38,9 @@ bool process_instance_prepare_elf64(
     instance->first_child = NULL;
     instance->next_sibling = NULL;
 
+    instance->wait_active = false;
+    instance->wait_child_pid = 0;
+
     if (!process_init(
         &instance->process,
         id,
@@ -88,7 +91,9 @@ bool process_instance_discard(
         instance->process.instance != instance ||
         instance->parent != NULL ||
         instance->first_child != NULL ||
-        instance->next_sibling != NULL
+        instance->next_sibling != NULL ||
+        instance->wait_active ||
+        instance->wait_child_pid != 0
     ) {
         return false;
     }
