@@ -119,7 +119,7 @@ static inline bool syscall_result_is_error(
  *
  * @return System call result returned to user mode.
  */
- syscall_result_t syscall_dispatch(
+syscall_result_t syscall_dispatch(
     uint64_t number,
     uint64_t argument0,
     uint64_t argument1,

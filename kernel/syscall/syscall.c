@@ -87,5 +87,5 @@ static syscall_result_t syscall_write(
         diagnostics_printf("%c", (char) buffer[index]);
     }
 
-    return length;
+    return (syscall_result_t) length;
 }

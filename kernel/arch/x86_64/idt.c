@@ -807,13 +807,13 @@ void syscall_handler(struct interrupt_context *context)
     }
 
     context->rax =
-    (uint64_t) syscall_dispatch(
-        context->rax,
-        context->rdi,
-        context->rsi,
-        context->rdx,
-        context->r10,
-        context->r8,
-        context->r9
-    );
+        (uint64_t) syscall_dispatch(
+            context->rax,
+            context->rdi,
+            context->rsi,
+            context->rdx,
+            context->r10,
+            context->r8,
+            context->r9
+        );
 }
