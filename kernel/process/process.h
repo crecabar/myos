@@ -30,6 +30,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct process_image;
+
 /**
  * Represents the execution state of a process.
  *
@@ -169,10 +171,39 @@ _Static_assert(offsetof(struct process_context, rflags) == 136, "process_context
     uint64_t sleep_start_ticks;
     uint64_t sleep_duration_ticks;
 
+    /*
+     * Borrowed executable-image reference when this process is backed by a
+     * process_image. Legacy/test processes may leave this NULL.
+     *
+     * memory and layout, when image is non-NULL, must refer to the objects
+     * embedded in that same image.
+     */
+    struct process_image *image;
+
     struct process_memory *memory;
     struct process_layout *layout;
     struct process_context context;
 };
+
+/**
+ * Initializes a fresh userspace CPU context for a process layout.
+ *
+ * All general-purpose registers are cleared. RIP and RSP are initialized from
+ * the executable layout and userspace begins with the deterministic MyOS
+ * RFLAGS value 0x202.
+ *
+ * This function changes only the supplied CPU context. Process identity,
+ * scheduler state, termination state and image ownership are unaffected.
+ *
+ * @param context Context to initialize.
+ * @param layout Executable layout providing entry point and initial stack.
+ *
+ * @return true when the initial context was created; false otherwise.
+ */
+bool process_context_initialize(
+    struct process_context *context,
+    const struct process_layout *layout
+);
 
 /**
  * Initializes a schedulable process descriptor.

@@ -161,6 +161,14 @@ SCHEDULER_CONTEXT_SOURCE := user/tests/scheduler_context.S
 SCHEDULER_CONTEXT_OBJECT := $(USER_TEST_BUILD_DIR)/scheduler_context.o
 SCHEDULER_CONTEXT_ELF    := $(USER_TEST_BUILD_DIR)/scheduler_context.elf
 
+EXEC_CALLER_SOURCE := user/tests/exec_caller.S
+EXEC_CALLER_OBJECT := $(USER_TEST_BUILD_DIR)/exec_caller.o
+EXEC_CALLER_ELF    := $(USER_TEST_BUILD_DIR)/exec_caller.elf
+
+EXEC_TARGET_SOURCE := user/tests/exec_target.S
+EXEC_TARGET_OBJECT := $(USER_TEST_BUILD_DIR)/exec_target.o
+EXEC_TARGET_ELF    := $(USER_TEST_BUILD_DIR)/exec_target.elf
+
 ELF_ENTRY_CFLAGS := \
 	--target=$(TARGET) \
 	-ffreestanding \
@@ -223,6 +231,32 @@ $(SCHEDULER_CONTEXT_ELF): \
 		-T $(ELF_ENTRY_LINKER_SCRIPT) \
 		-o $@ \
 		$(SCHEDULER_CONTEXT_OBJECT)
+
+$(EXEC_CALLER_OBJECT): $(EXEC_CALLER_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(EXEC_CALLER_ELF): \
+	$(EXEC_CALLER_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(EXEC_CALLER_OBJECT)
+
+$(EXEC_TARGET_OBJECT): $(EXEC_TARGET_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(EXEC_TARGET_ELF): \
+	$(EXEC_TARGET_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(EXEC_TARGET_OBJECT)
 
 # -----------------------------------------------------------------------------
 # Kernel
@@ -297,6 +331,9 @@ PROCESS_SYSCALL_POINTER_FIXTURE_OBJ := \
 
 PROCESS_SCHEDULER_CONTEXT_FIXTURE_OBJ := \
 	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_scheduler_context_fixture.o
+
+PROCESS_EXEC_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_exec_fixture.o
 
 KERNEL_OBJS := \
 	$(KERNEL_C_OBJS) \
@@ -389,6 +426,8 @@ $(PROCESS_SYSCALL_ABI_FIXTURE_OBJ): $(SYSCALL_ABI_ELF)
 $(PROCESS_SYSCALL_POINTER_FIXTURE_OBJ): $(SYSCALL_POINTER_ELF)
 
 $(PROCESS_SCHEDULER_CONTEXT_FIXTURE_OBJ): $(SCHEDULER_CONTEXT_ELF)
+
+$(PROCESS_EXEC_FIXTURE_OBJ): $(EXEC_CALLER_ELF) $(EXEC_TARGET_ELF)
 endif
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
