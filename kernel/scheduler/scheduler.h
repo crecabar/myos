@@ -124,6 +124,26 @@ bool scheduler_unregister_terminated(struct process *process);
  */
 struct process *scheduler_current(void);
 
+/**
+ * Rewrites an active interrupt frame from the saved context of the currently
+ * running process.
+ *
+ * This operation does not change scheduler selection or process state. The
+ * current process must be RUNNING and its address space must already be
+ * active.
+ *
+ * This is used when an operation such as exec replaces the current userspace
+ * image and needs the pending interrupt return to enter the replacement
+ * context rather than resume the previous one.
+ *
+ * @param context Active interrupt/syscall frame to rewrite.
+ *
+ * @return true when the current process context was loaded; false when the
+ *         scheduler or address-space preconditions were not satisfied.
+ */
+bool scheduler_load_current_context(
+    struct interrupt_context *context
+);
 
 /**
  * Terminates the current process from an interrupt or exception context.

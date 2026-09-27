@@ -10,6 +10,9 @@
 #include "../../process/process.h"
 #include "../../scheduler/scheduler.h"
 #include "../../syscall/syscall.h"
+#if MYOS_KERNEL_TESTS
+#include "../../tests/user_processes.h"
+#endif
 
 #include <stddef.h>
 #include <stdint.h>
@@ -774,6 +777,15 @@ void syscall_handler(struct interrupt_context *context)
     }
 
 #if MYOS_KERNEL_TESTS
+        if (context->rax == SYSCALL_TEST_EXEC) {
+        user_process_exec_test_syscall(
+            context,
+            context->rdi
+        );
+
+        return;
+    }
+
     if (context->rax == SYSCALL_TEST_SLEEP) {
         if (!scheduler_sleep_current(context, context->rdi)) {
             context->rax =

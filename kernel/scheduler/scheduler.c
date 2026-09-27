@@ -149,6 +149,49 @@ struct process *scheduler_current(void)
     return current_process;
 }
 
+bool scheduler_load_current_context(
+    struct interrupt_context *context)
+{
+    if (context == NULL) return false;
+    if (current_process == NULL) return false;
+
+    if (
+        current_process->state !=
+        PROCESS_STATE_RUNNING
+    ) {
+        return false;
+    }
+
+    if (current_process->memory == NULL) {
+        return false;
+    }
+
+    uint64_t active_cr3 =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint64_t expected_cr3 =
+        current_process
+            ->memory
+            ->address_space
+            .pml4_physical &
+        PAGE_ADDRESS_MASK_4K;
+
+    if (
+        expected_cr3 == 0 ||
+        active_cr3 != expected_cr3
+    ) {
+        return false;
+    }
+
+    scheduler_load_context(
+        context,
+        current_process
+    );
+
+    return true;
+}
+
 #if MYOS_KERNEL_TESTS
 uint64_t scheduler_test_preemption_count(void)
 {
