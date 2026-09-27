@@ -31,6 +31,7 @@
 #include <stdint.h>
 
 struct process_image;
+struct process_instance;
 
 /**
  * Represents the execution state of a process.
@@ -170,6 +171,15 @@ _Static_assert(offsetof(struct process_context, rflags) == 136, "process_context
      */
     uint64_t sleep_start_ticks;
     uint64_t sleep_duration_ticks;
+
+    /*
+     * Borrowed reference to the lifecycle owner when this descriptor belongs
+     * to a process_instance. Legacy/test descriptors may leave this NULL.
+     *
+     * Termination and address-space reclamation do not invalidate this link;
+     * it remains valid until the lifecycle instance itself is reaped.
+     */
+    struct process_instance *instance;
 
     /*
      * Borrowed executable-image reference when this process is backed by a

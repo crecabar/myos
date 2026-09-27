@@ -29,9 +29,19 @@
  * image. Therefore the instance must remain alive while the process may be
  * referenced by the scheduler.
  */
-struct process_instance {
+ struct process_instance {
     struct process process;
     struct process_image image;
+
+    /*
+     * Intrusive process-family links.
+     *
+     * These links describe lifecycle ownership only. The scheduler does not
+     * inspect or own them.
+     */
+    struct process_instance *parent;
+    struct process_instance *first_child;
+    struct process_instance *next_sibling;
 };
 
 /**

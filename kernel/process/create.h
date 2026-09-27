@@ -56,6 +56,33 @@ struct process_instance *process_create_elf64(
 );
 
 /**
+ * Dynamically creates and schedules an ELF64 child process.
+ *
+ * The new process becomes a direct child of parent only after its complete
+ * image has been prepared and scheduler registration has succeeded.
+ *
+ * Failed creation therefore never publishes a partial parent/child
+ * relationship.
+ *
+ * @param parent Existing dynamic parent process.
+ * @param elf Parsed ELF64 executable.
+ * @param argc Number of argv strings.
+ * @param argv Argument strings, or NULL when argc is zero.
+ * @param envc Number of environment strings.
+ * @param envp Environment strings, or NULL when envc is zero.
+ *
+ * @return Owned child instance on success; NULL otherwise.
+ */
+struct process_instance *process_create_child_elf64(
+    struct process_instance *parent,
+    const struct elf64_image *elf,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
+/**
  * Releases a dynamically allocated terminated process instance.
  *
  * The scheduler must already have detached its borrowed registration before
