@@ -47,6 +47,7 @@
 #include "tests/ps2_scancode_set1_test.h"
 #include "tests/ps2_mouse_packet_test.h"
 #include "tests/scheduler_slot_test.h"
+#include "tests/syscall_test.h"
 #include "tests/user_processes.h"
 #endif
 
@@ -558,6 +559,7 @@ static _Noreturn void kernel_main_continue(void)
         ps2_mouse_packet_test_run();
         input_test_run();
         kernel_heap_test_run();
+        syscall_test_run();
         process_memory_test_run();
         process_lifecycle_test_run();
         process_elf_lifecycle_test_run();

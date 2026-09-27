@@ -264,11 +264,35 @@ isr_syscall:
     pushq %r14
     pushq %r15
 
+    /*
+     * RSP now points to struct interrupt_context.
+     */
     movq %rsp, %rdi
 
-    subq $8, %rsp
+    /*
+     * Preserve the exact interrupt-frame address while aligning the
+     * C stack. R12 is already saved in the frame and will be restored
+     * from the potentially rewritten context before returning.
+     */
+    movq %rsp, %r12
+    andq $-16, %rsp
+
+    /*
+     * C code assumes the x86-64 ABI direction-flag invariant.
+     *
+     * The user's original RFLAGS are already saved in the interrupt
+     * frame, so clearing DF here protects kernel C code while iretq
+     * later restores the exact userspace flag state.
+     */
+    cld
+
     call syscall_handler
-    addq $8, %rsp
+
+    /*
+     * syscall_handler may have rewritten the frame with another
+     * process context.
+     */
+    movq %r12, %rsp
 
     popq %r15
     popq %r14

@@ -149,6 +149,10 @@ ELF_ENTRY_LINKER_SCRIPT := user/tests/elf_entry.ld
 ELF_ENTRY_OBJECT        := $(USER_TEST_BUILD_DIR)/elf_entry.o
 ELF_ENTRY_ELF           := $(USER_TEST_BUILD_DIR)/elf_entry.elf
 
+SYSCALL_ABI_SOURCE := user/tests/syscall_abi.S
+SYSCALL_ABI_OBJECT := $(USER_TEST_BUILD_DIR)/syscall_abi.o
+SYSCALL_ABI_ELF    := $(USER_TEST_BUILD_DIR)/syscall_abi.elf
+
 ELF_ENTRY_CFLAGS := \
 	--target=$(TARGET) \
 	-ffreestanding \
@@ -172,6 +176,19 @@ $(ELF_ENTRY_ELF): $(ELF_ENTRY_OBJECT) $(ELF_ENTRY_LINKER_SCRIPT)
 		-T $(ELF_ENTRY_LINKER_SCRIPT) \
 		-o $@ \
 		$(ELF_ENTRY_OBJECT)
+
+$(SYSCALL_ABI_OBJECT): $(SYSCALL_ABI_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(SYSCALL_ABI_ELF): \
+	$(SYSCALL_ABI_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(SYSCALL_ABI_OBJECT)
 
 # -----------------------------------------------------------------------------
 # Kernel
@@ -237,6 +254,9 @@ KERNEL_ASM_OBJS := \
 
 PROCESS_ELF_ENTRY_FIXTURE_OBJ := \
 	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_elf_entry_fixture.o
+
+PROCESS_SYSCALL_ABI_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_syscall_abi_fixture.o
 
 KERNEL_OBJS := \
 	$(KERNEL_C_OBJS) \
@@ -323,6 +343,8 @@ $(KERNEL_OBJ_DIR)/asm/%.o: %.S $(CONFIG_STAMP) | $(LIMINE_HEADER)
 
 ifeq ($(MYOS_KERNEL_TESTS),1)
 $(PROCESS_ELF_ENTRY_FIXTURE_OBJ): $(ELF_ENTRY_ELF)
+
+$(PROCESS_SYSCALL_ABI_FIXTURE_OBJ): $(SYSCALL_ABI_ELF)
 endif
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)

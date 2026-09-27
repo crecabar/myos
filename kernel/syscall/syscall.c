@@ -11,11 +11,11 @@
 
 #define SYSCALL_WRITE_MAX_SIZE 256
 
-static uint64_t syscall_write(
+static syscall_result_t syscall_write(
     uint64_t user_address,
     uint64_t length);
 
-uint64_t syscall_dispatch(
+syscall_result_t syscall_dispatch(
     uint64_t number,
     uint64_t argument0,
     uint64_t argument1,
@@ -42,11 +42,13 @@ uint64_t syscall_dispatch(
             return syscall_write(argument0, argument1);
 
         default:
-            return UINT64_MAX;
+            return syscall_result_error(
+                SYSCALL_ERROR_NOT_IMPLEMENTED
+            );
     }
 }
 
-static uint64_t syscall_write(
+static syscall_result_t syscall_write(
     uint64_t user_address,
     uint64_t length)
 {
@@ -55,13 +57,17 @@ static uint64_t syscall_write(
     }
 
     if (length > SYSCALL_WRITE_MAX_SIZE) {
-        return UINT64_MAX;
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
     }
 
     struct process *process = scheduler_current();
 
     if (process == NULL || process->memory == NULL) {
-        return UINT64_MAX;
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
     }
 
     uint8_t buffer[SYSCALL_WRITE_MAX_SIZE];
@@ -72,12 +78,14 @@ static uint64_t syscall_write(
         buffer,
         (size_t) length
     )) {
-        return UINT64_MAX;
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
     }
 
     for (size_t index = 0; index < (size_t) length; ++index) {
         diagnostics_printf("%c", (char) buffer[index]);
     }
 
-    return length;
+    return (syscall_result_t) length;
 }
