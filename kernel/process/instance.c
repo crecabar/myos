@@ -51,6 +51,8 @@ bool process_instance_prepare_elf64(
         return false;
     }
 
+    instance->process.image = &instance->image;
+
     return true;
 }
 
@@ -67,10 +69,12 @@ bool process_instance_discard(
     }
 
     if (
+        instance->process.image !=
+            &instance->image ||
         instance->process.memory !=
-        &instance->image.memory ||
+            &instance->image.memory ||
         instance->process.layout !=
-        &instance->image.layout
+            &instance->image.layout
     ) {
         return false;
     }
@@ -81,6 +85,7 @@ bool process_instance_discard(
         return false;
     }
 
+    instance->process.image = NULL;
     instance->process.memory = NULL;
     instance->process.layout = NULL;
 

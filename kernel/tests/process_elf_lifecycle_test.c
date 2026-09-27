@@ -7,6 +7,7 @@
 
 #include "process_elf_lifecycle_test.h"
 
+#include "../arch/x86_64/paging.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64.h"
@@ -596,6 +597,238 @@ void process_elf_lifecycle_test_run(void)
     ) {
         kernel_panic(
             "Failed exec candidate leaked kernel heap allocations"
+        );
+    }
+
+    uint64_t exec_commit_free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats exec_commit_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &exec_commit_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap state before exec commit test"
+        );
+    }
+
+    const char *exec_initial_argv[] = {
+        "before",
+    };
+
+    struct process_instance exec_instance;
+
+    if (!process_instance_prepare_elf64(
+        &exec_instance,
+        PROCESS_ELF_LIFECYCLE_TEST_PID + 2,
+        &image,
+        1,
+        exec_initial_argv,
+        0,
+        NULL
+    )) {
+        kernel_panic(
+            "Unable to prepare exec commit process"
+        );
+    }
+
+    if (
+        exec_instance.process.image !=
+        &exec_instance.image
+    ) {
+        kernel_panic(
+            "Exec commit process has incorrect image ownership link"
+        );
+    }
+
+    uint64_t exec_pid =
+        exec_instance.process.id;
+
+    uint64_t old_exec_cr3 =
+        exec_instance.image
+            .memory
+            .address_space
+            .pml4_physical &
+        PAGE_ADDRESS_MASK_4K;
+
+    const char *exec_replacement_argv[] = {
+        "after",
+        "replacement",
+    };
+
+    struct process_exec_candidate commit_candidate;
+
+    commit_candidate.prepared = false;
+
+    if (!process_exec_candidate_prepare_elf64(
+        &commit_candidate,
+        &image,
+        2,
+        exec_replacement_argv,
+        0,
+        NULL
+    )) {
+        kernel_panic(
+            "Unable to prepare exec commit candidate"
+        );
+    }
+
+    uint64_t new_exec_cr3 =
+        commit_candidate.image
+            .memory
+            .address_space
+            .pml4_physical &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint64_t expected_exec_rip =
+        commit_candidate.context.rip;
+
+    uint64_t expected_exec_rsp =
+        commit_candidate.context.rsp;
+
+    if (
+        old_exec_cr3 == 0 ||
+        new_exec_cr3 == 0 ||
+        old_exec_cr3 == new_exec_cr3
+    ) {
+        kernel_panic(
+            "Exec commit test did not create independent address spaces"
+        );
+    }
+
+    exec_instance.process.state =
+        PROCESS_STATE_RUNNING;
+
+    if (!paging_address_space_activate(
+        &exec_instance.image.memory.address_space
+    )) {
+        kernel_panic(
+            "Unable to activate original exec process image"
+        );
+    }
+
+    if (!process_exec_candidate_commit_current(
+        &exec_instance.process,
+        &commit_candidate
+    )) {
+        kernel_panic(
+            "Unable to commit replacement process image"
+        );
+    }
+
+    if (commit_candidate.prepared) {
+        kernel_panic(
+            "Committed exec candidate remained prepared"
+        );
+    }
+
+    if (
+        exec_instance.process.id !=
+            exec_pid ||
+        exec_instance.process.state !=
+            PROCESS_STATE_RUNNING
+    ) {
+        kernel_panic(
+            "Exec commit modified process identity or state"
+        );
+    }
+
+    if (
+        exec_instance.process.image !=
+            &exec_instance.image ||
+        exec_instance.process.memory !=
+            &exec_instance.image.memory ||
+        exec_instance.process.layout !=
+            &exec_instance.image.layout
+    ) {
+        kernel_panic(
+            "Exec commit produced incorrect image ownership links"
+        );
+    }
+
+    if (
+        exec_instance.image
+            .memory
+            .address_space
+            .pml4_physical !=
+            new_exec_cr3
+    ) {
+        kernel_panic(
+            "Exec commit retained incorrect address space"
+        );
+    }
+
+    if (
+        (
+            paging_read_cr3() &
+            PAGE_ADDRESS_MASK_4K
+        ) != new_exec_cr3
+    ) {
+        kernel_panic(
+            "Exec commit did not activate replacement address space"
+        );
+    }
+
+    if (
+        exec_instance.process.context.rip !=
+            expected_exec_rip ||
+        exec_instance.process.context.rsp !=
+            expected_exec_rsp ||
+        exec_instance.process.context.rflags !=
+            0x202
+    ) {
+        kernel_panic(
+            "Exec commit installed incorrect userspace context"
+        );
+    }
+
+    if (!paging_address_space_activate(
+        paging_kernel_address_space()
+    )) {
+        kernel_panic(
+            "Unable to restore kernel address space after exec commit test"
+        );
+    }
+
+    exec_instance.process.state =
+        PROCESS_STATE_READY;
+
+    if (!process_instance_discard(
+        &exec_instance
+    )) {
+        kernel_panic(
+            "Unable to discard committed exec process"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        exec_commit_free_before
+    ) {
+        kernel_panic(
+            "Exec commit test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats exec_commit_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &exec_commit_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after exec commit test"
+        );
+    }
+
+    if (
+        exec_commit_heap_after.allocated_block_count !=
+            exec_commit_heap_before.allocated_block_count ||
+        exec_commit_heap_after.allocated_bytes !=
+            exec_commit_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Exec commit test leaked kernel heap allocations"
         );
     }
 

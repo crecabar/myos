@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include "image.h"
 #include "process.h"
 
 #include <stddef.h>
@@ -73,6 +74,7 @@ bool process_init(
     process->sleep_start_ticks = 0;
     process->sleep_duration_ticks = 0;
 
+    process->image = NULL;
     process->memory = memory;
     process->layout = layout;
 
@@ -85,6 +87,18 @@ bool process_reclaim_resources(struct process *process)
     if (process->state != PROCESS_STATE_TERMINATED) return false;
     if (process->memory == NULL) return false;
     if (process->layout == NULL) return false;
+
+    if (
+        process->image != NULL &&
+        (
+            process->memory !=
+                &process->image->memory ||
+            process->layout !=
+                &process->image->layout
+        )
+    ) {
+        return false;
+    }
 
     if (!process_layout_destroy(
         process->memory,
@@ -99,6 +113,7 @@ bool process_reclaim_resources(struct process *process)
         return false;
     }
 
+    process->image = NULL;
     process->layout = NULL;
     process->memory = NULL;
 
