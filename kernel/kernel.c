@@ -48,8 +48,8 @@
 #include "tests/ps2_mouse_packet_test.h"
 #include "tests/scheduler_slot_test.h"
 #include "tests/syscall_test.h"
-#include "tests/user_processes.h"
 #include "tests/user_copy_test.h"
+#include "tests/user_processes.h"
 #endif
 
 #define KERNEL_RUNTIME_STACK_SIZE 32768
