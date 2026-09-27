@@ -301,4 +301,22 @@ void scheduler_wake_sleepers(uint64_t now_ticks);
  */
 bool scheduler_wake_blocked(struct process *process);
 
+#if MYOS_KERNEL_TESTS
+/**
+ * Returns the number of timer-driven process preemptions observed since the
+ * scheduler was initialized.
+ *
+ * @return Timer-driven preemption count.
+ */
+uint64_t scheduler_test_preemption_count(void);
+
+/**
+ * Returns the number of timer-driven preemptions whose successor belonged to
+ * a different process address space.
+ *
+ * @return Cross-address-space preemption count.
+ */
+uint64_t scheduler_test_cross_address_space_preemption_count(void);
+#endif
+
 #endif

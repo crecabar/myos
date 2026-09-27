@@ -23,6 +23,11 @@ static scheduler_terminated_handler terminated_handler;
 static struct process *current_process;
 static uint64_t current_quantum_ticks;
 
+#if MYOS_KERNEL_TESTS
+static uint64_t scheduler_test_preemption_count_value;
+static uint64_t scheduler_test_cross_address_space_preemption_count_value;
+#endif
+
 static struct process *scheduler_find_next_ready(void);
 static _Noreturn void scheduler_enter_process(struct process *process);
 static _Noreturn void scheduler_idle(void);
@@ -59,6 +64,11 @@ void scheduler_init(void)
     next_process_index = 0;
     current_quantum_ticks = 0;
     terminated_handler = NULL;
+
+#if MYOS_KERNEL_TESTS
+    scheduler_test_preemption_count_value = 0;
+    scheduler_test_cross_address_space_preemption_count_value = 0;
+#endif
 }
 
 void scheduler_set_terminated_handler(
@@ -138,6 +148,19 @@ struct process *scheduler_current(void)
 {
     return current_process;
 }
+
+#if MYOS_KERNEL_TESTS
+uint64_t scheduler_test_preemption_count(void)
+{
+    return scheduler_test_preemption_count_value;
+}
+
+uint64_t scheduler_test_cross_address_space_preemption_count(void)
+{
+    return
+        scheduler_test_cross_address_space_preemption_count_value;
+}
+#endif
 
 void scheduler_wake_sleepers(uint64_t now_ticks)
 {
@@ -708,6 +731,31 @@ void scheduler_preempt_current(struct interrupt_context *context)
 
     struct process *preempted_process = current_process;
 
+#if MYOS_KERNEL_TESTS
+    if (preempted_process->memory == NULL) {
+        kernel_panic(
+            "Preempted process has no address space"
+        );
+    }
+
+    uint64_t active_cr3 =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint64_t expected_cr3 =
+        preempted_process
+            ->memory
+            ->address_space
+            .pml4_physical &
+        PAGE_ADDRESS_MASK_4K;
+
+    if (active_cr3 != expected_cr3) {
+        kernel_panic(
+            "Scheduler preemption observed wrong active CR3"
+        );
+    }
+#endif
+
     scheduler_save_context(
         preempted_process,
         context
@@ -722,6 +770,26 @@ void scheduler_preempt_current(struct interrupt_context *context)
     if (next == NULL) {
         kernel_panic("Preemption left scheduler without runnable process");
     }
+
+#if MYOS_KERNEL_TESTS
+    ++scheduler_test_preemption_count_value;
+
+    if (next->memory == NULL) {
+        kernel_panic(
+            "Preemption selected process without address space"
+        );
+    }
+
+    uint64_t next_cr3 =
+        next->memory
+            ->address_space
+            .pml4_physical &
+        PAGE_ADDRESS_MASK_4K;
+
+    if (next_cr3 != expected_cr3) {
+        ++scheduler_test_cross_address_space_preemption_count_value;
+    }
+#endif
 
     scheduler_switch_from_interrupt(
         context,
@@ -816,6 +884,24 @@ static void scheduler_switch_from_interrupt(
     )) {
         kernel_panic("Unable to activate scheduled process address space");
     }
+
+#if MYOS_KERNEL_TESTS
+    uint64_t active_cr3 =
+        paging_read_cr3() &
+        PAGE_ADDRESS_MASK_4K;
+
+    uint64_t expected_cr3 =
+        next->memory
+            ->address_space
+            .pml4_physical &
+        PAGE_ADDRESS_MASK_4K;
+
+    if (active_cr3 != expected_cr3) {
+        kernel_panic(
+            "Scheduler switch activated wrong CR3"
+        );
+    }
+#endif
 
     scheduler_load_context(context, next);
 
