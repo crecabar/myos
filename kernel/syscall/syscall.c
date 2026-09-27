@@ -3,7 +3,7 @@
 #include "syscall.h"
 
 #include "../diagnostics/diagnostics.h"
-#include "../process/memory.h"
+#include "../process/user_copy.h"
 #include "../scheduler/scheduler.h"
 
 #include <stddef.h>
@@ -72,7 +72,7 @@ static syscall_result_t syscall_write(
 
     uint8_t buffer[SYSCALL_WRITE_MAX_SIZE];
 
-    if (!process_memory_read(
+    if (!copy_from_user(
         process->memory,
         user_address,
         buffer,
