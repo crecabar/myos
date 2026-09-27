@@ -4,14 +4,11 @@
 
 #include <stddef.h>
 
-bool process_init(
-    struct process *process,
-    uint64_t id,
-    struct process_memory *memory,
-    struct process_layout *layout)
+bool process_context_initialize(
+    struct process_context *context,
+    const struct process_layout *layout)
 {
-    if (process == NULL) return false;
-    if (memory == NULL) return false;
+    if (context == NULL) return false;
     if (layout == NULL) return false;
 
     if (
@@ -27,6 +24,47 @@ bool process_init(
         return false;
     }
 
+    context->r15 = 0;
+    context->r14 = 0;
+    context->r13 = 0;
+    context->r12 = 0;
+    context->r11 = 0;
+    context->r10 = 0;
+    context->r9 = 0;
+    context->r8 = 0;
+
+    context->rbp = 0;
+    context->rdi = 0;
+    context->rsi = 0;
+    context->rdx = 0;
+    context->rcx = 0;
+    context->rbx = 0;
+    context->rax = 0;
+
+    context->rip = layout->entry_point;
+    context->rsp = layout->initial_rsp;
+    context->rflags = 0x202;
+
+    return true;
+}
+
+bool process_init(
+    struct process *process,
+    uint64_t id,
+    struct process_memory *memory,
+    struct process_layout *layout)
+{
+    if (process == NULL) return false;
+    if (memory == NULL) return false;
+    if (layout == NULL) return false;
+
+    if (!process_context_initialize(
+        &process->context,
+        layout
+    )) {
+        return false;
+    }
+
     process->id = id;
     process->state = PROCESS_STATE_READY;
     process->termination_reason = PROCESS_TERMINATION_NONE;
@@ -37,27 +75,6 @@ bool process_init(
 
     process->memory = memory;
     process->layout = layout;
-
-    process->context.r15 = 0;
-    process->context.r14 = 0;
-    process->context.r13 = 0;
-    process->context.r12 = 0;
-    process->context.r11 = 0;
-    process->context.r10 = 0;
-    process->context.r9 = 0;
-    process->context.r8 = 0;
-
-    process->context.rbp = 0;
-    process->context.rdi = 0;
-    process->context.rsi = 0;
-    process->context.rdx = 0;
-    process->context.rcx = 0;
-    process->context.rbx = 0;
-    process->context.rax = 0;
-
-    process->context.rip = layout->entry_point;
-    process->context.rsp = layout->initial_rsp;
-    process->context.rflags = 0x202; //0x002 = reserved, mandatory; 0x200 = IF, interrupt enable flag
 
     return true;
 }

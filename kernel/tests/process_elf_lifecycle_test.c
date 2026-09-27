@@ -13,6 +13,7 @@
 #include "../memory/memory.h"
 #include "../memory/heap.h"
 #include "../process/create.h"
+#include "../process/exec.h"
 #include "../process/image.h"
 #include "../process/instance.h"
 #include "../process/layout.h"
@@ -411,6 +412,190 @@ void process_elf_lifecycle_test_run(void)
     if (physical_free_frame_count() != image_free_before) {
         kernel_panic(
             "Owned ELF process image leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats exec_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &exec_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap state before exec candidate test"
+        );
+    }
+
+    uint64_t exec_free_before =
+        physical_free_frame_count();
+
+    struct process_exec_candidate candidate;
+
+    candidate.prepared = false;
+
+    if (!process_exec_candidate_prepare_elf64(
+        &candidate,
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to prepare exec candidate"
+        );
+    }
+
+    if (!candidate.prepared) {
+        kernel_panic(
+            "Exec candidate was not marked prepared"
+        );
+    }
+
+    if (
+        candidate.image.layout.kind !=
+        PROCESS_LAYOUT_KIND_ELF64
+    ) {
+        kernel_panic(
+            "Exec candidate has incorrect layout kind"
+        );
+    }
+
+    if (
+        candidate.context.rip !=
+        candidate.image.layout.entry_point
+    ) {
+        kernel_panic(
+            "Exec candidate RIP is incorrect"
+        );
+    }
+
+    if (
+        candidate.context.rsp !=
+        candidate.image.layout.initial_rsp
+    ) {
+        kernel_panic(
+            "Exec candidate RSP is incorrect"
+        );
+    }
+
+    if (candidate.context.rflags != 0x202) {
+        kernel_panic(
+            "Exec candidate RFLAGS are incorrect"
+        );
+    }
+
+    if (!process_exec_candidate_discard(
+        &candidate
+    )) {
+        kernel_panic(
+            "Unable to discard exec candidate"
+        );
+    }
+
+    if (candidate.prepared) {
+        kernel_panic(
+            "Discarded exec candidate remained prepared"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        exec_free_before
+    ) {
+        kernel_panic(
+            "Exec candidate leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats exec_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &exec_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after exec candidate test"
+        );
+    }
+
+    if (
+        exec_heap_after.allocated_block_count !=
+            exec_heap_before.allocated_block_count ||
+        exec_heap_after.allocated_bytes !=
+            exec_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Exec candidate leaked kernel heap allocations"
+        );
+    }
+
+    struct elf64_image invalid_exec_image =
+        image;
+
+    invalid_exec_image.entry_point = 0;
+
+    uint64_t failed_exec_free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats failed_exec_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &failed_exec_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap state before failed exec candidate"
+        );
+    }
+
+    struct process_exec_candidate failed_candidate;
+
+    failed_candidate.prepared = false;
+
+    if (process_exec_candidate_prepare_elf64(
+        &failed_candidate,
+        &invalid_exec_image,
+        2,
+        argv,
+        1,
+        envp
+    )) {
+        kernel_panic(
+            "Invalid ELF unexpectedly produced exec candidate"
+        );
+    }
+
+    if (failed_candidate.prepared) {
+        kernel_panic(
+            "Failed exec candidate remained prepared"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        failed_exec_free_before
+    ) {
+        kernel_panic(
+            "Failed exec candidate leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats failed_exec_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &failed_exec_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after failed exec candidate"
+        );
+    }
+
+    if (
+        failed_exec_heap_after.allocated_block_count !=
+            failed_exec_heap_before.allocated_block_count ||
+        failed_exec_heap_after.allocated_bytes !=
+            failed_exec_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Failed exec candidate leaked kernel heap allocations"
         );
     }
 
