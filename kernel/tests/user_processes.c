@@ -44,6 +44,9 @@
 #define USER_PROCESS_EVENT_WORKER_TEST_PID 116
 #define USER_PROCESS_BLOCK_TEST_EXIT_STATUS 43
 
+#define SCHEDULER_CONTEXT_TEST_MIN_PREEMPTIONS 4
+#define SCHEDULER_CONTEXT_TEST_MIN_CROSS_ADDRESS_SPACE_PREEMPTIONS 4
+
 extern const uint8_t process_elf_entry_fixture_start[];
 extern const uint8_t process_elf_entry_fixture_end[];
 
@@ -52,6 +55,9 @@ extern const uint8_t process_syscall_abi_fixture_end[];
 
 extern const uint8_t process_syscall_pointer_fixture_start[];
 extern const uint8_t process_syscall_pointer_fixture_end[];
+
+extern const uint8_t process_scheduler_context_fixture_start[];
+extern const uint8_t process_scheduler_context_fixture_end[];
 
 struct user_process_fixture {
     struct process_memory memory;
@@ -86,6 +92,18 @@ static struct process_instance
 static struct process_instance
     *syscall_pointer_test_instance;
 
+static struct process_instance
+    *scheduler_context_test_a_instance;
+
+static struct process_instance
+    *scheduler_context_test_b_instance;
+
+static uint64_t scheduler_context_test_free_frame_baseline;
+static uint64_t scheduler_context_test_preemption_baseline;
+static uint64_t scheduler_context_test_cross_address_space_baseline;
+
+static bool scheduler_context_test_a_completed;
+
 static struct paging_translation
     syscall_pointer_kernel_translation_before;
 
@@ -113,6 +131,12 @@ static void user_process_syscall_abi_test_terminated(
 static void user_process_syscall_pointer_test_prepare(void);
 
 static void user_process_syscall_pointer_test_terminated(
+    struct process *process
+);
+
+static void user_process_scheduler_context_test_prepare(void);
+
+static void user_process_scheduler_context_test_terminated(
     struct process *process
 );
 
@@ -922,6 +946,131 @@ static void user_process_syscall_pointer_test_prepare(void)
     }
 }
 
+static void user_process_scheduler_context_test_prepare(void)
+{
+    uintptr_t image_start =
+        (uintptr_t)
+        process_scheduler_context_fixture_start;
+
+    uintptr_t image_end =
+        (uintptr_t)
+        process_scheduler_context_fixture_end;
+
+    if (image_end <= image_start) {
+        kernel_panic(
+            "Scheduler context ELF fixture has invalid bounds"
+        );
+    }
+
+    uintptr_t image_size_value =
+        image_end -
+        image_start;
+
+    if (image_size_value > SIZE_MAX) {
+        kernel_panic(
+            "Scheduler context ELF fixture is too large"
+        );
+    }
+
+    size_t image_size =
+        (size_t) image_size_value;
+
+    struct elf64_image image;
+
+    if (!elf64_parse(
+        process_scheduler_context_fixture_start,
+        image_size,
+        &image
+    )) {
+        kernel_panic(
+            "Unable to parse scheduler context ELF fixture"
+        );
+    }
+
+    scheduler_context_test_free_frame_baseline =
+        physical_free_frame_count();
+
+    scheduler_context_test_preemption_baseline =
+        scheduler_test_preemption_count();
+
+    scheduler_context_test_cross_address_space_baseline =
+        scheduler_test_cross_address_space_preemption_count();
+
+    scheduler_context_test_a_completed = false;
+
+    const char *argv_a[] = {
+        "A",
+    };
+
+    scheduler_context_test_a_instance =
+        process_create_elf64(
+            &image,
+            1,
+            argv_a,
+            0,
+            NULL
+        );
+
+    if (scheduler_context_test_a_instance == NULL) {
+        kernel_panic(
+            "Unable to create scheduler context process A"
+        );
+    }
+
+    const char *argv_b[] = {
+        "B",
+    };
+
+    scheduler_context_test_b_instance =
+        process_create_elf64(
+            &image,
+            1,
+            argv_b,
+            0,
+            NULL
+        );
+
+    if (scheduler_context_test_b_instance == NULL) {
+        kernel_panic(
+            "Unable to create scheduler context process B"
+        );
+    }
+
+    uint64_t cr3_a =
+        scheduler_context_test_a_instance
+            ->image.memory.address_space.pml4_physical;
+
+    uint64_t cr3_b =
+        scheduler_context_test_b_instance
+            ->image.memory.address_space.pml4_physical;
+
+    if (
+        cr3_a == 0 ||
+        cr3_b == 0 ||
+        cr3_a == cr3_b
+    ) {
+        kernel_panic(
+            "Scheduler context processes do not own independent address spaces"
+        );
+    }
+
+    /*
+     * Both instances deliberately receive equal-sized argv data. Their user
+     * stacks should therefore occupy identical virtual addresses while being
+     * backed by independent address spaces.
+     */
+    if (
+        scheduler_context_test_a_instance
+            ->image.layout.initial_rsp !=
+        scheduler_context_test_b_instance
+            ->image.layout.initial_rsp
+    ) {
+        kernel_panic(
+            "Scheduler context processes do not share equivalent virtual layout"
+        );
+    }
+}
+
 static void user_process_syscall_abi_test_terminated(
     struct process *process)
 {
@@ -1075,6 +1224,140 @@ static void user_process_syscall_pointer_test_terminated(
 
     diagnostics_write(
         "[syscall] Ring-3 invalid user-pointer regressions passed\n"
+    );
+
+    scheduler_set_terminated_handler(
+        user_process_scheduler_context_test_terminated
+    );
+
+    user_process_scheduler_context_test_prepare();
+}
+
+static void user_process_scheduler_context_test_terminated(
+    struct process *process)
+{
+    if (
+        scheduler_context_test_a_instance != NULL &&
+        process ==
+            &scheduler_context_test_a_instance->process
+    ) {
+        if (
+            scheduler_context_test_a_completed ||
+            process->state !=
+                PROCESS_STATE_TERMINATED ||
+            process->termination_reason !=
+                PROCESS_TERMINATION_EXITED ||
+            process->exit_status != 0
+        ) {
+            kernel_panic(
+                "Scheduler context process A produced unexpected result"
+            );
+        }
+
+        /*
+         * A is deliberately the shorter workload. Reaching this point while B
+         * is still alive establishes the survivor phase of the regression.
+         */
+        if (
+            scheduler_context_test_b_instance == NULL ||
+            scheduler_context_test_b_instance
+                ->process.state ==
+                PROCESS_STATE_TERMINATED
+        ) {
+            kernel_panic(
+                "Scheduler context process B did not survive process A"
+            );
+        }
+
+        if (!process_release_terminated(
+            scheduler_context_test_a_instance
+        )) {
+            kernel_panic(
+                "Unable to release scheduler context process A"
+            );
+        }
+
+        scheduler_context_test_a_instance = NULL;
+        scheduler_context_test_a_completed = true;
+
+        diagnostics_write(
+            "[scheduler] Context process A completed; B survived\n"
+        );
+
+        return;
+    }
+
+    if (
+        scheduler_context_test_b_instance == NULL ||
+        process !=
+            &scheduler_context_test_b_instance->process
+    ) {
+        kernel_panic(
+            "Scheduler context test received unexpected process"
+        );
+    }
+
+    if (!scheduler_context_test_a_completed) {
+        kernel_panic(
+            "Scheduler context process B terminated before A"
+        );
+    }
+
+    if (
+        process->state !=
+            PROCESS_STATE_TERMINATED ||
+        process->termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        process->exit_status != 0
+    ) {
+        kernel_panic(
+            "Scheduler context process B produced unexpected result"
+        );
+    }
+
+    if (!process_release_terminated(
+        scheduler_context_test_b_instance
+    )) {
+        kernel_panic(
+            "Unable to release scheduler context process B"
+        );
+    }
+
+    scheduler_context_test_b_instance = NULL;
+
+    uint64_t preemptions =
+        scheduler_test_preemption_count() -
+        scheduler_context_test_preemption_baseline;
+
+    uint64_t cross_address_space_preemptions =
+        scheduler_test_cross_address_space_preemption_count() -
+        scheduler_context_test_cross_address_space_baseline;
+
+    if (
+        preemptions <
+            SCHEDULER_CONTEXT_TEST_MIN_PREEMPTIONS ||
+        cross_address_space_preemptions <
+            SCHEDULER_CONTEXT_TEST_MIN_CROSS_ADDRESS_SPACE_PREEMPTIONS
+    ) {
+        kernel_panic(
+            "Scheduler context test did not exercise enough preemption"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        scheduler_context_test_free_frame_baseline
+    ) {
+        kernel_panic(
+            "Scheduler context test leaked physical frames"
+        );
+    }
+
+    diagnostics_printf(
+        "[scheduler] Context-switch regression passed: "
+        "preemptions=%u cross-address-space=%u\n",
+        preemptions,
+        cross_address_space_preemptions
     );
 
     scheduler_set_terminated_handler(

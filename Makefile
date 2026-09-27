@@ -157,6 +157,10 @@ SYSCALL_POINTER_SOURCE := user/tests/syscall_pointer.S
 SYSCALL_POINTER_OBJECT := $(USER_TEST_BUILD_DIR)/syscall_pointer.o
 SYSCALL_POINTER_ELF    := $(USER_TEST_BUILD_DIR)/syscall_pointer.elf
 
+SCHEDULER_CONTEXT_SOURCE := user/tests/scheduler_context.S
+SCHEDULER_CONTEXT_OBJECT := $(USER_TEST_BUILD_DIR)/scheduler_context.o
+SCHEDULER_CONTEXT_ELF    := $(USER_TEST_BUILD_DIR)/scheduler_context.elf
+
 ELF_ENTRY_CFLAGS := \
 	--target=$(TARGET) \
 	-ffreestanding \
@@ -206,6 +210,19 @@ $(SYSCALL_POINTER_ELF): \
 		-T $(ELF_ENTRY_LINKER_SCRIPT) \
 		-o $@ \
 		$(SYSCALL_POINTER_OBJECT)
+
+$(SCHEDULER_CONTEXT_OBJECT): $(SCHEDULER_CONTEXT_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(SCHEDULER_CONTEXT_ELF): \
+	$(SCHEDULER_CONTEXT_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(SCHEDULER_CONTEXT_OBJECT)
 
 # -----------------------------------------------------------------------------
 # Kernel
@@ -277,6 +294,9 @@ PROCESS_SYSCALL_ABI_FIXTURE_OBJ := \
 
 PROCESS_SYSCALL_POINTER_FIXTURE_OBJ := \
 	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_syscall_pointer_fixture.o
+
+PROCESS_SCHEDULER_CONTEXT_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_scheduler_context_fixture.o
 
 KERNEL_OBJS := \
 	$(KERNEL_C_OBJS) \
@@ -367,6 +387,8 @@ $(PROCESS_ELF_ENTRY_FIXTURE_OBJ): $(ELF_ENTRY_ELF)
 $(PROCESS_SYSCALL_ABI_FIXTURE_OBJ): $(SYSCALL_ABI_ELF)
 
 $(PROCESS_SYSCALL_POINTER_FIXTURE_OBJ): $(SYSCALL_POINTER_ELF)
+
+$(PROCESS_SCHEDULER_CONTEXT_FIXTURE_OBJ): $(SCHEDULER_CONTEXT_ELF)
 endif
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
