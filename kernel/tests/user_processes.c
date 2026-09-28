@@ -411,6 +411,67 @@ void user_process_exec_test_syscall(
     }
 }
 
+void user_process_scheduler_context_test_syscall(
+    struct interrupt_context *context,
+    uint64_t workload)
+{
+    if (context == NULL) {
+        kernel_panic(
+            "Scheduler context gate received null syscall context"
+        );
+    }
+
+    struct process *process =
+        scheduler_current();
+
+    if (workload == 0) {
+        if (
+            scheduler_context_test_a_instance == NULL ||
+            process !=
+                &scheduler_context_test_a_instance->process
+        ) {
+            kernel_panic(
+                "Scheduler context gate observed incorrect process A"
+            );
+        }
+
+        uint64_t cross_address_space_preemptions =
+            scheduler_test_cross_address_space_preemption_count() -
+            scheduler_context_test_cross_address_space_baseline;
+
+        context->rax =
+            cross_address_space_preemptions >=
+                SCHEDULER_CONTEXT_TEST_MIN_CROSS_ADDRESS_SPACE_PREEMPTIONS
+                ? 1
+                : 0;
+
+        return;
+    }
+
+    if (workload == 1) {
+        if (
+            scheduler_context_test_b_instance == NULL ||
+            process !=
+                &scheduler_context_test_b_instance->process
+        ) {
+            kernel_panic(
+                "Scheduler context gate observed incorrect process B"
+            );
+        }
+
+        context->rax =
+            scheduler_context_test_a_completed
+                ? 1
+                : 0;
+
+        return;
+    }
+
+    kernel_panic(
+        "Scheduler context gate received invalid workload"
+    );
+}
+
 static void user_process_tests_prepare_standard(void)
 {
     user_process_test_prepare(

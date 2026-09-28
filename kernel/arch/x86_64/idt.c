@@ -777,7 +777,16 @@ void syscall_handler(struct interrupt_context *context)
     }
 
 #if MYOS_KERNEL_TESTS
-        if (context->rax == SYSCALL_TEST_EXEC) {
+    if (context->rax == SYSCALL_TEST_CONTEXT_GATE) {
+        user_process_scheduler_context_test_syscall(
+            context,
+            context->rdi
+        );
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_TEST_EXEC) {
         user_process_exec_test_syscall(
             context,
             context->rdi
