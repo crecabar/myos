@@ -11,9 +11,9 @@
 #ifndef MYOS_SYSCALL_TEST_NUMBERS_H
 #define MYOS_SYSCALL_TEST_NUMBERS_H
 
-#define SYSCALL_TEST_SLEEP         5
-#define SYSCALL_TEST_BLOCK         6
-#define SYSCALL_TEST_EXEC          7
-#define SYSCALL_TEST_CONTEXT_GATE  8
+#define SYSCALL_TEST_SLEEP         0x100
+#define SYSCALL_TEST_BLOCK         0x101
+#define SYSCALL_TEST_EXEC          0x102
+#define SYSCALL_TEST_CONTEXT_GATE  0x103
 
 #endif
