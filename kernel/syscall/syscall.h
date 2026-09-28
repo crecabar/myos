@@ -61,10 +61,11 @@ typedef int64_t syscall_result_t;
  * A future libc may translate these identifiers into its public errno
  * representation independently of the kernel ABI.
  */
-enum syscall_error {
+ enum syscall_error {
     SYSCALL_ERROR_INVALID_ARGUMENT = 1,
     SYSCALL_ERROR_BAD_ADDRESS = 2,
-    SYSCALL_ERROR_NOT_IMPLEMENTED = 3
+    SYSCALL_ERROR_NOT_IMPLEMENTED = 3,
+    SYSCALL_ERROR_NO_CHILD = 4
 };
 
 _Static_assert(
@@ -92,6 +93,28 @@ static inline bool syscall_result_is_error(
 #define SYSCALL_EXIT       2    // RDI = status
 #define SYSCALL_YIELD      3    // no arguments
 #define SYSCALL_WRITE      4    // RDI = buffer, RSI = length
+#define SYSCALL_WAITPID    5    // RDI = pid, RSI = status, RDX = options
+
+#define SYSCALL_WAITPID_NOHANG (1ULL << 0)
+
+enum syscall_wait_termination_reason {
+    SYSCALL_WAIT_TERMINATION_EXITED = 1,
+    SYSCALL_WAIT_TERMINATION_SEGMENTATION_FAULT,
+    SYSCALL_WAIT_TERMINATION_ILLEGAL_INSTRUCTION,
+    SYSCALL_WAIT_TERMINATION_PROTECTION_FAULT,
+    SYSCALL_WAIT_TERMINATION_ARITHMETIC_FAULT,
+    SYSCALL_WAIT_TERMINATION_TRAP,
+};
+
+struct syscall_wait_status {
+    uint64_t termination_reason;
+    uint64_t exit_status;
+};
+
+_Static_assert(
+    sizeof(struct syscall_wait_status) == 16,
+    "syscall wait status ABI must occupy 16 bytes"
+);
 
 /**
  * Dispatches one system call requested by user mode.
