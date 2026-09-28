@@ -1176,6 +1176,29 @@ void process_elf_lifecycle_test_run(void)
     struct process_wait_status wait_status;
 
     if (
+        process_waitpid_peek(
+            wait_parent,
+            wait_child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_NOT_TERMINATED
+    ) {
+        kernel_panic(
+            "waitpid peek reported running child as terminated"
+        );
+    }
+
+    if (
+        process_wait_peek(
+            wait_parent,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_NOT_TERMINATED
+    ) {
+        kernel_panic(
+            "wait peek reported running child as terminated"
+        );
+    }
+
+    if (
         process_waitpid_try_reap(
             wait_parent,
             wait_child_pid,
@@ -1258,6 +1281,71 @@ void process_elf_lifecycle_test_run(void)
     ) {
         kernel_panic(
             "Waiting parent resumed with incorrect wait state"
+        );
+    }
+
+    if (
+        process_waitpid_peek(
+            wait_parent,
+            wait_child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_TERMINATED
+    ) {
+        kernel_panic(
+            "waitpid peek failed to observe terminated child"
+        );
+    }
+
+    if (
+        wait_status.pid != wait_child_pid ||
+        wait_status.termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        wait_status.exit_status != 37
+    ) {
+        kernel_panic(
+            "waitpid peek returned incorrect child status"
+        );
+    }
+
+    if (
+        wait_parent->first_child != wait_child ||
+        !wait_parent->wait_active
+    ) {
+        kernel_panic(
+            "waitpid peek consumed child lifecycle state"
+        );
+    }
+
+    struct process_wait_status wait_any_status;
+
+    if (
+        process_wait_peek(
+            wait_parent,
+            &wait_any_status
+        ) != PROCESS_WAIT_RESULT_TERMINATED
+    ) {
+        kernel_panic(
+            "wait peek failed to observe terminated child"
+        );
+    }
+
+    if (
+        wait_any_status.pid != wait_child_pid ||
+        wait_any_status.termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        wait_any_status.exit_status != 37
+    ) {
+        kernel_panic(
+            "wait peek returned incorrect child status"
+        );
+    }
+
+    if (
+        wait_parent->first_child != wait_child ||
+        !wait_parent->wait_active
+    ) {
+        kernel_panic(
+            "wait peek consumed child lifecycle state"
         );
     }
 

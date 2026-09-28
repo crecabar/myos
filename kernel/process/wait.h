@@ -17,6 +17,7 @@ enum process_wait_result {
     PROCESS_WAIT_RESULT_NO_CHILD,
     PROCESS_WAIT_RESULT_NOT_TERMINATED,
     PROCESS_WAIT_RESULT_REAPED,
+    PROCESS_WAIT_RESULT_TERMINATED,
 };
 
 struct process_wait_status {
@@ -72,6 +73,38 @@ bool process_wait_cancel(
  */
 bool process_wait_notify_terminated(
     struct process_instance *child
+);
+
+/**
+ * Observes one direct child without consuming its termination state.
+ *
+ * @param parent Parent lifecycle instance.
+ * @param child_pid Direct child PID.
+ * @param status Optional destination for observed termination information.
+ *
+ * @return TERMINATED when the child is waitable, NOT_TERMINATED while it is
+ *         still alive, NO_CHILD when no matching direct child exists, or
+ *         INVALID_ARGUMENT for an invalid request.
+ */
+enum process_wait_result process_waitpid_peek(
+    struct process_instance *parent,
+    uint64_t child_pid,
+    struct process_wait_status *status
+);
+
+/**
+ * Observes any terminated direct child without consuming it.
+ *
+ * @param parent Parent lifecycle instance.
+ * @param status Optional destination for observed termination information.
+ *
+ * @return TERMINATED when a child is waitable, NOT_TERMINATED when children
+ *         exist but none has terminated, NO_CHILD when there are no direct
+ *         children, or INVALID_ARGUMENT for an invalid request.
+ */
+enum process_wait_result process_wait_peek(
+    struct process_instance *parent,
+    struct process_wait_status *status
 );
 
 enum process_wait_result process_waitpid_try_reap(

@@ -22,89 +22,12 @@ static enum process_wait_result process_wait_reap_child(
     struct process_wait_status *status
 );
 
+static enum process_wait_result process_wait_observe_child(
+    const struct process_instance *child,
+    struct process_wait_status *status
+);
+
 // Public functions implementations
-enum process_wait_result process_waitpid_try_reap(
-    struct process_instance *parent,
-    uint64_t child_pid,
-    struct process_wait_status *status)
-{
-    if (parent == NULL || child_pid == 0) {
-        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
-    }
-
-    if (parent->process.instance != parent) {
-        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
-    }
-
-    struct process_instance *previous = NULL;
-    struct process_instance *child =
-        parent->first_child;
-
-    while (child != NULL) {
-        if (child->process.id == child_pid) {
-            if (
-                child->process.state !=
-                PROCESS_STATE_TERMINATED
-            ) {
-                return
-                    PROCESS_WAIT_RESULT_NOT_TERMINATED;
-            }
-
-            return process_wait_reap_child(
-                parent,
-                previous,
-                child,
-                status
-            );
-        }
-
-        previous = child;
-        child = child->next_sibling;
-    }
-
-    return PROCESS_WAIT_RESULT_NO_CHILD;
-}
-
-enum process_wait_result process_wait_try_reap(
-    struct process_instance *parent,
-    struct process_wait_status *status)
-{
-    if (parent == NULL) {
-        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
-    }
-
-    if (parent->process.instance != parent) {
-        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
-    }
-
-    struct process_instance *previous = NULL;
-    struct process_instance *child =
-        parent->first_child;
-
-    if (child == NULL) {
-        return PROCESS_WAIT_RESULT_NO_CHILD;
-    }
-
-    while (child != NULL) {
-        if (
-            child->process.state ==
-            PROCESS_STATE_TERMINATED
-        ) {
-            return process_wait_reap_child(
-                parent,
-                previous,
-                child,
-                status
-            );
-        }
-
-        previous = child;
-        child = child->next_sibling;
-    }
-
-    return PROCESS_WAIT_RESULT_NOT_TERMINATED;
-}
-
 bool process_wait_register(
     struct process_instance *parent,
     uint64_t child_pid)
@@ -233,7 +156,180 @@ bool process_wait_notify_terminated(
     return true;
 }
 
+enum process_wait_result process_waitpid_peek(
+    struct process_instance *parent,
+    uint64_t child_pid,
+    struct process_wait_status *status)
+{
+    if (parent == NULL || child_pid == 0) {
+        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (parent->process.instance != parent) {
+        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct process_instance *child =
+        parent->first_child;
+
+    while (child != NULL) {
+        if (child->process.id == child_pid) {
+            return process_wait_observe_child(
+                child,
+                status
+            );
+        }
+
+        child = child->next_sibling;
+    }
+
+    return PROCESS_WAIT_RESULT_NO_CHILD;
+}
+
+enum process_wait_result process_wait_peek(
+    struct process_instance *parent,
+    struct process_wait_status *status)
+{
+    if (parent == NULL) {
+        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (parent->process.instance != parent) {
+        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct process_instance *child =
+        parent->first_child;
+
+    if (child == NULL) {
+        return PROCESS_WAIT_RESULT_NO_CHILD;
+    }
+
+    while (child != NULL) {
+        if (
+            child->process.state ==
+            PROCESS_STATE_TERMINATED
+        ) {
+            return process_wait_observe_child(
+                child,
+                status
+            );
+        }
+
+        child = child->next_sibling;
+    }
+
+    return PROCESS_WAIT_RESULT_NOT_TERMINATED;
+}
+
+enum process_wait_result process_waitpid_try_reap(
+    struct process_instance *parent,
+    uint64_t child_pid,
+    struct process_wait_status *status)
+{
+    if (parent == NULL || child_pid == 0) {
+        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (parent->process.instance != parent) {
+        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct process_instance *previous = NULL;
+    struct process_instance *child =
+        parent->first_child;
+
+    while (child != NULL) {
+        if (child->process.id == child_pid) {
+            if (
+                child->process.state !=
+                PROCESS_STATE_TERMINATED
+            ) {
+                return
+                    PROCESS_WAIT_RESULT_NOT_TERMINATED;
+            }
+
+            return process_wait_reap_child(
+                parent,
+                previous,
+                child,
+                status
+            );
+        }
+
+        previous = child;
+        child = child->next_sibling;
+    }
+
+    return PROCESS_WAIT_RESULT_NO_CHILD;
+}
+
+enum process_wait_result process_wait_try_reap(
+    struct process_instance *parent,
+    struct process_wait_status *status)
+{
+    if (parent == NULL) {
+        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (parent->process.instance != parent) {
+        return PROCESS_WAIT_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct process_instance *previous = NULL;
+    struct process_instance *child =
+        parent->first_child;
+
+    if (child == NULL) {
+        return PROCESS_WAIT_RESULT_NO_CHILD;
+    }
+
+    while (child != NULL) {
+        if (
+            child->process.state ==
+            PROCESS_STATE_TERMINATED
+        ) {
+            return process_wait_reap_child(
+                parent,
+                previous,
+                child,
+                status
+            );
+        }
+
+        previous = child;
+        child = child->next_sibling;
+    }
+
+    return PROCESS_WAIT_RESULT_NOT_TERMINATED;
+}
+
 // Private functions and helpers implementations
+static enum process_wait_result process_wait_observe_child(
+    const struct process_instance *child,
+    struct process_wait_status *status)
+{
+    if (
+        child->process.state !=
+        PROCESS_STATE_TERMINATED
+    ) {
+        return PROCESS_WAIT_RESULT_NOT_TERMINATED;
+    }
+
+    if (status != NULL) {
+        status->pid =
+            child->process.id;
+
+        status->termination_reason =
+            child->process.termination_reason;
+
+        status->exit_status =
+            child->process.exit_status;
+    }
+
+    return PROCESS_WAIT_RESULT_TERMINATED;
+}
+
 static enum process_wait_result process_wait_reap_child(
     struct process_instance *parent,
     struct process_instance *previous,
