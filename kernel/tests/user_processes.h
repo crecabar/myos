@@ -8,8 +8,6 @@
 #ifndef MYOS_TESTS_USER_PROCESSES_H
 #define MYOS_TESTS_USER_PROCESSES_H
 
-#include "../arch/x86_64/interrupts.h"
-
 #include <stdint.h>
 
 /**
@@ -19,20 +17,5 @@
  * kernel lifetime.
  */
 void user_process_tests_prepare(void);
-
-/**
- * Handles the MYOS_KERNEL_TESTS-only exec regression syscall.
- *
- * Operation zero exercises a failed replacement and returns an error to the
- * original userspace image. Operation one commits the prepared target image
- * and rewrites the active syscall frame so IRETQ enters its _start.
- *
- * @param context Active Ring-3 syscall frame.
- * @param operation Exec regression operation.
- */
-void user_process_exec_test_syscall(
-    struct interrupt_context *context,
-    uint64_t operation
-);
 
 #endif
