@@ -9,6 +9,7 @@
 #include "../arch/x86_64/timer.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../process/lifecycle.h"
 
 #include <stddef.h>
 
@@ -49,6 +50,11 @@ static void scheduler_switch_from_interrupt(
 
 static void scheduler_detach_terminated(
     struct process *process
+);
+
+static bool scheduler_block_current_internal(
+    struct interrupt_context *context,
+    bool preserve_context
 );
 
 void scheduler_init(void)
@@ -469,6 +475,10 @@ static void scheduler_detach_terminated(
         );
     }
 
+    process_lifecycle_notify_terminated(
+        process
+    );
+
     if (terminated_handler != NULL) {
         terminated_handler(process);
     }
@@ -688,7 +698,27 @@ bool scheduler_sleep_current(
     return true;
 }
 
-bool scheduler_block_current(struct interrupt_context *context)
+bool scheduler_block_current(
+    struct interrupt_context *context)
+{
+    return scheduler_block_current_internal(
+        context,
+        false
+    );
+}
+
+bool scheduler_block_current_preserve_context(
+    struct interrupt_context *context)
+{
+    return scheduler_block_current_internal(
+        context,
+        true
+    );
+}
+
+static bool scheduler_block_current_internal(
+    struct interrupt_context *context,
+    bool preserve_context)
 {
     if (context == NULL || current_process == NULL) {
         return false;
@@ -743,8 +773,12 @@ bool scheduler_block_current(struct interrupt_context *context)
         context
     );
 
-    blocked_process->context.rax = 0;
-    blocked_process->state = PROCESS_STATE_BLOCKED;
+    if (!preserve_context) {
+        blocked_process->context.rax = 0;
+    }
+
+    blocked_process->state =
+        PROCESS_STATE_BLOCKED;
 
     current_process = NULL;
 

@@ -266,6 +266,22 @@ void scheduler_yield_current(struct interrupt_context *context);
 bool scheduler_block_current(struct interrupt_context *context);
 
 /**
+ * Blocks the current process while preserving the complete interrupted
+ * userspace context exactly as supplied.
+ *
+ * Unlike scheduler_block_current(), this operation does not replace saved RAX
+ * with zero. It is intended for restartable operations whose caller has
+ * already prepared the context that must execute after wakeup.
+ *
+ * @param context Current user-mode interrupt frame.
+ *
+ * @return true when the process was blocked; false otherwise.
+ */
+bool scheduler_block_current_preserve_context(
+    struct interrupt_context *context
+);
+
+/**
  * Preempts the currently running process.
  *
  * The interrupted user context is saved, the current process returns to the

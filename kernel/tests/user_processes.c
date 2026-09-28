@@ -1756,6 +1756,13 @@ static void user_process_scheduler_context_test_terminated(
         scheduler_test_cross_address_space_preemption_count() -
         scheduler_context_test_cross_address_space_baseline;
 
+    diagnostics_printf(
+        "[scheduler] Context-switch observed: "
+        "preemptions=%u cross-address-space=%u\n",
+        preemptions,
+        cross_address_space_preemptions
+    );
+
     if (
         preemptions <
             SCHEDULER_CONTEXT_TEST_MIN_PREEMPTIONS ||

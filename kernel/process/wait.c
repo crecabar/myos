@@ -222,9 +222,15 @@ bool process_wait_notify_terminated(
         return false;
     }
 
-    return scheduler_wake_blocked(
+    if (!scheduler_wake_blocked(
         &parent->process
-    );
+    )) {
+        kernel_panic(
+            "Unable to wake parent waiting for terminated child"
+        );
+    }
+
+    return true;
 }
 
 // Private functions and helpers implementations
