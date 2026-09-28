@@ -12,13 +12,13 @@
  * must preserve GPRs, RSP, RFLAGS, control flow and private memory.
  */
 
+#include "../../kernel/syscall/test_numbers.h"
+
 .section .text
 .global _start
 .type _start, @function
 
 .set SYSCALL_EXIT, 2
-
-.set SYSCALL_TEST_CONTEXT_GATE, 8
 
 .set CONTEXT_GATE_DELAY, 0x01000000
 

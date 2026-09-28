@@ -11,6 +11,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#if MYOS_KERNEL_TESTS
+#include "test_numbers.h"
+#endif
+
 /*
  * MyOS x86-64 syscall ABI version.
  *
@@ -88,13 +92,6 @@ static inline bool syscall_result_is_error(
 #define SYSCALL_EXIT       2    // RDI = status
 #define SYSCALL_YIELD      3    // no arguments
 #define SYSCALL_WRITE      4    // RDI = buffer, RSI = length
-
-#if MYOS_KERNEL_TESTS
-#define SYSCALL_TEST_SLEEP        5
-#define SYSCALL_TEST_BLOCK        6
-#define SYSCALL_TEST_EXEC         7
-#define SYSCALL_TEST_CONTEXT_GATE 8
-#endif
 
 /**
  * Dispatches one system call requested by user mode.

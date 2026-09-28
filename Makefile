@@ -143,6 +143,7 @@ CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 # -----------------------------------------------------------------------------
 
 USER_TEST_BUILD_DIR := $(BUILD_DIR)/user-tests
+TEST_SYSCALL_NUMBERS_HEADER := kernel/syscall/test_numbers.h
 
 ELF_ENTRY_SOURCE        := user/tests/elf_entry.S
 ELF_ENTRY_LINKER_SCRIPT := user/tests/elf_entry.ld
@@ -219,7 +220,10 @@ $(SYSCALL_POINTER_ELF): \
 		-o $@ \
 		$(SYSCALL_POINTER_OBJECT)
 
-$(SCHEDULER_CONTEXT_OBJECT): $(SCHEDULER_CONTEXT_SOURCE) | $(USER_TEST_BUILD_DIR)
+$(SCHEDULER_CONTEXT_OBJECT): \
+	$(SCHEDULER_CONTEXT_SOURCE) \
+	$(TEST_SYSCALL_NUMBERS_HEADER) \
+	| $(USER_TEST_BUILD_DIR)
 	$(CLANG) $(ELF_ENTRY_CFLAGS) \
 		-c $< \
 		-o $@
@@ -232,7 +236,10 @@ $(SCHEDULER_CONTEXT_ELF): \
 		-o $@ \
 		$(SCHEDULER_CONTEXT_OBJECT)
 
-$(EXEC_CALLER_OBJECT): $(EXEC_CALLER_SOURCE) | $(USER_TEST_BUILD_DIR)
+$(EXEC_CALLER_OBJECT): \
+	$(EXEC_CALLER_SOURCE) \
+	$(TEST_SYSCALL_NUMBERS_HEADER) \
+	| $(USER_TEST_BUILD_DIR)
 	$(CLANG) $(ELF_ENTRY_CFLAGS) \
 		-c $< \
 		-o $@
