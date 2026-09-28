@@ -117,6 +117,41 @@ _Static_assert(
 );
 
 /**
+ * Describes how the architecture syscall path must complete waitpid().
+ *
+ * This is a kernel-internal control result and is not part of the published
+ * userspace syscall ABI.
+ */
+enum syscall_waitpid_action {
+    SYSCALL_WAITPID_ACTION_RETURN,
+    SYSCALL_WAITPID_ACTION_BLOCK,
+};
+
+/**
+ * Prepares one waitpid operation.
+ *
+ * Immediate results are written to result and return
+ * SYSCALL_WAITPID_ACTION_RETURN.
+ *
+ * A blocking wait is registered in the process lifecycle and returns
+ * SYSCALL_WAITPID_ACTION_BLOCK. The architecture syscall path must then
+ * preserve and suspend the current process context.
+ *
+ * @param child_pid Direct child PID, or zero for any direct child.
+ * @param status_address Userspace status destination, or zero to discard it.
+ * @param options waitpid option flags.
+ * @param result Receives an immediate syscall result.
+ *
+ * @return Required completion action.
+ */
+enum syscall_waitpid_action syscall_waitpid_prepare(
+    uint64_t child_pid,
+    uint64_t status_address,
+    uint64_t options,
+    syscall_result_t *result
+);
+
+/**
  * Dispatches one system call requested by user mode.
  *
  * MyOS uses the x86-64 system call register convention:

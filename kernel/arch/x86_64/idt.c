@@ -8,6 +8,7 @@
 #include "../../core/panic.h"
 #include "../../diagnostics/diagnostics.h"
 #include "../../process/process.h"
+#include "../../process/wait.h"
 #include "../../scheduler/scheduler.h"
 #include "../../syscall/syscall.h"
 #if MYOS_KERNEL_TESTS
@@ -22,6 +23,8 @@
 
 #define IDT_IST_NONE 0
 #define IDT_IST_DOUBLE_FAULT 1
+
+#define X86_INT_IMM8_INSTRUCTION_SIZE 2ULL
 
 enum x86_exception_vector {
     X86_EXCEPTION_DIVIDE_ERROR = 0,
@@ -771,6 +774,120 @@ void exception_handler(struct interrupt_context *context)
 
 void syscall_handler(struct interrupt_context *context)
 {
+    if (context->rax == SYSCALL_WAITPID) {
+        syscall_result_t result;
+
+        enum syscall_waitpid_action action =
+            syscall_waitpid_prepare(
+                context->rdi,
+                context->rsi,
+                context->rdx,
+                &result
+            );
+
+        if (
+            action ==
+            SYSCALL_WAITPID_ACTION_RETURN
+        ) {
+            context->rax =
+                (uint64_t) result;
+
+            return;
+        }
+
+        if (
+            action !=
+            SYSCALL_WAITPID_ACTION_BLOCK
+        ) {
+            kernel_panic(
+                "waitpid returned invalid architecture action"
+            );
+        }
+
+        struct process *process =
+            scheduler_current();
+
+        if (
+            process == NULL ||
+            process->instance == NULL
+        ) {
+            kernel_panic(
+                "waitpid lost current process before blocking"
+            );
+        }
+
+        struct process_instance *parent =
+            process->instance;
+
+        /*
+         * INT imm8 is exactly two bytes on x86-64. The saved RIP points to
+         * the instruction following int 0x80, so rewinding it makes the
+         * blocked process retry the complete syscall after wakeup.
+         */
+        if (
+            context->rip <
+                X86_INT_IMM8_INSTRUCTION_SIZE
+        ) {
+            if (!process_wait_cancel(parent)) {
+                kernel_panic(
+                    "Unable to cancel waitpid after invalid return RIP"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        uint64_t syscall_rip =
+            context->rip -
+            X86_INT_IMM8_INSTRUCTION_SIZE;
+
+        if (!process_memory_user_range_valid(
+            syscall_rip,
+            X86_INT_IMM8_INSTRUCTION_SIZE
+        )) {
+            if (!process_wait_cancel(parent)) {
+                kernel_panic(
+                    "Unable to cancel waitpid after invalid syscall RIP"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        context->rip =
+            syscall_rip;
+
+        if (!scheduler_block_current_preserve_context(
+            context
+        )) {
+            context->rip +=
+                X86_INT_IMM8_INSTRUCTION_SIZE;
+
+            if (!process_wait_cancel(parent)) {
+                kernel_panic(
+                    "Unable to cancel failed waitpid block"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+        }
+
+        return;
+    }
+
     if (context->rax == SYSCALL_YIELD) {
         scheduler_yield_current(context);
 
