@@ -9,6 +9,7 @@
 #include "user_processes/block.h"
 #include "user_processes/exec.h"
 #include "user_processes/fixture.h"
+#include "user_processes/lifecycle_stress.h"
 #include "user_processes/scheduler_context.h"
 #include "user_processes/sleep.h"
 #include "user_processes/syscall_abi.h"
@@ -36,9 +37,6 @@
 #define USER_PROCESS_TEST_COUNT 8
 #define USER_PROCESS_ELF_TEST_INDEX 7
 
-#define USER_PROCESS_LIFECYCLE_STRESS_CYCLES 12
-#define USER_PROCESS_LIFECYCLE_STRESS_PID_BASE 100
-
 extern const uint8_t process_elf_entry_fixture_start[];
 extern const uint8_t process_elf_entry_fixture_end[];
 
@@ -46,11 +44,6 @@ extern const uint8_t process_elf_entry_fixture_end[];
 static struct user_process_fixture fixtures[
     USER_PROCESS_LEGACY_TEST_COUNT
 ];
-
-static struct user_process_fixture lifecycle_stress_fixture;
-
-static size_t lifecycle_stress_cycle;
-static uint64_t lifecycle_stress_free_frame_baseline;
 
 static struct process_instance *elf_test_instance;
 
@@ -61,8 +54,11 @@ static bool standard_process_completed[
 static size_t standard_process_completed_count;
 
 // Private helpers declarations
-
 static void user_process_elf_test_prepare(void);
+
+static void user_process_lifecycle_stress_terminated_handler(
+    struct process *process
+);
 
 static void user_process_block_terminated_handler(
     struct process *process
@@ -90,13 +86,6 @@ static void user_process_syscall_pointer_terminated_handler(
 
 static void user_process_tests_prepare_standard(void);
 
-static void user_process_lifecycle_stress_prepare_cycle(void);
-
-static void user_process_lifecycle_stress_terminated(
-    struct process *process
-);
-
-
 static void user_process_tests_dump(void);
 
 static void user_process_standard_terminated(
@@ -117,16 +106,32 @@ void user_process_tests_prepare(void)
         standard_process_completed[index] = false;
     }
 
-    lifecycle_stress_cycle = 0;
-
-    lifecycle_stress_free_frame_baseline =
-        physical_free_frame_count();
-
     scheduler_set_terminated_handler(
-        user_process_lifecycle_stress_terminated
+        user_process_lifecycle_stress_terminated_handler
     );
 
-    user_process_lifecycle_stress_prepare_cycle();
+    user_process_lifecycle_stress_test_prepare();
+}
+
+static void user_process_lifecycle_stress_terminated_handler(
+    struct process *process)
+{
+    if (!user_process_lifecycle_stress_test_terminated(
+        process
+    )) {
+        return;
+    }
+
+    /*
+     * No standard processes have been registered yet.
+     * The sleep probe will therefore be the only runnable
+     * process and must pass through scheduler_idle().
+     */
+    scheduler_set_terminated_handler(
+        user_process_sleep_terminated_handler
+    );
+
+    user_process_sleep_test_prepare();
 }
 
 static void user_process_sleep_terminated_handler(
@@ -337,126 +342,6 @@ static void user_process_elf_test_prepare(void)
             "Unable to dynamically create ELF user test process"
         );
     }
-}
-
-static void user_process_lifecycle_stress_prepare_cycle(void)
-{
-    const struct user_program *program;
-
-    if ((lifecycle_stress_cycle % 2) == 0) {
-        program =
-            user_program_survivor();
-    } else {
-        program =
-            user_program_malicious_page_fault();
-    }
-
-    uint64_t process_id =
-        USER_PROCESS_LIFECYCLE_STRESS_PID_BASE +
-        (uint64_t) lifecycle_stress_cycle;
-
-    diagnostics_printf(
-        "[process] Lifecycle stress cycle %u/%u, PID %u\n",
-        (uint64_t) lifecycle_stress_cycle + 1,
-        (uint64_t) USER_PROCESS_LIFECYCLE_STRESS_CYCLES,
-        process_id
-    );
-
-    user_process_fixture_prepare(
-        &lifecycle_stress_fixture,
-        process_id,
-        program
-    );
-
-    if (
-        physical_free_frame_count() >=
-        lifecycle_stress_free_frame_baseline
-    ) {
-        kernel_panic(
-            "Lifecycle stress process did not allocate resources"
-        );
-    }
-}
-
-static void user_process_lifecycle_stress_terminated(
-    struct process *process)
-{
-    if (process != &lifecycle_stress_fixture.process) {
-        kernel_panic(
-            "Lifecycle stress handler received unexpected process"
-        );
-    }
-
-    uint64_t expected_id =
-        USER_PROCESS_LIFECYCLE_STRESS_PID_BASE +
-        (uint64_t) lifecycle_stress_cycle;
-
-    if (process->id != expected_id) {
-        kernel_panic(
-            "Lifecycle stress process identifier changed"
-        );
-    }
-
-    if ((lifecycle_stress_cycle % 2) == 0) {
-        if (
-            process->termination_reason !=
-                PROCESS_TERMINATION_EXITED ||
-            process->exit_status != 0
-        ) {
-            kernel_panic(
-                "Lifecycle stress normal exit was not preserved"
-            );
-        }
-    } else {
-        if (
-            process->termination_reason !=
-                PROCESS_TERMINATION_SEGMENTATION_FAULT
-        ) {
-            kernel_panic(
-                "Lifecycle stress fault termination was not preserved"
-            );
-        }
-    }
-
-    if (!process_reclaim_resources(process)) {
-        kernel_panic(
-            "Unable to reclaim lifecycle stress process"
-        );
-    }
-
-    if (
-        physical_free_frame_count() !=
-        lifecycle_stress_free_frame_baseline
-    ) {
-        kernel_panic(
-            "Lifecycle stress leaked physical frames"
-        );
-    }
-
-    ++lifecycle_stress_cycle;
-
-    if (
-        lifecycle_stress_cycle <
-        USER_PROCESS_LIFECYCLE_STRESS_CYCLES
-    ) {
-        user_process_lifecycle_stress_prepare_cycle();
-        return;
-    }
-
-    diagnostics_write(
-        "[process] Repeated process lifecycle stress test passed\n"
-    );
-
-    /*
-     * No standard processes have been registered yet.
-     * The sleep probe will therefore be the only runnable
-     * process and must pass through scheduler_idle().
-     */
-     scheduler_set_terminated_handler(
-        user_process_sleep_terminated_handler
-    );
-
-    user_process_sleep_test_prepare();
 }
 
 static void user_process_standard_terminated(
