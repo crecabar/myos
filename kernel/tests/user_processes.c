@@ -6,6 +6,7 @@
  */
 
 #include "user_processes.h"
+#include "user_processes/block.h"
 #include "user_processes/exec.h"
 #include "user_processes/fixture.h"
 #include "user_processes/scheduler_context.h"
@@ -38,10 +39,6 @@
 #define USER_PROCESS_LIFECYCLE_STRESS_CYCLES 12
 #define USER_PROCESS_LIFECYCLE_STRESS_PID_BASE 100
 
-#define USER_PROCESS_BLOCK_TEST_PID 115
-#define USER_PROCESS_EVENT_WORKER_TEST_PID 116
-#define USER_PROCESS_BLOCK_TEST_EXIT_STATUS 43
-
 extern const uint8_t process_elf_entry_fixture_start[];
 extern const uint8_t process_elf_entry_fixture_end[];
 
@@ -51,11 +48,6 @@ static struct user_process_fixture fixtures[
 ];
 
 static struct user_process_fixture lifecycle_stress_fixture;
-
-static struct user_process_fixture block_test_fixture;
-static struct user_process_fixture event_worker_test_fixture;
-
-static bool event_worker_completed;
 
 static size_t lifecycle_stress_cycle;
 static uint64_t lifecycle_stress_free_frame_baseline;
@@ -71,6 +63,10 @@ static size_t standard_process_completed_count;
 // Private helpers declarations
 
 static void user_process_elf_test_prepare(void);
+
+static void user_process_block_terminated_handler(
+    struct process *process
+);
 
 static void user_process_sleep_terminated_handler(
     struct process *process
@@ -100,9 +96,6 @@ static void user_process_lifecycle_stress_terminated(
     struct process *process
 );
 
-static void user_process_block_test_terminated(
-    struct process *process
-);
 
 static void user_process_tests_dump(void);
 
@@ -149,23 +142,27 @@ static void user_process_sleep_terminated_handler(
      * Register the blocking process first. Its syscall must transfer
      * execution to the event worker, which remains READY.
      */
-    event_worker_completed = false;
+     scheduler_set_terminated_handler(
+        user_process_block_terminated_handler
+    );
+
+    user_process_block_test_prepare();
+}
+
+static void user_process_block_terminated_handler(
+    struct process *process)
+{
+    if (!user_process_block_test_terminated(
+        process
+    )) {
+        return;
+    }
 
     scheduler_set_terminated_handler(
-        user_process_block_test_terminated
+        user_process_syscall_abi_terminated_handler
     );
 
-    user_process_fixture_prepare(
-        &block_test_fixture,
-        USER_PROCESS_BLOCK_TEST_PID,
-        user_program_block_probe()
-    );
-
-    user_process_fixture_prepare(
-        &event_worker_test_fixture,
-        USER_PROCESS_EVENT_WORKER_TEST_PID,
-        user_program_survivor()
-    );
+    user_process_syscall_abi_test_prepare();
 }
 
 static void user_process_syscall_abi_terminated_handler(
@@ -180,6 +177,20 @@ static void user_process_syscall_abi_terminated_handler(
     );
 
     user_process_syscall_pointer_test_prepare();
+}
+
+static void user_process_syscall_pointer_terminated_handler(
+    struct process *process)
+{
+    user_process_syscall_pointer_test_terminated(
+        process
+    );
+
+    scheduler_set_terminated_handler(
+        user_process_scheduler_context_terminated_handler
+    );
+
+    user_process_scheduler_context_test_prepare();
 }
 
 static void user_process_scheduler_context_terminated_handler(
@@ -210,20 +221,6 @@ static void user_process_exec_terminated_handler(
     );
 
     user_process_tests_prepare_standard();
-}
-
-static void user_process_syscall_pointer_terminated_handler(
-    struct process *process)
-{
-    user_process_syscall_pointer_test_terminated(
-        process
-    );
-
-    scheduler_set_terminated_handler(
-        user_process_scheduler_context_terminated_handler
-    );
-
-    user_process_scheduler_context_test_prepare();
 }
 
 static void user_process_tests_prepare_standard(void)
@@ -460,138 +457,6 @@ static void user_process_lifecycle_stress_terminated(
     );
 
     user_process_sleep_test_prepare();
-}
-
-static void user_process_block_test_terminated(
-    struct process *process)
-{
-    if (process == &event_worker_test_fixture.process) {
-        if (event_worker_completed) {
-            kernel_panic(
-                "Event worker completed more than once"
-            );
-        }
-
-        /*
-         * The worker's termination is the event that releases
-         * the blocked process. Verify its state before waking it.
-         */
-        if (
-            block_test_fixture.process.state !=
-            PROCESS_STATE_BLOCKED
-        ) {
-            kernel_panic(
-                "Event worker found process outside BLOCKED state"
-            );
-        }
-
-        if (
-            process->id != USER_PROCESS_EVENT_WORKER_TEST_PID ||
-            process->state != PROCESS_STATE_TERMINATED ||
-            process->termination_reason !=
-                PROCESS_TERMINATION_EXITED ||
-            process->exit_status != 0
-        ) {
-            kernel_panic(
-                "Event worker produced unexpected termination result"
-            );
-        }
-
-        if (!process_reclaim_resources(process)) {
-            kernel_panic(
-                "Unable to reclaim event worker resources"
-            );
-        }
-
-        /*
-         * The scheduler has detached the terminated worker
-         * and activated kernel address space before invoking
-         * this handler. The interrupt path still has IF disabled.
-         */
-        if (!scheduler_wake_blocked(&block_test_fixture.process)) {
-            kernel_panic(
-                "Unable to wake process after event worker termination"
-            );
-        }
-
-        if (
-            block_test_fixture.process.state !=
-                PROCESS_STATE_READY ||
-            scheduler_wake_blocked(&block_test_fixture.process)
-        ) {
-            kernel_panic(
-                "Explicit event wakeup violated state transition"
-            );
-        }
-
-        event_worker_completed = true;
-
-        diagnostics_write(
-            "[scheduler] Event worker woke BLOCKED process\n"
-        );
-
-        return;
-    }
-
-    if (process != &block_test_fixture.process) {
-        kernel_panic(
-            "BLOCKED test received unexpected terminated process"
-        );
-    }
-
-    if (!event_worker_completed) {
-        kernel_panic(
-            "BLOCKED process resumed before event completion"
-        );
-    }
-
-    if (
-        process->id != USER_PROCESS_BLOCK_TEST_PID ||
-        process->state != PROCESS_STATE_TERMINATED ||
-        process->termination_reason !=
-            PROCESS_TERMINATION_EXITED ||
-        process->exit_status !=
-            USER_PROCESS_BLOCK_TEST_EXIT_STATUS ||
-        process->sleep_start_ticks != 0 ||
-        process->sleep_duration_ticks != 0
-    ) {
-        kernel_panic(
-            "BLOCKED process did not resume with preserved context"
-        );
-    }
-
-    if (!process_reclaim_resources(process)) {
-        kernel_panic(
-            "Unable to reclaim BLOCKED test process resources"
-        );
-    }
-
-    if (
-        physical_free_frame_count() !=
-        lifecycle_stress_free_frame_baseline
-    ) {
-        kernel_panic(
-            "BLOCKED test leaked physical frames"
-        );
-    }
-
-    diagnostics_write(
-        "[scheduler] User BLOCKED/event wakeup test passed\n"
-    );
-
-    /*
-     * The event worker and blocked process have both terminated,
-     * been detached, and had their resources reclaimed.
-     */
-     /*
-     * Before launching the full standard process set, exercise the
-     * published syscall ABI from an independently built Ring-3 ELF.
-     */
-     scheduler_set_terminated_handler(
-        user_process_syscall_abi_terminated_handler
-    );
-
-    user_process_syscall_abi_test_prepare();
 }
 
 static void user_process_standard_terminated(
