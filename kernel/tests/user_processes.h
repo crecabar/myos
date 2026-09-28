@@ -35,21 +35,4 @@ void user_process_exec_test_syscall(
     uint64_t operation
 );
 
-/**
- * Handles the scheduler context regression completion gate.
- *
- * Workload zero belongs to process A and succeeds only after the regression
- * has observed enough cross-address-space timer preemptions.
- *
- * Workload one belongs to process B and succeeds only after process A has
- * terminated successfully.
- *
- * @param context Active Ring-3 syscall frame.
- * @param workload Scheduler-context workload identifier.
- */
-void user_process_scheduler_context_test_syscall(
-    struct interrupt_context *context,
-    uint64_t workload
-);
-
 #endif

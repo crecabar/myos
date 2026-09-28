@@ -12,6 +12,7 @@
 #include "../../syscall/syscall.h"
 #if MYOS_KERNEL_TESTS
 #include "../../tests/user_processes.h"
+#include "../../tests/user_processes/scheduler_context.h"
 #endif
 
 #include <stddef.h>
