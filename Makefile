@@ -401,6 +401,7 @@ $(CONFIG_STAMP): FORCE | $(BUILD_DIR)
 $(KERNEL_OBJ_DIR)/c/%.o: %.c $(CONFIG_STAMP) | $(LIMINE_HEADER)
 	@mkdir -p $(@D)
 	$(CLANG) $(CFLAGS) \
+		$(if $(filter 1,$(COMPDB_CAPTURE)),-MJ $@.json,) \
 		-MMD \
 		-MP \
 		-MF $(@:.o=.d) \
@@ -874,19 +875,34 @@ COMPDB := $(BUILD_DIR)/compile_commands.json
 .PHONY: compdb
 
 compdb:
-	@command -v $(BEAR) >/dev/null || { \
-		echo "error: Bear is not installed"; \
-		exit 1; \
-	}
-	@rm -f compile_commands.json $(COMPDB)
-	@mkdir -p $(BUILD_DIR)
-	@$(MAKE) -B -n \
-		CLANG="$(CLANG)" \
+	@rm -f $(COMPDB)
+	@if [ -d "$(KERNEL_OBJ_DIR)" ]; then \
+		find "$(KERNEL_OBJ_DIR)" \
+			-type f \
+			-name '*.o.json' \
+			-delete; \
+	fi
+	@$(MAKE) -B \
+		COMPDB_CAPTURE=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=1 \
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_QEMU_TEST_EXIT=1 \
-		all | $(BEAR) parse-sh
-	@mv compile_commands.json $(COMPDB)
+		all
+	@{ \
+		printf '[\n'; \
+		first=1; \
+		for file in $$(find "$(KERNEL_OBJ_DIR)/c" \
+			-type f \
+			-name '*.o.json' \
+			| sort); do \
+			if [ $$first -eq 0 ]; then \
+				printf ',\n'; \
+			fi; \
+			sed '$$s/,$$//' "$$file"; \
+			first=0; \
+		done; \
+		printf '\n]\n'; \
+	} > $(COMPDB)
 	@echo
 	@echo "Compilation database created:"
 	@echo "  $(COMPDB)"
