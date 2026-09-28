@@ -7,6 +7,7 @@
 
 #include "user_processes.h"
 #include "user_processes/exec.h"
+#include "user_processes/fixture.h"
 #include "user_processes/scheduler_context.h"
 #include "user_processes/syscall_abi.h"
 #include "user_processes/syscall_pointer.h"
@@ -18,8 +19,6 @@
 #include "../elf/elf64.h"
 #include "../memory/memory.h"
 #include "../process/create.h"
-#include "../process/layout.h"
-#include "../process/memory.h"
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"
 
@@ -51,11 +50,6 @@
 extern const uint8_t process_elf_entry_fixture_start[];
 extern const uint8_t process_elf_entry_fixture_end[];
 
-struct user_process_fixture {
-    struct process_memory memory;
-    struct process_layout layout;
-    struct process process;
-};
 
 static struct user_process_fixture fixtures[
     USER_PROCESS_LEGACY_TEST_COUNT
@@ -85,11 +79,6 @@ static bool standard_process_completed[
 static size_t standard_process_completed_count;
 
 // Private helpers declarations
-static void user_process_test_prepare(
-    struct user_process_fixture *fixture,
-    uint64_t id,
-    const struct user_program *program
-);
 
 static void user_process_elf_test_prepare(void);
 
@@ -221,43 +210,43 @@ static void user_process_syscall_pointer_terminated_handler(
 
 static void user_process_tests_prepare_standard(void)
 {
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &fixtures[0],
         1,
         user_program_hello()
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &fixtures[1],
         2,
         user_program_counter()
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &fixtures[2],
         3,
         user_program_malicious_page_fault()
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &fixtures[3],
         4,
         user_program_malicious_ud2()
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &fixtures[4],
         5,
         user_program_malicious_hlt()
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &fixtures[5],
         6,
         user_program_survivor()
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &fixtures[6],
         7,
         user_program_malicious_x87()
@@ -269,45 +258,7 @@ static void user_process_tests_prepare_standard(void)
     user_process_tests_dump();
 }
 
-// Private helpers implementations
-static void user_process_test_prepare(
-    struct user_process_fixture *fixture,
-    uint64_t id,
-    const struct user_program *program)
-{
-    if (!process_memory_create(&fixture->memory)) {
-        kernel_panic("Unable to create user test process address space");
-    }
-
-    if (!process_layout_create(
-        &fixture->memory,
-        &fixture->layout
-    )) {
-        kernel_panic("Unable to create user test process layout");
-    }
-
-    if (!process_memory_write(
-        &fixture->memory,
-        fixture->layout.code_base,
-        program->data,
-        program->size
-    )) {
-        kernel_panic("Unable to load user test process program");
-    }
-
-    if (!process_init(
-        &fixture->process,
-        id,
-        &fixture->memory,
-        &fixture->layout
-    )) {
-        kernel_panic("Unable to initialize user test process");
-    }
-
-    if (!scheduler_add(&fixture->process)) {
-        kernel_panic("Unable to schedule user test process");
-    }
-}
+// Private helpers implementation
 
 static void user_process_elf_test_prepare(void)
 {
@@ -396,7 +347,7 @@ static void user_process_lifecycle_stress_prepare_cycle(void)
         process_id
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &lifecycle_stress_fixture,
         process_id,
         program
@@ -490,7 +441,7 @@ static void user_process_lifecycle_stress_terminated(
         user_process_sleep_test_terminated
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &sleep_test_fixture,
         USER_PROCESS_SLEEP_TEST_PID,
         user_program_sleep_probe()
@@ -560,13 +511,13 @@ static void user_process_sleep_test_terminated(
         user_process_multi_test_terminated
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &multi_sleep_test_fixture,
         USER_PROCESS_MULTI_SLEEP_TEST_PID,
         user_program_sleep_probe()
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &multi_worker_test_fixture,
         USER_PROCESS_MULTI_WORKER_TEST_PID,
         user_program_survivor()
@@ -684,13 +635,13 @@ static void user_process_multi_test_terminated(
         user_process_block_test_terminated
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &block_test_fixture,
         USER_PROCESS_BLOCK_TEST_PID,
         user_program_block_probe()
     );
 
-    user_process_test_prepare(
+    user_process_fixture_prepare(
         &event_worker_test_fixture,
         USER_PROCESS_EVENT_WORKER_TEST_PID,
         user_program_survivor()
