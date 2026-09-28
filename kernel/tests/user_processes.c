@@ -8,6 +8,7 @@
 #include "user_processes.h"
 #include "user_processes/exec.h"
 #include "user_processes/scheduler_context.h"
+#include "user_processes/syscall_pointer.h"
 
 #include "../arch/x86_64/paging.h"
 #include "../arch/x86_64/tests/user_programs.h"
@@ -52,9 +53,6 @@ extern const uint8_t process_elf_entry_fixture_end[];
 extern const uint8_t process_syscall_abi_fixture_start[];
 extern const uint8_t process_syscall_abi_fixture_end[];
 
-extern const uint8_t process_syscall_pointer_fixture_start[];
-extern const uint8_t process_syscall_pointer_fixture_end[];
-
 struct user_process_fixture {
     struct process_memory memory;
     struct process_layout layout;
@@ -85,12 +83,6 @@ static struct process_instance *elf_test_instance;
 static struct process_instance
     *syscall_abi_test_instance;
 
-static struct process_instance
-    *syscall_pointer_test_instance;
-
-static struct paging_translation
-    syscall_pointer_kernel_translation_before;
-
 static bool standard_process_completed[
     USER_PROCESS_TEST_COUNT
 ];
@@ -112,13 +104,15 @@ static void user_process_syscall_abi_test_terminated(
     struct process *process
 );
 
-static void user_process_syscall_pointer_test_prepare(void);
-
-static void user_process_syscall_pointer_test_terminated(
+static void user_process_exec_terminated_handler(
     struct process *process
 );
 
 static void user_process_scheduler_context_terminated_handler(
+    struct process *process
+);
+
+static void user_process_syscall_pointer_terminated_handler(
     struct process *process
 );
 
@@ -151,10 +145,6 @@ static void user_process_standard_terminated(
 static bool user_process_standard_result_valid(
     size_t index,
     const struct process *process
-);
-
-static void user_process_exec_terminated_handler(
-    struct process *process
 );
 // End private helpers declarations
 
@@ -206,6 +196,20 @@ static void user_process_exec_terminated_handler(
     );
 
     user_process_tests_prepare_standard();
+}
+
+static void user_process_syscall_pointer_terminated_handler(
+    struct process *process)
+{
+    user_process_syscall_pointer_test_terminated(
+        process
+    );
+
+    scheduler_set_terminated_handler(
+        user_process_scheduler_context_terminated_handler
+    );
+
+    user_process_scheduler_context_test_prepare();
 }
 
 static void user_process_tests_prepare_standard(void)
@@ -879,89 +883,6 @@ static void user_process_block_test_terminated(
     user_process_syscall_abi_test_prepare();
 }
 
-static void user_process_syscall_pointer_test_prepare(void)
-{
-    uintptr_t image_start =
-        (uintptr_t)
-        process_syscall_pointer_fixture_start;
-
-    uintptr_t image_end =
-        (uintptr_t)
-        process_syscall_pointer_fixture_end;
-
-    if (image_end <= image_start) {
-        kernel_panic(
-            "Syscall pointer ELF fixture has invalid bounds"
-        );
-    }
-
-    uintptr_t image_size_value =
-        image_end -
-        image_start;
-
-    if (image_size_value > SIZE_MAX) {
-        kernel_panic(
-            "Syscall pointer ELF fixture is too large"
-        );
-    }
-
-    size_t image_size =
-        (size_t) image_size_value;
-
-    struct elf64_image image;
-
-    if (!elf64_parse(
-        process_syscall_pointer_fixture_start,
-        image_size,
-        &image
-    )) {
-        kernel_panic(
-            "Unable to parse syscall pointer ELF fixture"
-        );
-    }
-
-    const char *argv[] = {
-        "syscall-pointer",
-    };
-
-    syscall_pointer_test_instance =
-        process_create_elf64(
-            &image,
-            1,
-            argv,
-            0,
-            NULL
-        );
-
-    if (syscall_pointer_test_instance == NULL) {
-        kernel_panic(
-            "Unable to create syscall pointer test process"
-        );
-    }
-
-    /*
-     * Capture one shared higher-half kernel translation before the hostile
-     * process executes. The userspace copy path must never modify it.
-     *
-     * Use a kernel data object's address rather than a function pointer so
-     * the conversion to uintptr_t remains ordinary object-pointer arithmetic.
-     */
-    uint64_t kernel_probe_address =
-        (uint64_t) (uintptr_t)
-        &lifecycle_stress_free_frame_baseline;
-
-    if (!paging_translate_address_space(
-        &syscall_pointer_test_instance
-            ->image.memory.address_space,
-        kernel_probe_address,
-        &syscall_pointer_kernel_translation_before
-    )) {
-        kernel_panic(
-            "Unable to capture syscall pointer kernel mapping"
-        );
-    }
-}
-
 static void user_process_syscall_abi_test_terminated(
     struct process *process)
 {
@@ -1014,114 +935,10 @@ static void user_process_syscall_abi_test_terminated(
      * Exercise hostile CPL3 pointers before launching the standard process set.
      */
     scheduler_set_terminated_handler(
-        user_process_syscall_pointer_test_terminated
+        user_process_syscall_pointer_terminated_handler
     );
 
     user_process_syscall_pointer_test_prepare();
-}
-
-static void user_process_syscall_pointer_test_terminated(
-    struct process *process)
-{
-    if (
-        syscall_pointer_test_instance == NULL ||
-        process !=
-            &syscall_pointer_test_instance->process
-    ) {
-        kernel_panic(
-            "Syscall pointer test received unexpected process"
-        );
-    }
-
-    /*
-     * Every hostile pointer must have returned BAD_ADDRESS to Ring 3.
-     * The userspace fixture exits zero only when every check succeeded.
-     *
-     * A page fault, protection fault, or any other forced termination is
-     * therefore itself a test failure.
-     */
-    if (
-        process->state !=
-            PROCESS_STATE_TERMINATED ||
-        process->termination_reason !=
-            PROCESS_TERMINATION_EXITED ||
-        process->exit_status != 0
-    ) {
-        kernel_panic(
-            "Ring-3 syscall pointer regression test failed"
-        );
-    }
-
-    uint64_t kernel_probe_address =
-        (uint64_t) (uintptr_t)
-        &lifecycle_stress_free_frame_baseline;
-
-    struct paging_translation translation_after;
-
-    if (!paging_translate_address_space(
-        &syscall_pointer_test_instance
-            ->image.memory.address_space,
-        kernel_probe_address,
-        &translation_after
-    )) {
-        kernel_panic(
-            "Syscall pointer test lost shared kernel mapping"
-        );
-    }
-
-    if (
-        translation_after.physical_address !=
-            syscall_pointer_kernel_translation_before
-                .physical_address ||
-        translation_after.page_size !=
-            syscall_pointer_kernel_translation_before
-                .page_size ||
-        translation_after.pml4_entry !=
-            syscall_pointer_kernel_translation_before
-                .pml4_entry ||
-        translation_after.pdpt_entry !=
-            syscall_pointer_kernel_translation_before
-                .pdpt_entry ||
-        translation_after.pd_entry !=
-            syscall_pointer_kernel_translation_before
-                .pd_entry ||
-        translation_after.pt_entry !=
-            syscall_pointer_kernel_translation_before
-                .pt_entry
-    ) {
-        kernel_panic(
-            "Syscall pointer test modified shared kernel mapping"
-        );
-    }
-
-    if (!process_release_terminated(
-        syscall_pointer_test_instance
-    )) {
-        kernel_panic(
-            "Unable to release syscall pointer test process"
-        );
-    }
-
-    syscall_pointer_test_instance = NULL;
-
-    if (
-        physical_free_frame_count() !=
-        lifecycle_stress_free_frame_baseline
-    ) {
-        kernel_panic(
-            "Syscall pointer test leaked physical frames"
-        );
-    }
-
-    diagnostics_write(
-        "[syscall] Ring-3 invalid user-pointer regressions passed\n"
-    );
-
-    scheduler_set_terminated_handler(
-        user_process_scheduler_context_terminated_handler
-    );
-
-    user_process_scheduler_context_test_prepare();
 }
 
 static void user_process_standard_terminated(
