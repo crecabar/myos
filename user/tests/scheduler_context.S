@@ -12,11 +12,15 @@
  * must preserve GPRs, RSP, RFLAGS, control flow and private memory.
  */
 
+#include "../../kernel/syscall/test_numbers.h"
+
 .section .text
 .global _start
 .type _start, @function
 
 .set SYSCALL_EXIT, 2
+
+.set CONTEXT_GATE_DELAY, 0x01000000
 
 .set LOCAL_SIZE,             64
 .set LOCAL_EXPECTED_RSP,      0
@@ -348,7 +352,30 @@ _start:
     testq $0x400, %rax
     jz .Lfail
 
-    jmp .Lsuccess
+.La_context_gate:
+    /*
+     * Do not let workload A terminate until the kernel has observed the
+     * required number of genuine cross-address-space timer preemptions.
+     */
+    movq $SYSCALL_TEST_CONTEXT_GATE, %rax
+    xorq %rdi, %rdi
+    int $0x80
+
+    testq %rax, %rax
+    jnz .Lsuccess
+
+    /*
+     * Spend meaningful time in Ring 3 before asking again. The gate does not
+     * manufacture scheduler activity; only timer preemption can advance it.
+     */
+    movq $CONTEXT_GATE_DELAY, %rcx
+
+.La_context_gate_delay:
+    nop
+    decq %rcx
+    jnz .La_context_gate_delay
+
+    jmp .La_context_gate
 
 
 /*
@@ -564,6 +591,27 @@ _start:
 
     testq $0x400, %rax
     jz .Lfail
+
+.Lb_context_gate:
+    /*
+     * B must remain alive until A has completed. This preserves the survivor
+     * phase independently of relative virtual CPU speed.
+     */
+    movq $SYSCALL_TEST_CONTEXT_GATE, %rax
+    movq $1, %rdi
+    int $0x80
+
+    testq %rax, %rax
+    jnz .Lsuccess
+
+    movq $CONTEXT_GATE_DELAY, %rcx
+
+.Lb_context_gate_delay:
+    nop
+    decq %rcx
+    jnz .Lb_context_gate_delay
+
+    jmp .Lb_context_gate
 
 
 /*

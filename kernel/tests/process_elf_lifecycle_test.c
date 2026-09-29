@@ -7,6 +7,7 @@
 
 #include "process_elf_lifecycle_test.h"
 
+#include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/paging.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
@@ -21,6 +22,7 @@
 #include "../process/memory.h"
 #include "../process/pid.h"
 #include "../process/process.h"
+#include "../process/wait.h"
 #include "../scheduler/scheduler.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -1113,6 +1115,342 @@ void process_elf_lifecycle_test_run(void)
                 "Unable to remove scheduler rollback test filler"
             );
         }
+    }
+
+        uint64_t wait_free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats wait_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &wait_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap state before wait lifecycle test"
+        );
+    }
+
+    struct process_instance *wait_parent =
+        process_create_elf64(
+            &image,
+            2,
+            argv,
+            1,
+            envp
+        );
+
+    if (wait_parent == NULL) {
+        kernel_panic(
+            "Unable to create wait lifecycle parent"
+        );
+    }
+
+    struct process_instance *wait_child =
+        process_create_child_elf64(
+            wait_parent,
+            &image,
+            2,
+            argv,
+            1,
+            envp
+        );
+
+    if (wait_child == NULL) {
+        kernel_panic(
+            "Unable to create wait lifecycle child"
+        );
+    }
+
+    uint64_t wait_child_pid =
+        wait_child->process.id;
+
+    if (
+        wait_child->parent != wait_parent ||
+        wait_parent->first_child != wait_child
+    ) {
+        kernel_panic(
+            "Wait lifecycle parent-child relationship is incorrect"
+        );
+    }
+
+    struct process_wait_status wait_status;
+
+    if (
+        process_waitpid_peek(
+            wait_parent,
+            wait_child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_NOT_TERMINATED
+    ) {
+        kernel_panic(
+            "waitpid peek reported running child as terminated"
+        );
+    }
+
+    if (
+        process_wait_peek(
+            wait_parent,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_NOT_TERMINATED
+    ) {
+        kernel_panic(
+            "wait peek reported running child as terminated"
+        );
+    }
+
+    if (
+        process_waitpid_try_reap(
+            wait_parent,
+            wait_child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_NOT_TERMINATED
+    ) {
+        kernel_panic(
+            "waitpid unexpectedly reaped running child"
+        );
+    }
+
+    if (!process_wait_register(
+        wait_parent,
+        wait_child_pid
+    )) {
+        kernel_panic(
+            "Unable to register wait lifecycle request"
+        );
+    }
+
+    if (
+        !wait_parent->wait_active ||
+        wait_parent->wait_child_pid !=
+            wait_child_pid
+    ) {
+        kernel_panic(
+            "Wait lifecycle request metadata is incorrect"
+        );
+    }
+
+    wait_parent->process.state =
+        PROCESS_STATE_BLOCKED;
+
+    wait_child->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    wait_child->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    wait_child->process.exit_status = 37;
+
+    if (!scheduler_unregister_terminated(
+        &wait_child->process
+    )) {
+        kernel_panic(
+            "Unable to unregister wait lifecycle child"
+        );
+    }
+
+    uint64_t wait_notify_rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(wait_notify_rflags)
+        :
+        : "memory"
+    );
+
+    interrupts_disable();
+
+    if (!process_wait_notify_terminated(
+        wait_child
+    )) {
+        kernel_panic(
+            "Terminated child failed to wake waiting parent"
+        );
+    }
+
+    if ((wait_notify_rflags & (1ULL << 9)) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        wait_parent->process.state !=
+            PROCESS_STATE_READY ||
+        !wait_parent->wait_active ||
+        wait_parent->wait_child_pid !=
+            wait_child_pid
+    ) {
+        kernel_panic(
+            "Waiting parent resumed with incorrect wait state"
+        );
+    }
+
+    if (
+        process_waitpid_peek(
+            wait_parent,
+            wait_child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_TERMINATED
+    ) {
+        kernel_panic(
+            "waitpid peek failed to observe terminated child"
+        );
+    }
+
+    if (
+        wait_status.pid != wait_child_pid ||
+        wait_status.termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        wait_status.exit_status != 37
+    ) {
+        kernel_panic(
+            "waitpid peek returned incorrect child status"
+        );
+    }
+
+    if (
+        wait_parent->first_child != wait_child ||
+        !wait_parent->wait_active
+    ) {
+        kernel_panic(
+            "waitpid peek consumed child lifecycle state"
+        );
+    }
+
+    struct process_wait_status wait_any_status;
+
+    if (
+        process_wait_peek(
+            wait_parent,
+            &wait_any_status
+        ) != PROCESS_WAIT_RESULT_TERMINATED
+    ) {
+        kernel_panic(
+            "wait peek failed to observe terminated child"
+        );
+    }
+
+    if (
+        wait_any_status.pid != wait_child_pid ||
+        wait_any_status.termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        wait_any_status.exit_status != 37
+    ) {
+        kernel_panic(
+            "wait peek returned incorrect child status"
+        );
+    }
+
+    if (
+        wait_parent->first_child != wait_child ||
+        !wait_parent->wait_active
+    ) {
+        kernel_panic(
+            "wait peek consumed child lifecycle state"
+        );
+    }
+
+    if (
+        process_waitpid_try_reap(
+            wait_parent,
+            wait_child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_REAPED
+    ) {
+        kernel_panic(
+            "waitpid failed to reap terminated child"
+        );
+    }
+
+    if (
+        wait_parent->wait_active ||
+        wait_parent->wait_child_pid != 0
+    ) {
+        kernel_panic(
+            "Reaped wait request remained active"
+        );
+    }
+
+    if (
+        wait_status.pid != wait_child_pid ||
+        wait_status.termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        wait_status.exit_status != 37
+    ) {
+        kernel_panic(
+            "waitpid returned incorrect child status"
+        );
+    }
+
+    if (wait_parent->first_child != NULL) {
+        kernel_panic(
+            "Reaped child remained linked to parent"
+        );
+    }
+
+    if (
+        process_waitpid_try_reap(
+            wait_parent,
+            wait_child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_NO_CHILD
+    ) {
+        kernel_panic(
+            "waitpid reaped child more than once"
+        );
+    }
+
+    wait_parent->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    wait_parent->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    wait_parent->process.exit_status = 0;
+
+    if (!scheduler_unregister_terminated(
+        &wait_parent->process
+    )) {
+        kernel_panic(
+            "Unable to unregister wait lifecycle parent"
+        );
+    }
+
+    if (!process_release_terminated(
+        wait_parent
+    )) {
+        kernel_panic(
+            "Unable to release wait lifecycle parent"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        wait_free_before
+    ) {
+        kernel_panic(
+            "Wait lifecycle test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats wait_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &wait_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after wait lifecycle test"
+        );
+    }
+
+    if (
+        wait_heap_after.allocated_block_count !=
+            wait_heap_before.allocated_block_count ||
+        wait_heap_after.allocated_bytes !=
+            wait_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Wait lifecycle test leaked kernel heap allocations"
+        );
     }
 
     struct process_instance instance;

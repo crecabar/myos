@@ -14,7 +14,102 @@
 
 #include <stddef.h>
 
+static struct process_instance *process_create_elf64_internal(
+    struct process_instance *parent,
+    const struct elf64_image *elf,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
 struct process_instance *process_create_elf64(
+    const struct elf64_image *elf,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    return process_create_elf64_internal(
+        NULL,
+        elf,
+        argc,
+        argv,
+        envc,
+        envp
+    );
+}
+
+struct process_instance *process_create_child_elf64(
+    struct process_instance *parent,
+    const struct elf64_image *elf,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    if (parent == NULL) return NULL;
+
+    if (
+        parent->process.instance != parent ||
+        parent->process.state ==
+            PROCESS_STATE_TERMINATED
+    ) {
+        return NULL;
+    }
+
+    return process_create_elf64_internal(
+        parent,
+        elf,
+        argc,
+        argv,
+        envc,
+        envp
+    );
+}
+
+bool process_release_terminated(
+    struct process_instance *instance)
+{
+    if (instance == NULL) return false;
+
+    if (
+        instance->process.state !=
+        PROCESS_STATE_TERMINATED
+    ) {
+        return false;
+    }
+
+    if (
+        instance->process.instance !=
+        instance
+    ) {
+        return false;
+    }
+
+    if (
+        instance->parent != NULL ||
+        instance->first_child != NULL ||
+        instance->next_sibling != NULL ||
+        instance->wait_active ||
+        instance->wait_child_pid != 0
+    ) {
+        return false;
+    }
+
+    if (!process_reclaim_resources(&instance->process)) {
+        return false;
+    }
+
+    instance->process.instance = NULL;
+
+    kfree(instance);
+
+    return true;
+}
+
+static struct process_instance *process_create_elf64_internal(
+    struct process_instance *parent,
     const struct elf64_image *elf,
     size_t argc,
     const char *const argv[],
@@ -82,26 +177,14 @@ struct process_instance *process_create_elf64(
         return NULL;
     }
 
+    if (parent != NULL) {
+        instance->parent = parent;
+        instance->next_sibling =
+            parent->first_child;
+
+        parent->first_child =
+            instance;
+    }
+
     return instance;
-}
-
-bool process_release_terminated(
-    struct process_instance *instance)
-{
-    if (instance == NULL) return false;
-
-    if (
-        instance->process.state !=
-        PROCESS_STATE_TERMINATED
-    ) {
-        return false;
-    }
-
-    if (!process_reclaim_resources(&instance->process)) {
-        return false;
-    }
-
-    kfree(instance);
-
-    return true;
 }

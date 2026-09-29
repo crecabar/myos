@@ -34,6 +34,13 @@ bool process_instance_prepare_elf64(
         return false;
     }
 
+    instance->parent = NULL;
+    instance->first_child = NULL;
+    instance->next_sibling = NULL;
+
+    instance->wait_active = false;
+    instance->wait_child_pid = 0;
+
     if (!process_init(
         &instance->process,
         id,
@@ -51,6 +58,7 @@ bool process_instance_prepare_elf64(
         return false;
     }
 
+    instance->process.instance = instance;
     instance->process.image = &instance->image;
 
     return true;
@@ -79,12 +87,24 @@ bool process_instance_discard(
         return false;
     }
 
+    if (
+        instance->process.instance != instance ||
+        instance->parent != NULL ||
+        instance->first_child != NULL ||
+        instance->next_sibling != NULL ||
+        instance->wait_active ||
+        instance->wait_child_pid != 0
+    ) {
+        return false;
+    }
+
     if (!process_image_destroy(
         &instance->image
     )) {
         return false;
     }
 
+    instance->process.instance = NULL;
     instance->process.image = NULL;
     instance->process.memory = NULL;
     instance->process.layout = NULL;

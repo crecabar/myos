@@ -29,9 +29,31 @@
  * image. Therefore the instance must remain alive while the process may be
  * referenced by the scheduler.
  */
-struct process_instance {
+ struct process_instance {
     struct process process;
     struct process_image image;
+
+    /*
+     * Intrusive process-family links.
+     *
+     * These links describe lifecycle ownership only. The scheduler does not
+     * inspect or own them.
+     */
+    struct process_instance *parent;
+    struct process_instance *first_child;
+    struct process_instance *next_sibling;
+
+    /*
+     * Active parent wait request.
+     *
+     * child_pid == 0 means any direct child.
+     *
+     * The request remains active while the parent is BLOCKED and is cleared
+     * when the matching terminated child is reaped or the request is
+     * explicitly cancelled.
+     */
+    bool wait_active;
+    uint64_t wait_child_pid;
 };
 
 /**

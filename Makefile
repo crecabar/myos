@@ -143,6 +143,7 @@ CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 # -----------------------------------------------------------------------------
 
 USER_TEST_BUILD_DIR := $(BUILD_DIR)/user-tests
+TEST_SYSCALL_NUMBERS_HEADER := kernel/syscall/test_numbers.h
 
 ELF_ENTRY_SOURCE        := user/tests/elf_entry.S
 ELF_ENTRY_LINKER_SCRIPT := user/tests/elf_entry.ld
@@ -168,6 +169,14 @@ EXEC_CALLER_ELF    := $(USER_TEST_BUILD_DIR)/exec_caller.elf
 EXEC_TARGET_SOURCE := user/tests/exec_target.S
 EXEC_TARGET_OBJECT := $(USER_TEST_BUILD_DIR)/exec_target.o
 EXEC_TARGET_ELF    := $(USER_TEST_BUILD_DIR)/exec_target.elf
+
+WAITPID_PARENT_SOURCE := user/tests/waitpid_parent.S
+WAITPID_PARENT_OBJECT := $(USER_TEST_BUILD_DIR)/waitpid_parent.o
+WAITPID_PARENT_ELF    := $(USER_TEST_BUILD_DIR)/waitpid_parent.elf
+
+WAITPID_CHILD_SOURCE := user/tests/waitpid_child.S
+WAITPID_CHILD_OBJECT := $(USER_TEST_BUILD_DIR)/waitpid_child.o
+WAITPID_CHILD_ELF    := $(USER_TEST_BUILD_DIR)/waitpid_child.elf
 
 ELF_ENTRY_CFLAGS := \
 	--target=$(TARGET) \
@@ -219,7 +228,10 @@ $(SYSCALL_POINTER_ELF): \
 		-o $@ \
 		$(SYSCALL_POINTER_OBJECT)
 
-$(SCHEDULER_CONTEXT_OBJECT): $(SCHEDULER_CONTEXT_SOURCE) | $(USER_TEST_BUILD_DIR)
+$(SCHEDULER_CONTEXT_OBJECT): \
+	$(SCHEDULER_CONTEXT_SOURCE) \
+	$(TEST_SYSCALL_NUMBERS_HEADER) \
+	| $(USER_TEST_BUILD_DIR)
 	$(CLANG) $(ELF_ENTRY_CFLAGS) \
 		-c $< \
 		-o $@
@@ -232,7 +244,10 @@ $(SCHEDULER_CONTEXT_ELF): \
 		-o $@ \
 		$(SCHEDULER_CONTEXT_OBJECT)
 
-$(EXEC_CALLER_OBJECT): $(EXEC_CALLER_SOURCE) | $(USER_TEST_BUILD_DIR)
+$(EXEC_CALLER_OBJECT): \
+	$(EXEC_CALLER_SOURCE) \
+	$(TEST_SYSCALL_NUMBERS_HEADER) \
+	| $(USER_TEST_BUILD_DIR)
 	$(CLANG) $(ELF_ENTRY_CFLAGS) \
 		-c $< \
 		-o $@
@@ -257,6 +272,32 @@ $(EXEC_TARGET_ELF): \
 		-T $(ELF_ENTRY_LINKER_SCRIPT) \
 		-o $@ \
 		$(EXEC_TARGET_OBJECT)
+
+$(WAITPID_PARENT_OBJECT): $(WAITPID_PARENT_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(WAITPID_PARENT_ELF): \
+	$(WAITPID_PARENT_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(WAITPID_PARENT_OBJECT)
+
+$(WAITPID_CHILD_OBJECT): $(WAITPID_CHILD_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(WAITPID_CHILD_ELF): \
+	$(WAITPID_CHILD_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(WAITPID_CHILD_OBJECT)
 
 # -----------------------------------------------------------------------------
 # Kernel
@@ -335,6 +376,9 @@ PROCESS_SCHEDULER_CONTEXT_FIXTURE_OBJ := \
 PROCESS_EXEC_FIXTURE_OBJ := \
 	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_exec_fixture.o
 
+PROCESS_WAITPID_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_waitpid_fixture.o
+
 KERNEL_OBJS := \
 	$(KERNEL_C_OBJS) \
 	$(KERNEL_ASM_OBJS)
@@ -401,6 +445,7 @@ $(CONFIG_STAMP): FORCE | $(BUILD_DIR)
 $(KERNEL_OBJ_DIR)/c/%.o: %.c $(CONFIG_STAMP) | $(LIMINE_HEADER)
 	@mkdir -p $(@D)
 	$(CLANG) $(CFLAGS) \
+		$(if $(filter 1,$(COMPDB_CAPTURE)),-MJ $@.json,) \
 		-MMD \
 		-MP \
 		-MF $(@:.o=.d) \
@@ -428,6 +473,10 @@ $(PROCESS_SYSCALL_POINTER_FIXTURE_OBJ): $(SYSCALL_POINTER_ELF)
 $(PROCESS_SCHEDULER_CONTEXT_FIXTURE_OBJ): $(SCHEDULER_CONTEXT_ELF)
 
 $(PROCESS_EXEC_FIXTURE_OBJ): $(EXEC_CALLER_ELF) $(EXEC_TARGET_ELF)
+
+$(PROCESS_WAITPID_FIXTURE_OBJ): \
+	$(WAITPID_PARENT_ELF) \
+	$(WAITPID_CHILD_ELF)
 endif
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
@@ -874,19 +923,34 @@ COMPDB := $(BUILD_DIR)/compile_commands.json
 .PHONY: compdb
 
 compdb:
-	@command -v $(BEAR) >/dev/null || { \
-		echo "error: Bear is not installed"; \
-		exit 1; \
-	}
-	@rm -f compile_commands.json $(COMPDB)
-	@mkdir -p $(BUILD_DIR)
-	@$(MAKE) -B -n \
-		CLANG="$(CLANG)" \
+	@rm -f $(COMPDB)
+	@if [ -d "$(KERNEL_OBJ_DIR)" ]; then \
+		find "$(KERNEL_OBJ_DIR)" \
+			-type f \
+			-name '*.o.json' \
+			-delete; \
+	fi
+	@$(MAKE) -B \
+		COMPDB_CAPTURE=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=1 \
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_QEMU_TEST_EXIT=1 \
-		all | $(BEAR) parse-sh
-	@mv compile_commands.json $(COMPDB)
+		all
+	@{ \
+		printf '[\n'; \
+		first=1; \
+		for file in $$(find "$(KERNEL_OBJ_DIR)/c" \
+			-type f \
+			-name '*.o.json' \
+			| sort); do \
+			if [ $$first -eq 0 ]; then \
+				printf ',\n'; \
+			fi; \
+			sed '$$s/,$$//' "$$file"; \
+			first=0; \
+		done; \
+		printf '\n]\n'; \
+	} > $(COMPDB)
 	@echo
 	@echo "Compilation database created:"
 	@echo "  $(COMPDB)"

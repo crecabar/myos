@@ -74,6 +74,7 @@ bool process_init(
     process->sleep_start_ticks = 0;
     process->sleep_duration_ticks = 0;
 
+    process->instance = NULL;
     process->image = NULL;
     process->memory = memory;
     process->layout = layout;

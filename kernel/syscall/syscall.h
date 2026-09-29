@@ -11,6 +11,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#if MYOS_KERNEL_TESTS
+#include "test_numbers.h"
+#endif
+
 /*
  * MyOS x86-64 syscall ABI version.
  *
@@ -57,10 +61,11 @@ typedef int64_t syscall_result_t;
  * A future libc may translate these identifiers into its public errno
  * representation independently of the kernel ABI.
  */
-enum syscall_error {
+ enum syscall_error {
     SYSCALL_ERROR_INVALID_ARGUMENT = 1,
     SYSCALL_ERROR_BAD_ADDRESS = 2,
-    SYSCALL_ERROR_NOT_IMPLEMENTED = 3
+    SYSCALL_ERROR_NOT_IMPLEMENTED = 3,
+    SYSCALL_ERROR_NO_CHILD = 4
 };
 
 _Static_assert(
@@ -88,12 +93,63 @@ static inline bool syscall_result_is_error(
 #define SYSCALL_EXIT       2    // RDI = status
 #define SYSCALL_YIELD      3    // no arguments
 #define SYSCALL_WRITE      4    // RDI = buffer, RSI = length
+#define SYSCALL_WAITPID    5    // RDI = pid, RSI = status, RDX = options
 
-#if MYOS_KERNEL_TESTS
-#define SYSCALL_TEST_SLEEP 5    // RDI = duration in timer ticks
-#define SYSCALL_TEST_BLOCK 6    // no arguments
-#define SYSCALL_TEST_EXEC  7    // RDI = test operation
-#endif
+#define SYSCALL_WAITPID_NOHANG (1ULL << 0)
+
+enum syscall_wait_termination_reason {
+    SYSCALL_WAIT_TERMINATION_EXITED = 1,
+    SYSCALL_WAIT_TERMINATION_SEGMENTATION_FAULT,
+    SYSCALL_WAIT_TERMINATION_ILLEGAL_INSTRUCTION,
+    SYSCALL_WAIT_TERMINATION_PROTECTION_FAULT,
+    SYSCALL_WAIT_TERMINATION_ARITHMETIC_FAULT,
+    SYSCALL_WAIT_TERMINATION_TRAP,
+};
+
+struct syscall_wait_status {
+    uint64_t termination_reason;
+    uint64_t exit_status;
+};
+
+_Static_assert(
+    sizeof(struct syscall_wait_status) == 16,
+    "syscall wait status ABI must occupy 16 bytes"
+);
+
+/**
+ * Describes how the architecture syscall path must complete waitpid().
+ *
+ * This is a kernel-internal control result and is not part of the published
+ * userspace syscall ABI.
+ */
+enum syscall_waitpid_action {
+    SYSCALL_WAITPID_ACTION_RETURN,
+    SYSCALL_WAITPID_ACTION_BLOCK,
+};
+
+/**
+ * Prepares one waitpid operation.
+ *
+ * Immediate results are written to result and return
+ * SYSCALL_WAITPID_ACTION_RETURN.
+ *
+ * A blocking wait is registered in the process lifecycle and returns
+ * SYSCALL_WAITPID_ACTION_BLOCK. The architecture syscall path must then
+ * preserve and suspend the current process context.
+ *
+ * @param child_pid Direct child PID, or zero for any direct child.
+ * @param status_address Userspace status destination, or zero to discard it.
+ * @param options waitpid option flags.
+ * @param result Receives an immediate syscall result.
+ *
+ * @return Required completion action.
+ */
+enum syscall_waitpid_action syscall_waitpid_prepare(
+    uint64_t child_pid,
+    uint64_t status_address,
+    uint64_t options,
+    syscall_result_t *result
+);
 
 /**
  * Dispatches one system call requested by user mode.
