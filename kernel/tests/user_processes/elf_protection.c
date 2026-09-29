@@ -15,6 +15,7 @@
 #include "../../memory/memory.h"
 #include "../../process/create.h"
 #include "../../process/process.h"
+#include "../../scheduler/scheduler.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -27,6 +28,8 @@ static struct kernel_heap_stats elf_protection_heap_baseline;
 
 static uint64_t elf_protection_entry_point;
 static uint8_t elf_protection_original_entry_byte;
+
+static size_t elf_protection_scheduler_count_baseline;
 
 extern const uint8_t process_elf_protection_fixture_start[];
 extern const uint8_t process_elf_protection_fixture_end[];
@@ -47,6 +50,9 @@ void user_process_elf_protection_test_prepare(void)
 
     elf_protection_free_frame_baseline =
         physical_free_frame_count();
+
+    elf_protection_scheduler_count_baseline =
+        scheduler_test_process_count();
 
     if (!kernel_heap_stats_get(
         &elf_protection_heap_baseline
@@ -181,6 +187,15 @@ void user_process_elf_protection_test_terminated(
     }
 
     elf_protection_instance = NULL;
+
+    if (
+        scheduler_test_process_count() !=
+        elf_protection_scheduler_count_baseline
+    ) {
+        kernel_panic(
+            "Hostile ELF protection test leaked scheduler registration"
+        );
+    }
 
     if (
         physical_free_frame_count() !=

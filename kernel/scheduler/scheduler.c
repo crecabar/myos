@@ -199,6 +199,11 @@ bool scheduler_load_current_context(
 }
 
 #if MYOS_KERNEL_TESTS
+size_t scheduler_test_process_count(void)
+{
+    return process_count;
+}
+
 uint64_t scheduler_test_preemption_count(void)
 {
     return scheduler_test_preemption_count_value;

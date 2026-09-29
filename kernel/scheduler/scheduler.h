@@ -30,6 +30,7 @@
 #include "../process/process.h"
 #include "../arch/x86_64/interrupts.h"
 
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -338,6 +339,14 @@ void scheduler_wake_sleepers(uint64_t now_ticks);
 bool scheduler_wake_blocked(struct process *process);
 
 #if MYOS_KERNEL_TESTS
+/**
+ * Returns the number of process descriptors currently registered with the
+ * scheduler.
+ *
+ * @return Number of occupied scheduler registration slots.
+ */
+size_t scheduler_test_process_count(void);
+
 /**
  * Returns the number of timer-driven process preemptions observed since the
  * scheduler was initialized.

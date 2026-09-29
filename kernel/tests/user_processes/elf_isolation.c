@@ -15,6 +15,7 @@
 #include "../../memory/memory.h"
 #include "../../process/create.h"
 #include "../../process/process.h"
+#include "../../scheduler/scheduler.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -33,6 +34,8 @@ static uint64_t elf_isolation_free_frame_baseline;
 static struct kernel_heap_stats elf_isolation_heap_baseline;
 
 static bool elf_isolation_attacker_completed;
+
+static size_t elf_isolation_scheduler_count_baseline;
 
 extern const uint8_t
     process_elf_isolation_attacker_fixture_start[];
@@ -73,6 +76,9 @@ void user_process_elf_isolation_test_prepare(void)
 
     elf_isolation_free_frame_baseline =
         physical_free_frame_count();
+
+    elf_isolation_scheduler_count_baseline =
+        scheduler_test_process_count();
 
     if (!kernel_heap_stats_get(
         &elf_isolation_heap_baseline
@@ -314,6 +320,15 @@ bool user_process_elf_isolation_test_terminated(
         elf_isolation_attacker = NULL;
         elf_isolation_attacker_completed = true;
 
+        if (
+            scheduler_test_process_count() !=
+            elf_isolation_scheduler_count_baseline + 1
+        ) {
+            kernel_panic(
+                "ELF isolation attacker did not release scheduler slot"
+            );
+        }
+
         diagnostics_write(
             "[process] Hostile cross-address-space write contained\n"
         );
@@ -346,6 +361,15 @@ bool user_process_elf_isolation_test_terminated(
         }
 
         elf_isolation_victim = NULL;
+
+        if (
+            scheduler_test_process_count() !=
+            elf_isolation_scheduler_count_baseline
+        ) {
+            kernel_panic(
+                "ELF isolation test leaked scheduler registrations"
+            );
+        }
 
         if (
             physical_free_frame_count() !=
