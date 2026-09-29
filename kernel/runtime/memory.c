@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
+/**
+ * @file memory.c
+ * @brief Freestanding compiler memory primitives.
+ */
+
+#include "memory.h"
+
+#include <stddef.h>
+#include <stdint.h>
+
+// Public functions implementations
+void *memcpy(
+    void *restrict destination,
+    const void *restrict source,
+    size_t size)
+{
+    uint8_t *destination_bytes =
+        destination;
+
+    const uint8_t *source_bytes =
+        source;
+
+    for (
+        size_t index = 0;
+        index < size;
+        ++index
+    ) {
+        destination_bytes[index] =
+            source_bytes[index];
+    }
+
+    return destination;
+}
