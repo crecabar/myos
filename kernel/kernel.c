@@ -36,6 +36,7 @@
 #include "arch/x86_64/tests/interrupt_wait_test.h"
 #include "tests/acpi_test.h"
 #include "tests/boot_config_test.h"
+#include "tests/boot_info_test.h"
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
@@ -80,16 +81,18 @@ _Noreturn void kernel_main(void)
         &kernel_boot_info
     );
 
+    if (!boot_info_validate(
+        &kernel_boot_info
+    )) {
+        kernel_panic(
+            "Invalid normalized boot information"
+        );
+    }
+
     boot_config_parse(
         kernel_boot_info.command_line,
         &kernel_boot_config
     );
-
-    /*
-     * The command line has been converted into kernel-owned configuration.
-     * Do not retain its bootloader-provided character buffer.
-     */
-    kernel_boot_info.command_line = NULL;
 
     memory_init(
         kernel_boot_info.direct_map_offset,
@@ -188,11 +191,13 @@ static _Noreturn void kernel_main_continue(void)
     );
 
     /*
-     * The bootloader-provided command line and SMBIOS entry points
-     * must not remain reachable through the persistent boot_info.
+     * Borrowed firmware entry-point references must not remain reachable through
+     * the persistent boot_info after their consumers have finished.
+     *
+     * The command line is intentionally retained because it is now a kernel-owned
+     * snapshot rather than a bootloader reference.
      */
     if (
-        kernel_boot_info.command_line != NULL ||
         kernel_boot_info.smbios_entry_32 != NULL ||
         kernel_boot_info.smbios_entry_64 != NULL
     ) {
@@ -546,6 +551,7 @@ static _Noreturn void kernel_main_continue(void)
             "\n--- kernel test suite ---\n"
         );
 
+        boot_info_test_run();
         boot_config_test_run();
 
         acpi_test_run(
