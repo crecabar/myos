@@ -8,6 +8,7 @@
 #include "user_processes.h"
 #include "user_processes/block.h"
 #include "user_processes/exec.h"
+#include "user_processes/fork.h"
 #include "user_processes/lifecycle_stress.h"
 #include "user_processes/scheduler_context.h"
 #include "user_processes/sleep.h"
@@ -53,6 +54,10 @@ static void user_process_syscall_pointer_terminated_handler(
 );
 
 static void user_process_waitpid_terminated_handler(
+    struct process *process
+);
+
+static void user_process_fork_terminated_handler(
     struct process *process
 );
 // End private helpers declarations
@@ -128,6 +133,22 @@ static void user_process_waitpid_terminated_handler(
     struct process *process)
 {
     if (!user_process_waitpid_test_terminated(
+        process
+    )) {
+        return;
+    }
+
+    scheduler_set_terminated_handler(
+        user_process_fork_terminated_handler
+    );
+
+    user_process_fork_test_prepare();
+}
+
+static void user_process_fork_terminated_handler(
+    struct process *process)
+{
+    if (!user_process_fork_test_terminated(
         process
     )) {
         return;

@@ -112,6 +112,14 @@ static void process_elf_lifecycle_test_fork_clone(
     const char *const envp[]
 );
 
+static void process_elf_lifecycle_test_fork_rollback(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
 static void process_elf_lifecycle_test_write_u16(
     uint8_t *destination,
     uint16_t value)
@@ -1325,6 +1333,285 @@ static void process_elf_lifecycle_test_fork_clone(
     );
 }
 
+static void process_elf_lifecycle_test_fork_rollback(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before fork rollback test"
+        );
+    }
+
+    struct process_instance *parent =
+        process_create_elf64(
+            image,
+            argc,
+            argv,
+            envc,
+            envp
+        );
+
+    if (parent == NULL) {
+        kernel_panic(
+            "Unable to create fork rollback parent"
+        );
+    }
+
+    struct process_instance
+        *fillers[SCHEDULER_MAX_PROCESSES - 1];
+
+    for (
+        size_t index = 0;
+        index < SCHEDULER_MAX_PROCESSES - 1;
+        ++index
+    ) {
+        fillers[index] =
+            process_create_elf64(
+                image,
+                argc,
+                argv,
+                envc,
+                envp
+            );
+
+        if (fillers[index] == NULL) {
+            kernel_panic(
+                "Unable to fill scheduler for fork rollback test"
+            );
+        }
+    }
+
+    /*
+     * The scheduler now contains exactly SCHEDULER_MAX_PROCESSES
+     * registrations. fork can still allocate and clone the child, but its
+     * final scheduler_add() must fail.
+     */
+    uint64_t free_before_failed_fork =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats
+        heap_before_failed_fork;
+
+    if (!kernel_heap_stats_get(
+        &heap_before_failed_fork
+    )) {
+        kernel_panic(
+            "Unable to read heap before failed fork"
+        );
+    }
+
+    /*
+     * Probe the next unpublished PID, then return it. A correctly rolled-back
+     * fork must leave this same PID available afterward.
+     */
+    uint64_t expected_child_pid;
+
+    if (
+        !process_pid_allocate(
+            &expected_child_pid
+        ) ||
+        !process_pid_release(
+            expected_child_pid
+        )
+    ) {
+        kernel_panic(
+            "Unable to probe PID before fork rollback test"
+        );
+    }
+
+    struct process_context fork_context =
+        parent->process.context;
+
+    struct process_instance *child =
+        process_fork_create_child(
+            parent,
+            &fork_context
+        );
+
+    if (child != NULL) {
+        kernel_panic(
+            "Fork succeeded with full scheduler"
+        );
+    }
+
+    /*
+     * Publication happens only after scheduler registration succeeds.
+     */
+    if (
+        parent->first_child != NULL ||
+        parent->wait_active ||
+        parent->wait_child_pid != 0
+    ) {
+        kernel_panic(
+            "Failed fork published child lifecycle state"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before_failed_fork
+    ) {
+        kernel_panic(
+            "Failed fork leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats
+        heap_after_failed_fork;
+
+    if (!kernel_heap_stats_get(
+        &heap_after_failed_fork
+    )) {
+        kernel_panic(
+            "Unable to read heap after failed fork"
+        );
+    }
+
+    if (
+        heap_after_failed_fork.allocated_block_count !=
+            heap_before_failed_fork.allocated_block_count ||
+        heap_after_failed_fork.allocated_bytes !=
+            heap_before_failed_fork.allocated_bytes
+    ) {
+        kernel_panic(
+            "Failed fork leaked kernel heap allocations"
+        );
+    }
+
+    uint64_t pid_after_failed_fork;
+
+    if (!process_pid_allocate(
+        &pid_after_failed_fork
+    )) {
+        kernel_panic(
+            "Unable to probe PID after failed fork"
+        );
+    }
+
+    if (
+        pid_after_failed_fork !=
+        expected_child_pid
+    ) {
+        kernel_panic(
+            "Failed fork did not roll back PID allocation"
+        );
+    }
+
+    if (!process_pid_release(
+        pid_after_failed_fork
+    )) {
+        kernel_panic(
+            "Unable to release PID rollback probe"
+        );
+    }
+
+    /*
+     * Clean the synthetic scheduler saturation.
+     */
+    for (
+        size_t index =
+            SCHEDULER_MAX_PROCESSES - 1;
+        index > 0;
+        --index
+    ) {
+        struct process_instance *instance =
+            fillers[index - 1];
+
+        instance->process.state =
+            PROCESS_STATE_TERMINATED;
+
+        instance->process.termination_reason =
+            PROCESS_TERMINATION_EXITED;
+
+        instance->process.exit_status = 0;
+
+        if (!scheduler_unregister_terminated(
+            &instance->process
+        )) {
+            kernel_panic(
+                "Unable to unregister fork rollback filler"
+            );
+        }
+
+        if (!process_release_terminated(
+            instance
+        )) {
+            kernel_panic(
+                "Unable to release fork rollback filler"
+            );
+        }
+    }
+
+    parent->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    parent->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    parent->process.exit_status = 0;
+
+    if (!scheduler_unregister_terminated(
+        &parent->process
+    )) {
+        kernel_panic(
+            "Unable to unregister fork rollback parent"
+        );
+    }
+
+    if (!process_release_terminated(
+        parent
+    )) {
+        kernel_panic(
+            "Unable to release fork rollback parent"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "Fork rollback test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read final fork rollback heap state"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Fork rollback test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] Copy-based fork rollback test passed\n"
+    );
+}
+
 void process_elf_lifecycle_test_run(void)
 {
     uint64_t free_before =
@@ -1377,6 +1664,14 @@ void process_elf_lifecycle_test_run(void)
     );
 
     process_elf_lifecycle_test_fork_clone(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    process_elf_lifecycle_test_fork_rollback(
         &image,
         2,
         argv,
