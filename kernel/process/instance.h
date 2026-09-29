@@ -90,6 +90,35 @@ bool process_instance_prepare_elf64(
 );
 
 /**
+ * Prepares a process instance as an independent clone of another instance.
+ *
+ * The source executable image is deep-copied into a new address space. The
+ * supplied execution context becomes the initial resumable context of the
+ * clone.
+ *
+ * Process-family links and wait state are initialized empty. Scheduler
+ * registration and publication as a child remain the caller's responsibility.
+ *
+ * This function does not allocate the supplied process identifier.
+ *
+ * On failure, every resource acquired for the clone is released before
+ * returning.
+ *
+ * @param instance Destination instance storage.
+ * @param id Process identifier supplied by the lifecycle layer.
+ * @param source Existing process instance whose image is cloned.
+ * @param context Execution context to install in the clone.
+ *
+ * @return true when the complete instance was prepared; false otherwise.
+ */
+bool process_instance_prepare_clone(
+    struct process_instance *instance,
+    uint64_t id,
+    const struct process_instance *source,
+    const struct process_context *context
+);
+
+/**
  * Releases an unregistered prepared process instance.
  *
  * This function is intended for rollback before scheduler ownership has been

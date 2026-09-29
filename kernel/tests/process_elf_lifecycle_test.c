@@ -16,6 +16,7 @@
 #include "../memory/heap.h"
 #include "../process/create.h"
 #include "../process/exec.h"
+#include "../process/fork.h"
 #include "../process/image.h"
 #include "../process/instance.h"
 #include "../process/layout.h"
@@ -96,6 +97,14 @@ static void process_elf_lifecycle_test_layout_clone(
 );
 
 static void process_elf_lifecycle_test_image_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
+static void process_elf_lifecycle_test_fork_clone(
     const struct elf64_image *image,
     size_t argc,
     const char *const argv[],
@@ -1013,6 +1022,309 @@ static void process_elf_lifecycle_test_image_clone(
     );
 }
 
+static void process_elf_lifecycle_test_fork_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before fork clone test"
+        );
+    }
+
+    struct process_instance *parent =
+        process_create_elf64(
+            image,
+            argc,
+            argv,
+            envc,
+            envp
+        );
+
+    if (parent == NULL) {
+        kernel_panic(
+            "Unable to create fork clone parent"
+        );
+    }
+
+    /*
+     * Fork must clone current process memory, not merely reconstruct the
+     * original ELF image.
+     */
+    const uint64_t parent_stack_value =
+        0xA1B2C3D4E5F60718ULL;
+
+    if (!process_memory_write(
+        &parent->image.memory,
+        parent->process.context.rsp,
+        &parent_stack_value,
+        sizeof(parent_stack_value)
+    )) {
+        kernel_panic(
+            "Unable to initialize current parent memory before fork"
+        );
+    }
+
+    struct process_context fork_context =
+        parent->process.context;
+
+    fork_context.r15 =
+        0x1515151515151515ULL;
+
+    fork_context.r12 =
+        0x1212121212121212ULL;
+
+    fork_context.rbx =
+        0xBBBBBBBBBBBBBBBBULL;
+
+    fork_context.rdi =
+        0xD1D1D1D1D1D1D1D1ULL;
+
+    fork_context.rax =
+        0xF0F0F0F0F0F0F0F0ULL;
+
+    struct process_instance *child =
+        process_fork_create_child(
+            parent,
+            &fork_context
+        );
+
+    if (child == NULL) {
+        kernel_panic(
+            "Unable to create copy-based fork child"
+        );
+    }
+
+    uint64_t child_pid =
+        child->process.id;
+
+    if (
+        child_pid == parent->process.id ||
+        child->parent != parent ||
+        parent->first_child != child ||
+        child->next_sibling != NULL
+    ) {
+        kernel_panic(
+            "Fork child lifecycle relationship is incorrect"
+        );
+    }
+
+    if (
+        child->process.state !=
+            PROCESS_STATE_READY ||
+        child->process.instance != child ||
+        child->process.image !=
+            &child->image ||
+        child->process.memory !=
+            &child->image.memory ||
+        child->process.layout !=
+            &child->image.layout
+    ) {
+        kernel_panic(
+            "Fork child ownership state is incorrect"
+        );
+    }
+
+    if (
+        child->process.context.rax != 0 ||
+        child->process.context.r15 !=
+            fork_context.r15 ||
+        child->process.context.r12 !=
+            fork_context.r12 ||
+        child->process.context.rbx !=
+            fork_context.rbx ||
+        child->process.context.rdi !=
+            fork_context.rdi ||
+        child->process.context.rip !=
+            fork_context.rip ||
+        child->process.context.rsp !=
+            fork_context.rsp ||
+        child->process.context.rflags !=
+            fork_context.rflags
+    ) {
+        kernel_panic(
+            "Fork child execution context is incorrect"
+        );
+    }
+
+    if (
+        parent->image.memory
+            .address_space.pml4_physical ==
+        child->image.memory
+            .address_space.pml4_physical
+    ) {
+        kernel_panic(
+            "Fork child reused parent address space"
+        );
+    }
+
+    uint64_t child_stack_value =
+        process_elf_lifecycle_test_read_u64(
+            &child->image.memory,
+            fork_context.rsp
+        );
+
+    if (
+        child_stack_value !=
+            parent_stack_value
+    ) {
+        kernel_panic(
+            "Fork child did not copy current parent memory"
+        );
+    }
+
+    const uint64_t child_mutation =
+        0xCAFEBABE11223344ULL;
+
+    if (!process_memory_write(
+        &child->image.memory,
+        fork_context.rsp,
+        &child_mutation,
+        sizeof(child_mutation)
+    )) {
+        kernel_panic(
+            "Unable to mutate fork child memory"
+        );
+    }
+
+    uint64_t parent_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &parent->image.memory,
+            fork_context.rsp
+        );
+
+    uint64_t child_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &child->image.memory,
+            fork_context.rsp
+        );
+
+    if (
+        parent_after_mutation !=
+            parent_stack_value ||
+        child_after_mutation !=
+            child_mutation
+    ) {
+        kernel_panic(
+            "Fork parent and child memory are not independent"
+        );
+    }
+
+    /*
+     * Terminate and reap the child through the exact lifecycle that forked
+     * children will use in production.
+     */
+    child->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    child->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    child->process.exit_status = 23;
+
+    if (!scheduler_unregister_terminated(
+        &child->process
+    )) {
+        kernel_panic(
+            "Unable to unregister fork clone child"
+        );
+    }
+
+    struct process_wait_status wait_status;
+
+    if (
+        process_waitpid_try_reap(
+            parent,
+            child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_REAPED
+    ) {
+        kernel_panic(
+            "Unable to reap fork clone child"
+        );
+    }
+
+    if (
+        wait_status.pid != child_pid ||
+        wait_status.termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        wait_status.exit_status != 23 ||
+        parent->first_child != NULL
+    ) {
+        kernel_panic(
+            "Fork clone child reaping produced incorrect state"
+        );
+    }
+
+    parent->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    parent->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    parent->process.exit_status = 0;
+
+    if (!scheduler_unregister_terminated(
+        &parent->process
+    )) {
+        kernel_panic(
+            "Unable to unregister fork clone parent"
+        );
+    }
+
+    if (!process_release_terminated(
+        parent
+    )) {
+        kernel_panic(
+            "Unable to release fork clone parent"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "Fork clone test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after fork clone test"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Fork clone test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] Copy-based fork lifecycle test passed\n"
+    );
+}
+
 void process_elf_lifecycle_test_run(void)
 {
     uint64_t free_before =
@@ -1057,6 +1369,14 @@ void process_elf_lifecycle_test_run(void)
     );
 
     process_elf_lifecycle_test_image_clone(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    process_elf_lifecycle_test_fork_clone(
         &image,
         2,
         argv,
