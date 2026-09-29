@@ -70,6 +70,28 @@ bool process_image_create_elf64(
 );
 
 /**
+ * Creates an independent copy of an existing executable process image.
+ *
+ * A new private process address space is created and every userspace mapping
+ * owned by the source layout is copied into independent physical frames while
+ * preserving virtual addresses and page permissions.
+ *
+ * Process identity and scheduler state are not cloned by this operation.
+ *
+ * On failure, every resource acquired for the destination image is released
+ * before returning.
+ *
+ * @param destination Image receiving the independent clone.
+ * @param source Existing executable process image.
+ *
+ * @return true when the complete image was cloned; false otherwise.
+ */
+bool process_image_clone(
+    struct process_image *destination,
+    const struct process_image *source
+);
+
+/**
  * Releases every resource owned by an executable process image.
  *
  * Layout-managed mappings are released before the private process address

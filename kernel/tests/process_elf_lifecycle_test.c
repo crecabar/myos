@@ -95,6 +95,14 @@ static void process_elf_lifecycle_test_layout_clone(
     const char *const envp[]
 );
 
+static void process_elf_lifecycle_test_image_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
 static void process_elf_lifecycle_test_write_u16(
     uint8_t *destination,
     uint16_t value)
@@ -815,6 +823,196 @@ static void process_elf_lifecycle_test_layout_clone(
     );
 }
 
+static void process_elf_lifecycle_test_image_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before ELF image clone test"
+        );
+    }
+
+    struct process_image source_image;
+
+    if (!process_image_create_elf64(
+        &source_image,
+        image,
+        argc,
+        argv,
+        envc,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to create source ELF image for image clone test"
+        );
+    }
+
+    struct process_image clone_image;
+
+    if (!process_image_clone(
+        &clone_image,
+        &source_image
+    )) {
+        kernel_panic(
+            "Unable to clone ELF process image"
+        );
+    }
+
+    if (
+        source_image.memory
+            .address_space.pml4_physical ==
+        clone_image.memory
+            .address_space.pml4_physical
+    ) {
+        kernel_panic(
+            "Cloned process image reused source address space"
+        );
+    }
+
+    if (
+        clone_image.layout.kind !=
+            source_image.layout.kind ||
+        clone_image.layout.entry_point !=
+            source_image.layout.entry_point ||
+        clone_image.layout.initial_rsp !=
+            source_image.layout.initial_rsp
+    ) {
+        kernel_panic(
+            "Cloned process image changed layout execution state"
+        );
+    }
+
+    if (
+        clone_image.layout.loaded_image.segments == NULL ||
+        clone_image.layout.loaded_image.segments ==
+            source_image.layout.loaded_image.segments ||
+        clone_image.layout.loaded_image.segment_count !=
+            source_image.layout.loaded_image.segment_count
+    ) {
+        kernel_panic(
+            "Cloned process image retained shared ELF metadata"
+        );
+    }
+
+    uint64_t source_stack_word =
+        process_elf_lifecycle_test_read_u64(
+            &source_image.memory,
+            source_image.layout.initial_rsp
+        );
+
+    uint64_t clone_stack_word =
+        process_elf_lifecycle_test_read_u64(
+            &clone_image.memory,
+            clone_image.layout.initial_rsp
+        );
+
+    if (
+        source_stack_word != argc ||
+        clone_stack_word != argc
+    ) {
+        kernel_panic(
+            "Cloned process image changed initial stack contents"
+        );
+    }
+
+    const uint64_t clone_mutation =
+        0x8877665544332211ULL;
+
+    if (!process_memory_write(
+        &clone_image.memory,
+        clone_image.layout.initial_rsp,
+        &clone_mutation,
+        sizeof(clone_mutation)
+    )) {
+        kernel_panic(
+            "Unable to mutate cloned process image stack"
+        );
+    }
+
+    uint64_t source_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &source_image.memory,
+            source_image.layout.initial_rsp
+        );
+
+    uint64_t clone_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &clone_image.memory,
+            clone_image.layout.initial_rsp
+        );
+
+    if (
+        source_after_mutation != argc ||
+        clone_after_mutation !=
+            clone_mutation
+    ) {
+        kernel_panic(
+            "Cloned process image is not memory-independent"
+        );
+    }
+
+    if (!process_image_destroy(
+        &clone_image
+    )) {
+        kernel_panic(
+            "Unable to destroy cloned ELF process image"
+        );
+    }
+
+    if (!process_image_destroy(
+        &source_image
+    )) {
+        kernel_panic(
+            "Unable to destroy source ELF process image"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "ELF image clone test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after ELF image clone test"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "ELF image clone test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] ELF image clone test passed\n"
+    );
+}
+
 void process_elf_lifecycle_test_run(void)
 {
     uint64_t free_before =
@@ -851,6 +1049,14 @@ void process_elf_lifecycle_test_run(void)
     };
 
     process_elf_lifecycle_test_layout_clone(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    process_elf_lifecycle_test_image_clone(
         &image,
         2,
         argv,
