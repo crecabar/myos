@@ -130,6 +130,36 @@ bool process_layout_create_elf64(
 );
 
 /**
+ * Clones one owned userspace layout into an independent process address space.
+ *
+ * Every mapped page owned by source is copied into destination_memory at the
+ * same virtual address with independent physical storage and equivalent page
+ * permissions.
+ *
+ * ELF loaded-image metadata is deep-copied so the destination layout owns its
+ * own teardown metadata. The stack guard remains unmapped.
+ *
+ * The destination process memory must already exist and contain no mappings
+ * belonging to a process layout.
+ *
+ * On failure, every page and metadata allocation created by this operation is
+ * rolled back before returning.
+ *
+ * @param destination_memory Empty process address space receiving the clone.
+ * @param source_memory Existing process address space.
+ * @param source_layout Existing owned process layout.
+ * @param destination_layout Receives independent layout ownership metadata.
+ *
+ * @return true when the complete layout was cloned; false otherwise.
+ */
+bool process_layout_clone(
+    struct process_memory *destination_memory,
+    const struct process_memory *source_memory,
+    const struct process_layout *source_layout,
+    struct process_layout *destination_layout
+);
+
+/**
  * Releases all mappings managed by a process layout.
  *
  * The supplied process memory is borrowed and is not destroyed by this

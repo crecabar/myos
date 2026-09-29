@@ -30,6 +30,9 @@
 #define PROCESS_ELF_LIFECYCLE_TEST_IMAGE_SIZE 0x2000U
 #define PROCESS_ELF_LIFECYCLE_TEST_VADDR      0x0000000000400000ULL
 
+#define PROCESS_ELF_LIFECYCLE_TEST_KERNEL_ADDRESS \
+    0xFFFFFFFF80000000ULL
+
 #define PROCESS_ELF_LIFECYCLE_TEST_HEADER_TYPE_OFFSET                 16U
 #define PROCESS_ELF_LIFECYCLE_TEST_HEADER_MACHINE_OFFSET              18U
 #define PROCESS_ELF_LIFECYCLE_TEST_HEADER_VERSION_OFFSET              20U
@@ -82,6 +85,14 @@ static void process_elf_lifecycle_test_expect_string(
     struct process_memory *memory,
     uint64_t address,
     const char *expected
+);
+
+static void process_elf_lifecycle_test_layout_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
 );
 
 static void process_elf_lifecycle_test_write_u16(
@@ -324,6 +335,486 @@ static void process_elf_lifecycle_test_expect_string(
     }
 }
 
+static void process_elf_lifecycle_test_layout_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before ELF layout clone test"
+        );
+    }
+
+    struct process_image source_image;
+
+    if (!process_image_create_elf64(
+        &source_image,
+        image,
+        argc,
+        argv,
+        envc,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to create source ELF image for layout clone test"
+        );
+    }
+
+    struct process_memory clone_memory;
+
+    if (!process_memory_create(
+        &clone_memory
+    )) {
+        kernel_panic(
+            "Unable to create destination address space for layout clone test"
+        );
+    }
+
+    struct process_layout clone_layout;
+
+    if (!process_layout_clone(
+        &clone_memory,
+        &source_image.memory,
+        &source_image.layout,
+        &clone_layout
+    )) {
+        kernel_panic(
+            "Unable to clone ELF process layout"
+        );
+    }
+
+    if (
+        clone_layout.kind !=
+            PROCESS_LAYOUT_KIND_ELF64 ||
+        clone_layout.entry_point !=
+            source_image.layout.entry_point ||
+        clone_layout.initial_rsp !=
+            source_image.layout.initial_rsp
+    ) {
+        kernel_panic(
+            "Cloned ELF layout changed execution metadata"
+        );
+    }
+
+    if (
+        clone_layout.stack.guard_address !=
+            source_image.layout.stack.guard_address ||
+        clone_layout.stack.base_address !=
+            source_image.layout.stack.base_address ||
+        clone_layout.stack.stack_top !=
+            source_image.layout.stack.stack_top ||
+        clone_layout.stack.page_count !=
+            source_image.layout.stack.page_count
+    ) {
+        kernel_panic(
+            "Cloned ELF layout changed stack geometry"
+        );
+    }
+
+    if (
+        clone_layout.loaded_image.segments == NULL ||
+        clone_layout.loaded_image.segments ==
+            source_image.layout.loaded_image.segments ||
+        clone_layout.loaded_image.segment_count !=
+            source_image.layout.loaded_image.segment_count
+    ) {
+        kernel_panic(
+            "Cloned ELF layout does not own independent segment metadata"
+        );
+    }
+
+    if (
+        clone_layout.loaded_image.segment_count != 1
+    ) {
+        kernel_panic(
+            "Unexpected segment count in ELF layout clone test"
+        );
+    }
+
+    const struct elf64_load_segment *source_segment =
+        &source_image.layout.loaded_image.segments[0];
+
+    const struct elf64_load_segment *clone_segment =
+        &clone_layout.loaded_image.segments[0];
+
+    if (
+        clone_segment->virtual_address !=
+            source_segment->virtual_address ||
+        clone_segment->mapping_start !=
+            source_segment->mapping_start ||
+        clone_segment->mapping_end !=
+            source_segment->mapping_end ||
+        clone_segment->page_count !=
+            source_segment->page_count ||
+        clone_segment->writable !=
+            source_segment->writable ||
+        clone_segment->executable !=
+            source_segment->executable
+    ) {
+        kernel_panic(
+            "Cloned ELF segment metadata is incorrect"
+        );
+    }
+
+    if (
+        source_image.memory
+            .address_space.pml4_physical ==
+        clone_memory
+            .address_space.pml4_physical
+    ) {
+        kernel_panic(
+            "Cloned ELF layout reused source address space"
+        );
+    }
+
+    if (
+        !source_image.memory
+            .address_space.kernel_half_shared ||
+        !clone_memory
+            .address_space.kernel_half_shared
+    ) {
+        kernel_panic(
+            "ELF layout clone lost shared kernel-half policy"
+        );
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            PROCESS_ELF_LIFECYCLE_TEST_KERNEL_ADDRESS
+        );
+
+    uint64_t source_kernel_entry =
+        source_image.memory
+            .address_space
+            .pml4_virtual[kernel_pml4_index];
+
+    uint64_t clone_kernel_entry =
+        clone_memory
+            .address_space
+            .pml4_virtual[kernel_pml4_index];
+
+    if (
+        (source_kernel_entry &
+         PAGE_ENTRY_PRESENT) == 0 ||
+        source_kernel_entry !=
+            clone_kernel_entry
+    ) {
+        kernel_panic(
+            "ELF layout clone changed shared kernel mapping"
+        );
+    }
+
+    struct paging_translation source_code;
+    struct paging_translation clone_code;
+
+    if (
+        !paging_translate_address_space(
+            &source_image.memory.address_space,
+            source_segment->mapping_start,
+            &source_code
+        ) ||
+        !paging_translate_address_space(
+            &clone_memory.address_space,
+            clone_segment->mapping_start,
+            &clone_code
+        )
+    ) {
+        kernel_panic(
+            "Unable to translate cloned ELF code page"
+        );
+    }
+
+    if (
+        source_code.page_size !=
+            PAGING_PAGE_SIZE_4K ||
+        clone_code.page_size !=
+            PAGING_PAGE_SIZE_4K
+    ) {
+        kernel_panic(
+            "Cloned ELF code mapping is not 4 KiB"
+        );
+    }
+
+    if (
+        (
+            source_code.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        ) ==
+        (
+            clone_code.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        )
+    ) {
+        kernel_panic(
+            "Cloned ELF code page shares source physical frame"
+        );
+    }
+
+    if (
+        (
+            source_code.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) !=
+        (
+            clone_code.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) ||
+        (
+            source_code.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) !=
+        (
+            clone_code.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        )
+    ) {
+        kernel_panic(
+            "Cloned ELF code page changed permissions"
+        );
+    }
+
+    if (
+        (
+            clone_code.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) != 0 ||
+        (
+            clone_code.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) != 0
+    ) {
+        kernel_panic(
+            "Cloned ELF code page is not read-only executable"
+        );
+    }
+
+    struct paging_translation source_stack;
+    struct paging_translation clone_stack;
+
+    if (
+        !paging_translate_address_space(
+            &source_image.memory.address_space,
+            source_image.layout.stack.base_address,
+            &source_stack
+        ) ||
+        !paging_translate_address_space(
+            &clone_memory.address_space,
+            clone_layout.stack.base_address,
+            &clone_stack
+        )
+    ) {
+        kernel_panic(
+            "Unable to translate cloned ELF stack page"
+        );
+    }
+
+    if (
+        (
+            source_stack.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        ) ==
+        (
+            clone_stack.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        )
+    ) {
+        kernel_panic(
+            "Cloned ELF stack page shares source physical frame"
+        );
+    }
+
+    if (
+        (
+            source_stack.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) == 0 ||
+        (
+            source_stack.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) == 0 ||
+        (
+            clone_stack.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) == 0 ||
+        (
+            clone_stack.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) == 0
+    ) {
+        kernel_panic(
+            "Cloned ELF stack page changed RW/NX policy"
+        );
+    }
+
+    uint8_t source_code_bytes[
+        PROCESS_ELF_LIFECYCLE_TEST_FILE_SIZE
+    ];
+
+    uint8_t clone_code_bytes[
+        PROCESS_ELF_LIFECYCLE_TEST_FILE_SIZE
+    ];
+
+    if (
+        !process_memory_read(
+            &source_image.memory,
+            source_segment->virtual_address,
+            source_code_bytes,
+            sizeof(source_code_bytes)
+        ) ||
+        !process_memory_read(
+            &clone_memory,
+            clone_segment->virtual_address,
+            clone_code_bytes,
+            sizeof(clone_code_bytes)
+        )
+    ) {
+        kernel_panic(
+            "Unable to read cloned ELF code contents"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < sizeof(source_code_bytes);
+        ++index
+    ) {
+        if (
+            source_code_bytes[index] !=
+            clone_code_bytes[index]
+        ) {
+            kernel_panic(
+                "Cloned ELF code contents differ from source"
+            );
+        }
+    }
+
+    uint64_t source_stack_word =
+        process_elf_lifecycle_test_read_u64(
+            &source_image.memory,
+            source_image.layout.initial_rsp
+        );
+
+    uint64_t clone_stack_word =
+        process_elf_lifecycle_test_read_u64(
+            &clone_memory,
+            clone_layout.initial_rsp
+        );
+
+    if (
+        source_stack_word != clone_stack_word ||
+        source_stack_word != argc
+    ) {
+        kernel_panic(
+            "Cloned ELF stack contents differ from source"
+        );
+    }
+
+    const uint64_t clone_stack_mutation =
+        0x1122334455667788ULL;
+
+    if (!process_memory_write(
+        &clone_memory,
+        clone_layout.initial_rsp,
+        &clone_stack_mutation,
+        sizeof(clone_stack_mutation)
+    )) {
+        kernel_panic(
+            "Unable to mutate cloned ELF stack"
+        );
+    }
+
+    uint64_t source_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &source_image.memory,
+            source_image.layout.initial_rsp
+        );
+
+    uint64_t clone_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &clone_memory,
+            clone_layout.initial_rsp
+        );
+
+    if (
+        source_after_mutation != argc ||
+        clone_after_mutation !=
+            clone_stack_mutation
+    ) {
+        kernel_panic(
+            "Cloned ELF stack is not physically independent"
+        );
+    }
+
+    if (!process_layout_destroy(
+        &clone_memory,
+        &clone_layout
+    )) {
+        kernel_panic(
+            "Unable to destroy cloned ELF layout"
+        );
+    }
+
+    if (!process_memory_destroy(
+        &clone_memory
+    )) {
+        kernel_panic(
+            "Unable to destroy cloned ELF address space"
+        );
+    }
+
+    if (!process_image_destroy(
+        &source_image
+    )) {
+        kernel_panic(
+            "Unable to destroy source ELF image after clone test"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "ELF layout clone test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after ELF layout clone test"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "ELF layout clone test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] ELF layout clone test passed\n"
+    );
+}
+
 void process_elf_lifecycle_test_run(void)
 {
     uint64_t free_before =
@@ -358,6 +849,14 @@ void process_elf_lifecycle_test_run(void)
     const char *envp[] = {
         "TERM=myos",
     };
+
+    process_elf_lifecycle_test_layout_clone(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
 
     uint64_t image_free_before =
         physical_free_frame_count();
