@@ -182,6 +182,19 @@ FORK_SOURCE := user/tests/fork.S
 FORK_OBJECT := $(USER_TEST_BUILD_DIR)/fork.o
 FORK_ELF    := $(USER_TEST_BUILD_DIR)/fork.elf
 
+ELF_SELF_MODIFY_SOURCE := user/tests/elf_self_modify.S
+ELF_SELF_MODIFY_OBJECT := $(USER_TEST_BUILD_DIR)/elf_self_modify.o
+ELF_SELF_MODIFY_ELF    := $(USER_TEST_BUILD_DIR)/elf_self_modify.elf
+
+ELF_ISOLATION_ATTACKER_SOURCE := user/tests/elf_isolation_attacker.S
+ELF_ISOLATION_ATTACKER_OBJECT := $(USER_TEST_BUILD_DIR)/elf_isolation_attacker.o
+ELF_ISOLATION_ATTACKER_ELF    := $(USER_TEST_BUILD_DIR)/elf_isolation_attacker.elf
+ELF_ISOLATION_ATTACKER_LINKER_SCRIPT := user/tests/elf_isolation_attacker.ld
+
+ELF_ISOLATION_VICTIM_SOURCE := user/tests/elf_isolation_victim.S
+ELF_ISOLATION_VICTIM_OBJECT := $(USER_TEST_BUILD_DIR)/elf_isolation_victim.o
+ELF_ISOLATION_VICTIM_ELF    := $(USER_TEST_BUILD_DIR)/elf_isolation_victim.elf
+
 ELF_ENTRY_CFLAGS := \
 	--target=$(TARGET) \
 	-ffreestanding \
@@ -316,6 +329,51 @@ $(FORK_ELF): \
 		-o $@ \
 		$(FORK_OBJECT)
 
+$(ELF_SELF_MODIFY_OBJECT): \
+	$(ELF_SELF_MODIFY_SOURCE) \
+	| $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(ELF_SELF_MODIFY_ELF): \
+	$(ELF_SELF_MODIFY_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(ELF_SELF_MODIFY_OBJECT)
+
+$(ELF_ISOLATION_ATTACKER_OBJECT): \
+	$(ELF_ISOLATION_ATTACKER_SOURCE) \
+	| $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(ELF_ISOLATION_ATTACKER_ELF): \
+	$(ELF_ISOLATION_ATTACKER_OBJECT) \
+	$(ELF_ISOLATION_ATTACKER_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ISOLATION_ATTACKER_LINKER_SCRIPT) \
+		-o $@ \
+		$(ELF_ISOLATION_ATTACKER_OBJECT)
+
+$(ELF_ISOLATION_VICTIM_OBJECT): \
+	$(ELF_ISOLATION_VICTIM_SOURCE) \
+	| $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(ELF_ISOLATION_VICTIM_ELF): \
+	$(ELF_ISOLATION_VICTIM_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(ELF_ISOLATION_VICTIM_OBJECT)
+
 # -----------------------------------------------------------------------------
 # Kernel
 # -----------------------------------------------------------------------------
@@ -398,6 +456,12 @@ PROCESS_WAITPID_FIXTURE_OBJ := \
 
 PROCESS_FORK_FIXTURE_OBJ := \
 	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_fork_fixture.o
+
+PROCESS_ELF_PROTECTION_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_elf_protection_fixture.o
+
+PROCESS_ELF_ISOLATION_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_elf_isolation_fixture.o
 
 KERNEL_OBJS := \
 	$(KERNEL_C_OBJS) \
@@ -501,6 +565,13 @@ $(PROCESS_WAITPID_FIXTURE_OBJ): \
 	$(WAITPID_CHILD_ELF)
 
 $(PROCESS_FORK_FIXTURE_OBJ): $(FORK_ELF)
+
+$(PROCESS_ELF_PROTECTION_FIXTURE_OBJ): \
+	$(ELF_SELF_MODIFY_ELF)
+
+$(PROCESS_ELF_ISOLATION_FIXTURE_OBJ): \
+	$(ELF_ISOLATION_ATTACKER_ELF) \
+	$(ELF_ISOLATION_VICTIM_ELF)
 endif
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
