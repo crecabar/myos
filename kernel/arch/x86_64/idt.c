@@ -7,6 +7,7 @@
 #include "ps2_mouse.h"
 #include "../../core/panic.h"
 #include "../../diagnostics/diagnostics.h"
+#include "../../process/fork.h"
 #include "../../process/process.h"
 #include "../../process/wait.h"
 #include "../../scheduler/scheduler.h"
@@ -86,6 +87,11 @@ static void idt_set_gate(
 static uint64_t read_cr2(void);
 static void page_fault_dump(const struct interrupt_context *context);
 static bool exception_from_user_mode(const struct interrupt_context *context);
+
+static void process_context_from_interrupt(
+    const struct interrupt_context *source,
+    struct process_context *destination
+);
 
 struct idt_entry {
     uint16_t offset_low;
@@ -480,6 +486,32 @@ static bool exception_from_user_mode(const struct interrupt_context *context)
     return (context->cs & 0x3) == 3;
 }
 
+static void process_context_from_interrupt(
+    const struct interrupt_context *source,
+    struct process_context *destination)
+{
+    destination->r15 = source->r15;
+    destination->r14 = source->r14;
+    destination->r13 = source->r13;
+    destination->r12 = source->r12;
+    destination->r11 = source->r11;
+    destination->r10 = source->r10;
+    destination->r9 = source->r9;
+    destination->r8 = source->r8;
+
+    destination->rbp = source->rbp;
+    destination->rdi = source->rdi;
+    destination->rsi = source->rsi;
+    destination->rdx = source->rdx;
+    destination->rcx = source->rcx;
+    destination->rbx = source->rbx;
+    destination->rax = source->rax;
+
+    destination->rip = source->rip;
+    destination->rsp = source->rsp;
+    destination->rflags = source->rflags;
+}
+
 static void page_fault_dump(
     const struct interrupt_context *context)
 {
@@ -774,6 +806,62 @@ void exception_handler(struct interrupt_context *context)
 
 void syscall_handler(struct interrupt_context *context)
 {
+    if (context->rax == SYSCALL_FORK) {
+        struct process *parent_process =
+            scheduler_current();
+
+        if (
+            parent_process == NULL ||
+            parent_process->state !=
+                PROCESS_STATE_RUNNING ||
+            parent_process->instance == NULL ||
+            parent_process->instance->process.instance !=
+                parent_process->instance ||
+            (context->cs & 0x3) != 3
+        ) {
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        struct process_context parent_context;
+
+        process_context_from_interrupt(
+            context,
+            &parent_context
+        );
+
+        struct process_instance *child =
+            process_fork_create_child(
+                parent_process->instance,
+                &parent_context
+            );
+
+        if (child == NULL) {
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_RESOURCE_EXHAUSTED
+                );
+
+            return;
+        }
+
+        /*
+         * The child already owns an independent copy of this post-syscall
+         * context with RAX = 0.
+         *
+         * The interrupt frame belongs to the parent, so returning the child PID
+         * here produces the complementary fork result.
+         */
+        context->rax =
+            child->process.id;
+
+        return;
+    }
+
     if (context->rax == SYSCALL_WAITPID) {
         syscall_result_t result;
 

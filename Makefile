@@ -178,6 +178,10 @@ WAITPID_CHILD_SOURCE := user/tests/waitpid_child.S
 WAITPID_CHILD_OBJECT := $(USER_TEST_BUILD_DIR)/waitpid_child.o
 WAITPID_CHILD_ELF    := $(USER_TEST_BUILD_DIR)/waitpid_child.elf
 
+FORK_SOURCE := user/tests/fork.S
+FORK_OBJECT := $(USER_TEST_BUILD_DIR)/fork.o
+FORK_ELF    := $(USER_TEST_BUILD_DIR)/fork.elf
+
 ELF_ENTRY_CFLAGS := \
 	--target=$(TARGET) \
 	-ffreestanding \
@@ -299,6 +303,19 @@ $(WAITPID_CHILD_ELF): \
 		-o $@ \
 		$(WAITPID_CHILD_OBJECT)
 
+$(FORK_OBJECT): $(FORK_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(FORK_ELF): \
+	$(FORK_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(FORK_OBJECT)
+
 # -----------------------------------------------------------------------------
 # Kernel
 # -----------------------------------------------------------------------------
@@ -379,6 +396,9 @@ PROCESS_EXEC_FIXTURE_OBJ := \
 PROCESS_WAITPID_FIXTURE_OBJ := \
 	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_waitpid_fixture.o
 
+PROCESS_FORK_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_fork_fixture.o
+
 KERNEL_OBJS := \
 	$(KERNEL_C_OBJS) \
 	$(KERNEL_ASM_OBJS)
@@ -453,6 +473,8 @@ $(KERNEL_OBJ_DIR)/c/%.o: %.c $(CONFIG_STAMP) | $(LIMINE_HEADER)
 		-c $< \
 		-o $@
 
+$(KERNEL_OBJ_DIR)/c/kernel/runtime/memory.o: CFLAGS += -fno-builtin-memcpy
+
 $(KERNEL_OBJ_DIR)/asm/%.o: %.S $(CONFIG_STAMP) | $(LIMINE_HEADER)
 	@mkdir -p $(@D)
 	$(CLANG) $(CFLAGS) \
@@ -477,6 +499,8 @@ $(PROCESS_EXEC_FIXTURE_OBJ): $(EXEC_CALLER_ELF) $(EXEC_TARGET_ELF)
 $(PROCESS_WAITPID_FIXTURE_OBJ): \
 	$(WAITPID_PARENT_ELF) \
 	$(WAITPID_CHILD_ELF)
+
+$(PROCESS_FORK_FIXTURE_OBJ): $(FORK_ELF)
 endif
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)

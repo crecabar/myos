@@ -64,6 +64,83 @@ bool process_instance_prepare_elf64(
     return true;
 }
 
+bool process_instance_prepare_clone(
+    struct process_instance *instance,
+    uint64_t id,
+    const struct process_instance *source,
+    const struct process_context *context)
+{
+    if (
+        instance == NULL ||
+        source == NULL ||
+        context == NULL ||
+        instance == source
+    ) {
+        return false;
+    }
+
+    if (
+        source->process.instance != source ||
+        source->process.image !=
+            &source->image ||
+        source->process.memory !=
+            &source->image.memory ||
+        source->process.layout !=
+            &source->image.layout ||
+        source->process.state ==
+            PROCESS_STATE_TERMINATED
+    ) {
+        return false;
+    }
+
+    if (!process_image_clone(
+        &instance->image,
+        &source->image
+    )) {
+        return false;
+    }
+
+    instance->parent = NULL;
+    instance->first_child = NULL;
+    instance->next_sibling = NULL;
+
+    instance->wait_active = false;
+    instance->wait_child_pid = 0;
+
+    if (!process_init(
+        &instance->process,
+        id,
+        &instance->image.memory,
+        &instance->image.layout
+    )) {
+        if (!process_image_destroy(
+            &instance->image
+        )) {
+            kernel_panic(
+                "Unable to roll back failed cloned process instance"
+            );
+        }
+
+        return false;
+    }
+
+    /*
+     * process_init() establishes the descriptor/image ownership links and
+     * validates the cloned layout. Fork resumes from the caller-supplied
+     * execution point rather than from the ELF entry point.
+     */
+    instance->process.context =
+        *context;
+
+    instance->process.instance =
+        instance;
+
+    instance->process.image =
+        &instance->image;
+
+    return true;
+}
+
 bool process_instance_discard(
     struct process_instance *instance)
 {

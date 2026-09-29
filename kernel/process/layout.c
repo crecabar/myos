@@ -2,10 +2,26 @@
 
 #include "layout.h"
 
+#include "../core/panic.h"
+#include "../memory/heap.h"
+
 #include <stddef.h>
 
 static void process_layout_clear(
     struct process_layout *layout
+);
+
+static bool process_layout_clone_range(
+    struct process_memory *destination_memory,
+    const struct process_memory *source_memory,
+    uint64_t virtual_address,
+    size_t page_count
+);
+
+static bool process_layout_release_range(
+    struct process_memory *memory,
+    uint64_t virtual_address,
+    size_t page_count
 );
 
 static void process_layout_clear(
@@ -24,6 +40,87 @@ static void process_layout_clear(
 
     layout->loaded_image.segments = NULL;
     layout->loaded_image.segment_count = 0;
+}
+
+static bool process_layout_clone_range(
+    struct process_memory *destination_memory,
+    const struct process_memory *source_memory,
+    uint64_t virtual_address,
+    size_t page_count)
+{
+    size_t cloned_pages = 0;
+
+    for (
+        size_t index = 0;
+        index < page_count;
+        ++index
+    ) {
+        uint64_t page_address =
+            virtual_address +
+            (uint64_t) index * 4096ULL;
+
+        if (!process_memory_clone_page(
+            destination_memory,
+            source_memory,
+            page_address
+        )) {
+            break;
+        }
+
+        ++cloned_pages;
+    }
+
+    if (cloned_pages == page_count) {
+        return true;
+    }
+
+    for (
+        size_t remaining = cloned_pages;
+        remaining > 0;
+        --remaining
+    ) {
+        uint64_t page_address =
+            virtual_address +
+            (uint64_t) (remaining - 1) *
+            4096ULL;
+
+        if (!process_memory_release_page(
+            destination_memory,
+            page_address
+        )) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+static bool process_layout_release_range(
+    struct process_memory *memory,
+    uint64_t virtual_address,
+    size_t page_count)
+{
+    bool released_all = true;
+
+    for (
+        size_t remaining = page_count;
+        remaining > 0;
+        --remaining
+    ) {
+        uint64_t page_address =
+            virtual_address +
+            (uint64_t) (remaining - 1) *
+            4096ULL;
+
+        if (!process_memory_release_page(
+            memory,
+            page_address
+        )) {
+            released_all = false;
+        }
+    }
+
+    return released_all;
 }
 
 bool process_layout_create(
@@ -138,6 +235,179 @@ bool process_layout_create_elf64(
     layout->kind = PROCESS_LAYOUT_KIND_ELF64;
     layout->entry_point = image->entry_point;
     layout->initial_rsp = initial_rsp;
+
+    return true;
+}
+
+bool process_layout_clone(
+    struct process_memory *destination_memory,
+    const struct process_memory *source_memory,
+    const struct process_layout *source_layout,
+    struct process_layout *destination_layout)
+{
+    if (
+        destination_memory == NULL ||
+        source_memory == NULL ||
+        source_layout == NULL ||
+        destination_layout == NULL ||
+        destination_memory == source_memory
+    ) {
+        return false;
+    }
+
+    process_layout_clear(
+        destination_layout
+    );
+
+    /*
+     * fork initially supports only the real ELF64 process model.
+     * Legacy test layouts are deliberately outside this ownership path.
+     */
+    if (
+        source_layout->kind !=
+        PROCESS_LAYOUT_KIND_ELF64
+    ) {
+        return false;
+    }
+
+    if (
+        source_layout->loaded_image.segments == NULL ||
+        source_layout->loaded_image.segment_count == 0 ||
+        source_layout->stack.page_count == 0
+    ) {
+        return false;
+    }
+
+    size_t segment_count =
+        source_layout->loaded_image.segment_count;
+
+    if (
+        segment_count >
+        SIZE_MAX /
+            sizeof(struct elf64_load_segment)
+    ) {
+        return false;
+    }
+
+    size_t metadata_size =
+        segment_count *
+        sizeof(struct elf64_load_segment);
+
+    struct elf64_load_segment *segments =
+        kmalloc(metadata_size);
+
+    if (segments == NULL) {
+        return false;
+    }
+
+    for (
+        size_t index = 0;
+        index < segment_count;
+        ++index
+    ) {
+        segments[index] =
+            source_layout
+                ->loaded_image
+                .segments[index];
+    }
+
+    size_t cloned_segments = 0;
+
+    for (
+        size_t index = 0;
+        index < segment_count;
+        ++index
+    ) {
+        const struct elf64_load_segment *segment =
+            &segments[index];
+
+        if (!process_layout_clone_range(
+            destination_memory,
+            source_memory,
+            segment->mapping_start,
+            segment->page_count
+        )) {
+            break;
+        }
+
+        ++cloned_segments;
+    }
+
+    if (cloned_segments != segment_count) {
+        for (
+            size_t remaining = cloned_segments;
+            remaining > 0;
+            --remaining
+        ) {
+            const struct elf64_load_segment *segment =
+                &segments[remaining - 1];
+
+            if (!process_layout_release_range(
+                destination_memory,
+                segment->mapping_start,
+                segment->page_count
+            )) {
+                kernel_panic(
+                    "Unable to roll back cloned ELF segment"
+                );
+            }
+        }
+
+        kfree(segments);
+
+        return false;
+    }
+
+    if (!process_layout_clone_range(
+        destination_memory,
+        source_memory,
+        source_layout->stack.base_address,
+        source_layout->stack.page_count
+    )) {
+        for (
+            size_t remaining = segment_count;
+            remaining > 0;
+            --remaining
+        ) {
+            const struct elf64_load_segment *segment =
+                &segments[remaining - 1];
+
+            if (!process_layout_release_range(
+                destination_memory,
+                segment->mapping_start,
+                segment->page_count
+            )) {
+                kernel_panic(
+                    "Unable to roll back cloned ELF layout"
+                );
+            }
+        }
+
+        kfree(segments);
+
+        return false;
+    }
+
+    destination_layout->kind =
+        source_layout->kind;
+
+    destination_layout->code_base =
+        source_layout->code_base;
+
+    destination_layout->entry_point =
+        source_layout->entry_point;
+
+    destination_layout->initial_rsp =
+        source_layout->initial_rsp;
+
+    destination_layout->stack =
+        source_layout->stack;
+
+    destination_layout->loaded_image.segments =
+        segments;
+
+    destination_layout->loaded_image.segment_count =
+        segment_count;
 
     return true;
 }

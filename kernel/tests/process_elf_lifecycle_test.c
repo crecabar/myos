@@ -16,6 +16,7 @@
 #include "../memory/heap.h"
 #include "../process/create.h"
 #include "../process/exec.h"
+#include "../process/fork.h"
 #include "../process/image.h"
 #include "../process/instance.h"
 #include "../process/layout.h"
@@ -29,6 +30,9 @@
 
 #define PROCESS_ELF_LIFECYCLE_TEST_IMAGE_SIZE 0x2000U
 #define PROCESS_ELF_LIFECYCLE_TEST_VADDR      0x0000000000400000ULL
+
+#define PROCESS_ELF_LIFECYCLE_TEST_KERNEL_ADDRESS \
+    0xFFFFFFFF80000000ULL
 
 #define PROCESS_ELF_LIFECYCLE_TEST_HEADER_TYPE_OFFSET                 16U
 #define PROCESS_ELF_LIFECYCLE_TEST_HEADER_MACHINE_OFFSET              18U
@@ -82,6 +86,38 @@ static void process_elf_lifecycle_test_expect_string(
     struct process_memory *memory,
     uint64_t address,
     const char *expected
+);
+
+static void process_elf_lifecycle_test_layout_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
+static void process_elf_lifecycle_test_image_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
+static void process_elf_lifecycle_test_fork_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
+static void process_elf_lifecycle_test_fork_rollback(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
 );
 
 static void process_elf_lifecycle_test_write_u16(
@@ -324,6 +360,1258 @@ static void process_elf_lifecycle_test_expect_string(
     }
 }
 
+static void process_elf_lifecycle_test_layout_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before ELF layout clone test"
+        );
+    }
+
+    struct process_image source_image;
+
+    if (!process_image_create_elf64(
+        &source_image,
+        image,
+        argc,
+        argv,
+        envc,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to create source ELF image for layout clone test"
+        );
+    }
+
+    struct process_memory clone_memory;
+
+    if (!process_memory_create(
+        &clone_memory
+    )) {
+        kernel_panic(
+            "Unable to create destination address space for layout clone test"
+        );
+    }
+
+    struct process_layout clone_layout;
+
+    if (!process_layout_clone(
+        &clone_memory,
+        &source_image.memory,
+        &source_image.layout,
+        &clone_layout
+    )) {
+        kernel_panic(
+            "Unable to clone ELF process layout"
+        );
+    }
+
+    if (
+        clone_layout.kind !=
+            PROCESS_LAYOUT_KIND_ELF64 ||
+        clone_layout.entry_point !=
+            source_image.layout.entry_point ||
+        clone_layout.initial_rsp !=
+            source_image.layout.initial_rsp
+    ) {
+        kernel_panic(
+            "Cloned ELF layout changed execution metadata"
+        );
+    }
+
+    if (
+        clone_layout.stack.guard_address !=
+            source_image.layout.stack.guard_address ||
+        clone_layout.stack.base_address !=
+            source_image.layout.stack.base_address ||
+        clone_layout.stack.stack_top !=
+            source_image.layout.stack.stack_top ||
+        clone_layout.stack.page_count !=
+            source_image.layout.stack.page_count
+    ) {
+        kernel_panic(
+            "Cloned ELF layout changed stack geometry"
+        );
+    }
+
+    if (
+        clone_layout.loaded_image.segments == NULL ||
+        clone_layout.loaded_image.segments ==
+            source_image.layout.loaded_image.segments ||
+        clone_layout.loaded_image.segment_count !=
+            source_image.layout.loaded_image.segment_count
+    ) {
+        kernel_panic(
+            "Cloned ELF layout does not own independent segment metadata"
+        );
+    }
+
+    if (
+        clone_layout.loaded_image.segment_count != 1
+    ) {
+        kernel_panic(
+            "Unexpected segment count in ELF layout clone test"
+        );
+    }
+
+    const struct elf64_load_segment *source_segment =
+        &source_image.layout.loaded_image.segments[0];
+
+    const struct elf64_load_segment *clone_segment =
+        &clone_layout.loaded_image.segments[0];
+
+    if (
+        clone_segment->virtual_address !=
+            source_segment->virtual_address ||
+        clone_segment->mapping_start !=
+            source_segment->mapping_start ||
+        clone_segment->mapping_end !=
+            source_segment->mapping_end ||
+        clone_segment->page_count !=
+            source_segment->page_count ||
+        clone_segment->writable !=
+            source_segment->writable ||
+        clone_segment->executable !=
+            source_segment->executable
+    ) {
+        kernel_panic(
+            "Cloned ELF segment metadata is incorrect"
+        );
+    }
+
+    if (
+        source_image.memory
+            .address_space.pml4_physical ==
+        clone_memory
+            .address_space.pml4_physical
+    ) {
+        kernel_panic(
+            "Cloned ELF layout reused source address space"
+        );
+    }
+
+    if (
+        !source_image.memory
+            .address_space.kernel_half_shared ||
+        !clone_memory
+            .address_space.kernel_half_shared
+    ) {
+        kernel_panic(
+            "ELF layout clone lost shared kernel-half policy"
+        );
+    }
+
+    uint16_t kernel_pml4_index =
+        paging_pml4_index(
+            PROCESS_ELF_LIFECYCLE_TEST_KERNEL_ADDRESS
+        );
+
+    uint64_t source_kernel_entry =
+        source_image.memory
+            .address_space
+            .pml4_virtual[kernel_pml4_index];
+
+    uint64_t clone_kernel_entry =
+        clone_memory
+            .address_space
+            .pml4_virtual[kernel_pml4_index];
+
+    if (
+        (source_kernel_entry &
+         PAGE_ENTRY_PRESENT) == 0 ||
+        source_kernel_entry !=
+            clone_kernel_entry
+    ) {
+        kernel_panic(
+            "ELF layout clone changed shared kernel mapping"
+        );
+    }
+
+    struct paging_translation source_code;
+    struct paging_translation clone_code;
+
+    if (
+        !paging_translate_address_space(
+            &source_image.memory.address_space,
+            source_segment->mapping_start,
+            &source_code
+        ) ||
+        !paging_translate_address_space(
+            &clone_memory.address_space,
+            clone_segment->mapping_start,
+            &clone_code
+        )
+    ) {
+        kernel_panic(
+            "Unable to translate cloned ELF code page"
+        );
+    }
+
+    if (
+        source_code.page_size !=
+            PAGING_PAGE_SIZE_4K ||
+        clone_code.page_size !=
+            PAGING_PAGE_SIZE_4K
+    ) {
+        kernel_panic(
+            "Cloned ELF code mapping is not 4 KiB"
+        );
+    }
+
+    if (
+        (
+            source_code.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        ) ==
+        (
+            clone_code.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        )
+    ) {
+        kernel_panic(
+            "Cloned ELF code page shares source physical frame"
+        );
+    }
+
+    if (
+        (
+            source_code.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) !=
+        (
+            clone_code.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) ||
+        (
+            source_code.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) !=
+        (
+            clone_code.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        )
+    ) {
+        kernel_panic(
+            "Cloned ELF code page changed permissions"
+        );
+    }
+
+    if (
+        (
+            clone_code.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) != 0 ||
+        (
+            clone_code.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) != 0
+    ) {
+        kernel_panic(
+            "Cloned ELF code page is not read-only executable"
+        );
+    }
+
+    struct paging_translation source_stack;
+    struct paging_translation clone_stack;
+
+    if (
+        !paging_translate_address_space(
+            &source_image.memory.address_space,
+            source_image.layout.stack.base_address,
+            &source_stack
+        ) ||
+        !paging_translate_address_space(
+            &clone_memory.address_space,
+            clone_layout.stack.base_address,
+            &clone_stack
+        )
+    ) {
+        kernel_panic(
+            "Unable to translate cloned ELF stack page"
+        );
+    }
+
+    if (
+        (
+            source_stack.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        ) ==
+        (
+            clone_stack.physical_address &
+            PAGE_ADDRESS_MASK_4K
+        )
+    ) {
+        kernel_panic(
+            "Cloned ELF stack page shares source physical frame"
+        );
+    }
+
+    if (
+        (
+            source_stack.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) == 0 ||
+        (
+            source_stack.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) == 0 ||
+        (
+            clone_stack.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) == 0 ||
+        (
+            clone_stack.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) == 0
+    ) {
+        kernel_panic(
+            "Cloned ELF stack page changed RW/NX policy"
+        );
+    }
+
+    uint8_t source_code_bytes[
+        PROCESS_ELF_LIFECYCLE_TEST_FILE_SIZE
+    ];
+
+    uint8_t clone_code_bytes[
+        PROCESS_ELF_LIFECYCLE_TEST_FILE_SIZE
+    ];
+
+    if (
+        !process_memory_read(
+            &source_image.memory,
+            source_segment->virtual_address,
+            source_code_bytes,
+            sizeof(source_code_bytes)
+        ) ||
+        !process_memory_read(
+            &clone_memory,
+            clone_segment->virtual_address,
+            clone_code_bytes,
+            sizeof(clone_code_bytes)
+        )
+    ) {
+        kernel_panic(
+            "Unable to read cloned ELF code contents"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < sizeof(source_code_bytes);
+        ++index
+    ) {
+        if (
+            source_code_bytes[index] !=
+            clone_code_bytes[index]
+        ) {
+            kernel_panic(
+                "Cloned ELF code contents differ from source"
+            );
+        }
+    }
+
+    uint64_t source_stack_word =
+        process_elf_lifecycle_test_read_u64(
+            &source_image.memory,
+            source_image.layout.initial_rsp
+        );
+
+    uint64_t clone_stack_word =
+        process_elf_lifecycle_test_read_u64(
+            &clone_memory,
+            clone_layout.initial_rsp
+        );
+
+    if (
+        source_stack_word != clone_stack_word ||
+        source_stack_word != argc
+    ) {
+        kernel_panic(
+            "Cloned ELF stack contents differ from source"
+        );
+    }
+
+    const uint64_t clone_stack_mutation =
+        0x1122334455667788ULL;
+
+    if (!process_memory_write(
+        &clone_memory,
+        clone_layout.initial_rsp,
+        &clone_stack_mutation,
+        sizeof(clone_stack_mutation)
+    )) {
+        kernel_panic(
+            "Unable to mutate cloned ELF stack"
+        );
+    }
+
+    uint64_t source_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &source_image.memory,
+            source_image.layout.initial_rsp
+        );
+
+    uint64_t clone_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &clone_memory,
+            clone_layout.initial_rsp
+        );
+
+    if (
+        source_after_mutation != argc ||
+        clone_after_mutation !=
+            clone_stack_mutation
+    ) {
+        kernel_panic(
+            "Cloned ELF stack is not physically independent"
+        );
+    }
+
+    if (!process_layout_destroy(
+        &clone_memory,
+        &clone_layout
+    )) {
+        kernel_panic(
+            "Unable to destroy cloned ELF layout"
+        );
+    }
+
+    if (!process_memory_destroy(
+        &clone_memory
+    )) {
+        kernel_panic(
+            "Unable to destroy cloned ELF address space"
+        );
+    }
+
+    if (!process_image_destroy(
+        &source_image
+    )) {
+        kernel_panic(
+            "Unable to destroy source ELF image after clone test"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "ELF layout clone test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after ELF layout clone test"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "ELF layout clone test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] ELF layout clone test passed\n"
+    );
+}
+
+static void process_elf_lifecycle_test_image_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before ELF image clone test"
+        );
+    }
+
+    struct process_image source_image;
+
+    if (!process_image_create_elf64(
+        &source_image,
+        image,
+        argc,
+        argv,
+        envc,
+        envp
+    )) {
+        kernel_panic(
+            "Unable to create source ELF image for image clone test"
+        );
+    }
+
+    struct process_image clone_image;
+
+    if (!process_image_clone(
+        &clone_image,
+        &source_image
+    )) {
+        kernel_panic(
+            "Unable to clone ELF process image"
+        );
+    }
+
+    if (
+        source_image.memory
+            .address_space.pml4_physical ==
+        clone_image.memory
+            .address_space.pml4_physical
+    ) {
+        kernel_panic(
+            "Cloned process image reused source address space"
+        );
+    }
+
+    if (
+        clone_image.layout.kind !=
+            source_image.layout.kind ||
+        clone_image.layout.entry_point !=
+            source_image.layout.entry_point ||
+        clone_image.layout.initial_rsp !=
+            source_image.layout.initial_rsp
+    ) {
+        kernel_panic(
+            "Cloned process image changed layout execution state"
+        );
+    }
+
+    if (
+        clone_image.layout.loaded_image.segments == NULL ||
+        clone_image.layout.loaded_image.segments ==
+            source_image.layout.loaded_image.segments ||
+        clone_image.layout.loaded_image.segment_count !=
+            source_image.layout.loaded_image.segment_count
+    ) {
+        kernel_panic(
+            "Cloned process image retained shared ELF metadata"
+        );
+    }
+
+    uint64_t source_stack_word =
+        process_elf_lifecycle_test_read_u64(
+            &source_image.memory,
+            source_image.layout.initial_rsp
+        );
+
+    uint64_t clone_stack_word =
+        process_elf_lifecycle_test_read_u64(
+            &clone_image.memory,
+            clone_image.layout.initial_rsp
+        );
+
+    if (
+        source_stack_word != argc ||
+        clone_stack_word != argc
+    ) {
+        kernel_panic(
+            "Cloned process image changed initial stack contents"
+        );
+    }
+
+    const uint64_t clone_mutation =
+        0x8877665544332211ULL;
+
+    if (!process_memory_write(
+        &clone_image.memory,
+        clone_image.layout.initial_rsp,
+        &clone_mutation,
+        sizeof(clone_mutation)
+    )) {
+        kernel_panic(
+            "Unable to mutate cloned process image stack"
+        );
+    }
+
+    uint64_t source_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &source_image.memory,
+            source_image.layout.initial_rsp
+        );
+
+    uint64_t clone_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &clone_image.memory,
+            clone_image.layout.initial_rsp
+        );
+
+    if (
+        source_after_mutation != argc ||
+        clone_after_mutation !=
+            clone_mutation
+    ) {
+        kernel_panic(
+            "Cloned process image is not memory-independent"
+        );
+    }
+
+    if (!process_image_destroy(
+        &clone_image
+    )) {
+        kernel_panic(
+            "Unable to destroy cloned ELF process image"
+        );
+    }
+
+    if (!process_image_destroy(
+        &source_image
+    )) {
+        kernel_panic(
+            "Unable to destroy source ELF process image"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "ELF image clone test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after ELF image clone test"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "ELF image clone test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] ELF image clone test passed\n"
+    );
+}
+
+static void process_elf_lifecycle_test_fork_clone(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before fork clone test"
+        );
+    }
+
+    struct process_instance *parent =
+        process_create_elf64(
+            image,
+            argc,
+            argv,
+            envc,
+            envp
+        );
+
+    if (parent == NULL) {
+        kernel_panic(
+            "Unable to create fork clone parent"
+        );
+    }
+
+    /*
+     * Fork must clone current process memory, not merely reconstruct the
+     * original ELF image.
+     */
+    const uint64_t parent_stack_value =
+        0xA1B2C3D4E5F60718ULL;
+
+    if (!process_memory_write(
+        &parent->image.memory,
+        parent->process.context.rsp,
+        &parent_stack_value,
+        sizeof(parent_stack_value)
+    )) {
+        kernel_panic(
+            "Unable to initialize current parent memory before fork"
+        );
+    }
+
+    struct process_context fork_context =
+        parent->process.context;
+
+    fork_context.r15 =
+        0x1515151515151515ULL;
+
+    fork_context.r12 =
+        0x1212121212121212ULL;
+
+    fork_context.rbx =
+        0xBBBBBBBBBBBBBBBBULL;
+
+    fork_context.rdi =
+        0xD1D1D1D1D1D1D1D1ULL;
+
+    fork_context.rax =
+        0xF0F0F0F0F0F0F0F0ULL;
+
+    struct process_instance *child =
+        process_fork_create_child(
+            parent,
+            &fork_context
+        );
+
+    if (child == NULL) {
+        kernel_panic(
+            "Unable to create copy-based fork child"
+        );
+    }
+
+    uint64_t child_pid =
+        child->process.id;
+
+    if (
+        child_pid == parent->process.id ||
+        child->parent != parent ||
+        parent->first_child != child ||
+        child->next_sibling != NULL
+    ) {
+        kernel_panic(
+            "Fork child lifecycle relationship is incorrect"
+        );
+    }
+
+    if (
+        child->process.state !=
+            PROCESS_STATE_READY ||
+        child->process.instance != child ||
+        child->process.image !=
+            &child->image ||
+        child->process.memory !=
+            &child->image.memory ||
+        child->process.layout !=
+            &child->image.layout
+    ) {
+        kernel_panic(
+            "Fork child ownership state is incorrect"
+        );
+    }
+
+    if (
+        child->process.context.rax != 0 ||
+        child->process.context.r15 !=
+            fork_context.r15 ||
+        child->process.context.r12 !=
+            fork_context.r12 ||
+        child->process.context.rbx !=
+            fork_context.rbx ||
+        child->process.context.rdi !=
+            fork_context.rdi ||
+        child->process.context.rip !=
+            fork_context.rip ||
+        child->process.context.rsp !=
+            fork_context.rsp ||
+        child->process.context.rflags !=
+            fork_context.rflags
+    ) {
+        kernel_panic(
+            "Fork child execution context is incorrect"
+        );
+    }
+
+    if (
+        parent->image.memory
+            .address_space.pml4_physical ==
+        child->image.memory
+            .address_space.pml4_physical
+    ) {
+        kernel_panic(
+            "Fork child reused parent address space"
+        );
+    }
+
+    uint64_t child_stack_value =
+        process_elf_lifecycle_test_read_u64(
+            &child->image.memory,
+            fork_context.rsp
+        );
+
+    if (
+        child_stack_value !=
+            parent_stack_value
+    ) {
+        kernel_panic(
+            "Fork child did not copy current parent memory"
+        );
+    }
+
+    const uint64_t child_mutation =
+        0xCAFEBABE11223344ULL;
+
+    if (!process_memory_write(
+        &child->image.memory,
+        fork_context.rsp,
+        &child_mutation,
+        sizeof(child_mutation)
+    )) {
+        kernel_panic(
+            "Unable to mutate fork child memory"
+        );
+    }
+
+    uint64_t parent_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &parent->image.memory,
+            fork_context.rsp
+        );
+
+    uint64_t child_after_mutation =
+        process_elf_lifecycle_test_read_u64(
+            &child->image.memory,
+            fork_context.rsp
+        );
+
+    if (
+        parent_after_mutation !=
+            parent_stack_value ||
+        child_after_mutation !=
+            child_mutation
+    ) {
+        kernel_panic(
+            "Fork parent and child memory are not independent"
+        );
+    }
+
+    /*
+     * Terminate and reap the child through the exact lifecycle that forked
+     * children will use in production.
+     */
+    child->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    child->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    child->process.exit_status = 23;
+
+    if (!scheduler_unregister_terminated(
+        &child->process
+    )) {
+        kernel_panic(
+            "Unable to unregister fork clone child"
+        );
+    }
+
+    struct process_wait_status wait_status;
+
+    if (
+        process_waitpid_try_reap(
+            parent,
+            child_pid,
+            &wait_status
+        ) != PROCESS_WAIT_RESULT_REAPED
+    ) {
+        kernel_panic(
+            "Unable to reap fork clone child"
+        );
+    }
+
+    if (
+        wait_status.pid != child_pid ||
+        wait_status.termination_reason !=
+            PROCESS_TERMINATION_EXITED ||
+        wait_status.exit_status != 23 ||
+        parent->first_child != NULL
+    ) {
+        kernel_panic(
+            "Fork clone child reaping produced incorrect state"
+        );
+    }
+
+    parent->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    parent->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    parent->process.exit_status = 0;
+
+    if (!scheduler_unregister_terminated(
+        &parent->process
+    )) {
+        kernel_panic(
+            "Unable to unregister fork clone parent"
+        );
+    }
+
+    if (!process_release_terminated(
+        parent
+    )) {
+        kernel_panic(
+            "Unable to release fork clone parent"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "Fork clone test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap state after fork clone test"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Fork clone test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] Copy-based fork lifecycle test passed\n"
+    );
+}
+
+static void process_elf_lifecycle_test_fork_rollback(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before fork rollback test"
+        );
+    }
+
+    struct process_instance *parent =
+        process_create_elf64(
+            image,
+            argc,
+            argv,
+            envc,
+            envp
+        );
+
+    if (parent == NULL) {
+        kernel_panic(
+            "Unable to create fork rollback parent"
+        );
+    }
+
+    struct process_instance
+        *fillers[SCHEDULER_MAX_PROCESSES - 1];
+
+    for (
+        size_t index = 0;
+        index < SCHEDULER_MAX_PROCESSES - 1;
+        ++index
+    ) {
+        fillers[index] =
+            process_create_elf64(
+                image,
+                argc,
+                argv,
+                envc,
+                envp
+            );
+
+        if (fillers[index] == NULL) {
+            kernel_panic(
+                "Unable to fill scheduler for fork rollback test"
+            );
+        }
+    }
+
+    /*
+     * The scheduler now contains exactly SCHEDULER_MAX_PROCESSES
+     * registrations. fork can still allocate and clone the child, but its
+     * final scheduler_add() must fail.
+     */
+    uint64_t free_before_failed_fork =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats
+        heap_before_failed_fork;
+
+    if (!kernel_heap_stats_get(
+        &heap_before_failed_fork
+    )) {
+        kernel_panic(
+            "Unable to read heap before failed fork"
+        );
+    }
+
+    /*
+     * Probe the next unpublished PID, then return it. A correctly rolled-back
+     * fork must leave this same PID available afterward.
+     */
+    uint64_t expected_child_pid;
+
+    if (
+        !process_pid_allocate(
+            &expected_child_pid
+        ) ||
+        !process_pid_release(
+            expected_child_pid
+        )
+    ) {
+        kernel_panic(
+            "Unable to probe PID before fork rollback test"
+        );
+    }
+
+    struct process_context fork_context =
+        parent->process.context;
+
+    struct process_instance *child =
+        process_fork_create_child(
+            parent,
+            &fork_context
+        );
+
+    if (child != NULL) {
+        kernel_panic(
+            "Fork succeeded with full scheduler"
+        );
+    }
+
+    /*
+     * Publication happens only after scheduler registration succeeds.
+     */
+    if (
+        parent->first_child != NULL ||
+        parent->wait_active ||
+        parent->wait_child_pid != 0
+    ) {
+        kernel_panic(
+            "Failed fork published child lifecycle state"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before_failed_fork
+    ) {
+        kernel_panic(
+            "Failed fork leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats
+        heap_after_failed_fork;
+
+    if (!kernel_heap_stats_get(
+        &heap_after_failed_fork
+    )) {
+        kernel_panic(
+            "Unable to read heap after failed fork"
+        );
+    }
+
+    if (
+        heap_after_failed_fork.allocated_block_count !=
+            heap_before_failed_fork.allocated_block_count ||
+        heap_after_failed_fork.allocated_bytes !=
+            heap_before_failed_fork.allocated_bytes
+    ) {
+        kernel_panic(
+            "Failed fork leaked kernel heap allocations"
+        );
+    }
+
+    uint64_t pid_after_failed_fork;
+
+    if (!process_pid_allocate(
+        &pid_after_failed_fork
+    )) {
+        kernel_panic(
+            "Unable to probe PID after failed fork"
+        );
+    }
+
+    if (
+        pid_after_failed_fork !=
+        expected_child_pid
+    ) {
+        kernel_panic(
+            "Failed fork did not roll back PID allocation"
+        );
+    }
+
+    if (!process_pid_release(
+        pid_after_failed_fork
+    )) {
+        kernel_panic(
+            "Unable to release PID rollback probe"
+        );
+    }
+
+    /*
+     * Clean the synthetic scheduler saturation.
+     */
+    for (
+        size_t index =
+            SCHEDULER_MAX_PROCESSES - 1;
+        index > 0;
+        --index
+    ) {
+        struct process_instance *instance =
+            fillers[index - 1];
+
+        instance->process.state =
+            PROCESS_STATE_TERMINATED;
+
+        instance->process.termination_reason =
+            PROCESS_TERMINATION_EXITED;
+
+        instance->process.exit_status = 0;
+
+        if (!scheduler_unregister_terminated(
+            &instance->process
+        )) {
+            kernel_panic(
+                "Unable to unregister fork rollback filler"
+            );
+        }
+
+        if (!process_release_terminated(
+            instance
+        )) {
+            kernel_panic(
+                "Unable to release fork rollback filler"
+            );
+        }
+    }
+
+    parent->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    parent->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    parent->process.exit_status = 0;
+
+    if (!scheduler_unregister_terminated(
+        &parent->process
+    )) {
+        kernel_panic(
+            "Unable to unregister fork rollback parent"
+        );
+    }
+
+    if (!process_release_terminated(
+        parent
+    )) {
+        kernel_panic(
+            "Unable to release fork rollback parent"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "Fork rollback test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read final fork rollback heap state"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Fork rollback test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] Copy-based fork rollback test passed\n"
+    );
+}
+
 void process_elf_lifecycle_test_run(void)
 {
     uint64_t free_before =
@@ -358,6 +1646,38 @@ void process_elf_lifecycle_test_run(void)
     const char *envp[] = {
         "TERM=myos",
     };
+
+    process_elf_lifecycle_test_layout_clone(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    process_elf_lifecycle_test_image_clone(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    process_elf_lifecycle_test_fork_clone(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    process_elf_lifecycle_test_fork_rollback(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
 
     uint64_t image_free_before =
         physical_free_frame_count();

@@ -321,4 +321,31 @@ bool process_memory_allocate_executable_page(
     uint64_t virtual_address
 );
 
+/**
+ * Creates an independent copy of one mapped userspace page.
+ *
+ * The source mapping must be a normal 4 KiB user mapping. A new physical
+ * frame is allocated for the destination at the same virtual address, with
+ * the source writable and executable permissions preserved.
+ *
+ * The destination receives an independent physical frame containing an exact
+ * byte-for-byte copy of the source page.
+ *
+ * This operation does not clone shared higher-half kernel mappings and never
+ * transfers ownership of the source frame.
+ *
+ * On failure, no destination data frame remains owned by this operation.
+ *
+ * @param destination Process memory receiving the copied page.
+ * @param source Process memory containing the existing page.
+ * @param virtual_address 4 KiB-aligned userspace virtual address.
+ *
+ * @return true when the page was copied successfully; false otherwise.
+ */
+bool process_memory_clone_page(
+    struct process_memory *destination,
+    const struct process_memory *source,
+    uint64_t virtual_address
+);
+
 #endif

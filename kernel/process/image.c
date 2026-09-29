@@ -49,6 +49,44 @@ bool process_image_create_elf64(
     return true;
 }
 
+bool process_image_clone(
+    struct process_image *destination,
+    const struct process_image *source)
+{
+    if (
+        destination == NULL ||
+        source == NULL ||
+        destination == source
+    ) {
+        return false;
+    }
+
+    if (!process_memory_create(
+        &destination->memory
+    )) {
+        return false;
+    }
+
+    if (!process_layout_clone(
+        &destination->memory,
+        &source->memory,
+        &source->layout,
+        &destination->layout
+    )) {
+        if (!process_memory_destroy(
+            &destination->memory
+        )) {
+            kernel_panic(
+                "Unable to roll back failed process image clone"
+            );
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
 bool process_image_destroy(struct process_image *image)
 {
     if (image == NULL) return false;

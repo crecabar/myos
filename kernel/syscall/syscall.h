@@ -65,7 +65,8 @@ typedef int64_t syscall_result_t;
     SYSCALL_ERROR_INVALID_ARGUMENT = 1,
     SYSCALL_ERROR_BAD_ADDRESS = 2,
     SYSCALL_ERROR_NOT_IMPLEMENTED = 3,
-    SYSCALL_ERROR_NO_CHILD = 4
+    SYSCALL_ERROR_NO_CHILD = 4,
+    SYSCALL_ERROR_RESOURCE_EXHAUSTED = 5
 };
 
 _Static_assert(
@@ -94,6 +95,7 @@ static inline bool syscall_result_is_error(
 #define SYSCALL_YIELD      3    // no arguments
 #define SYSCALL_WRITE      4    // RDI = buffer, RSI = length
 #define SYSCALL_WAITPID    5    // RDI = pid, RSI = status, RDX = options
+#define SYSCALL_FORK       6    // no arguments
 
 #define SYSCALL_WAITPID_NOHANG (1ULL << 0)
 

@@ -2274,6 +2274,301 @@ static void process_memory_test_initial_user_stack_oversized(void)
     );
 }
 
+static void process_memory_test_clone_page(void)
+{
+    const uint64_t writable_address =
+        0x0000000000500000ULL;
+
+    const uint64_t executable_address =
+        0x0000000000501000ULL;
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct process_memory source;
+    struct process_memory destination;
+
+    if (
+        !process_memory_create(&source) ||
+        !process_memory_create(&destination)
+    ) {
+        kernel_panic(
+            "Unable to create process memory clone test address spaces"
+        );
+    }
+
+    if (!process_memory_allocate_page(
+        &source,
+        writable_address,
+        true
+    )) {
+        kernel_panic(
+            "Unable to allocate writable clone source page"
+        );
+    }
+
+    if (!process_memory_allocate_executable_page(
+        &source,
+        executable_address
+    )) {
+        kernel_panic(
+            "Unable to allocate executable clone source page"
+        );
+    }
+
+    uint8_t writable_source[32];
+    uint8_t executable_source[32];
+
+    for (
+        size_t index = 0;
+        index < sizeof(writable_source);
+        ++index
+    ) {
+        writable_source[index] =
+            (uint8_t) (0x20U + index);
+
+        executable_source[index] =
+            (uint8_t) (0x80U + index);
+    }
+
+    if (
+        !process_memory_write(
+            &source,
+            writable_address,
+            writable_source,
+            sizeof(writable_source)
+        ) ||
+        !process_memory_write(
+            &source,
+            executable_address,
+            executable_source,
+            sizeof(executable_source)
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize process memory clone source"
+        );
+    }
+
+    if (
+        !process_memory_clone_page(
+            &destination,
+            &source,
+            writable_address
+        ) ||
+        !process_memory_clone_page(
+            &destination,
+            &source,
+            executable_address
+        )
+    ) {
+        kernel_panic(
+            "Unable to clone process memory pages"
+        );
+    }
+
+    struct paging_translation source_writable;
+    struct paging_translation destination_writable;
+    struct paging_translation source_executable;
+    struct paging_translation destination_executable;
+
+    if (
+        !paging_translate_address_space(
+            &source.address_space,
+            writable_address,
+            &source_writable
+        ) ||
+        !paging_translate_address_space(
+            &destination.address_space,
+            writable_address,
+            &destination_writable
+        ) ||
+        !paging_translate_address_space(
+            &source.address_space,
+            executable_address,
+            &source_executable
+        ) ||
+        !paging_translate_address_space(
+            &destination.address_space,
+            executable_address,
+            &destination_executable
+        )
+    ) {
+        kernel_panic(
+            "Unable to translate cloned process memory pages"
+        );
+    }
+
+    if (
+        source_writable.physical_address ==
+            destination_writable.physical_address ||
+        source_executable.physical_address ==
+            destination_executable.physical_address
+    ) {
+        kernel_panic(
+            "Cloned process page shared source physical frame"
+        );
+    }
+
+    if (
+        (
+            source_writable.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) !=
+        (
+            destination_writable.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) ||
+        (
+            source_writable.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) !=
+        (
+            destination_writable.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) ||
+        (
+            source_executable.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) !=
+        (
+            destination_executable.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) ||
+        (
+            source_executable.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) !=
+        (
+            destination_executable.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        )
+    ) {
+        kernel_panic(
+            "Process memory clone did not preserve page permissions"
+        );
+    }
+
+    uint8_t writable_copy[32];
+    uint8_t executable_copy[32];
+
+    if (
+        !process_memory_read(
+            &destination,
+            writable_address,
+            writable_copy,
+            sizeof(writable_copy)
+        ) ||
+        !process_memory_read(
+            &destination,
+            executable_address,
+            executable_copy,
+            sizeof(executable_copy)
+        )
+    ) {
+        kernel_panic(
+            "Unable to read cloned process memory"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < sizeof(writable_copy);
+        ++index
+    ) {
+        if (
+            writable_copy[index] !=
+                writable_source[index] ||
+            executable_copy[index] !=
+                executable_source[index]
+        ) {
+            kernel_panic(
+                "Cloned process page contents are incorrect"
+            );
+        }
+    }
+
+    const uint8_t child_value = 0x5A;
+
+    if (!process_memory_write(
+        &destination,
+        writable_address,
+        &child_value,
+        sizeof(child_value)
+    )) {
+        kernel_panic(
+            "Unable to modify cloned process memory"
+        );
+    }
+
+    uint8_t parent_value = 0;
+
+    if (!process_memory_read(
+        &source,
+        writable_address,
+        &parent_value,
+        sizeof(parent_value)
+    )) {
+        kernel_panic(
+            "Unable to read source after clone mutation"
+        );
+    }
+
+    if (
+        parent_value !=
+        writable_source[0]
+    ) {
+        kernel_panic(
+            "Cloned process memory was not independent"
+        );
+    }
+
+    if (
+        !process_memory_release_page(
+            &destination,
+            executable_address
+        ) ||
+        !process_memory_release_page(
+            &destination,
+            writable_address
+        ) ||
+        !process_memory_release_page(
+            &source,
+            executable_address
+        ) ||
+        !process_memory_release_page(
+            &source,
+            writable_address
+        )
+    ) {
+        kernel_panic(
+            "Unable to release process memory clone pages"
+        );
+    }
+
+    if (
+        !process_memory_destroy(&destination) ||
+        !process_memory_destroy(&source)
+    ) {
+        kernel_panic(
+            "Unable to destroy process memory clone address spaces"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "Process memory clone test leaked physical frames"
+        );
+    }
+
+    diagnostics_write(
+        "[process] User page clone test passed\n"
+    );
+}
+
 void process_memory_test_run(void)
 {
     process_memory_test_user_range_policy();
@@ -2286,6 +2581,7 @@ void process_memory_test_run(void)
     process_memory_test_paging_2m_huge_guard();
     process_memory_test_paging_unmap_absent_leaf();
     process_memory_test_zero_across_page_boundary();
+    process_memory_test_clone_page();
     process_memory_test_initial_user_stack();
     process_memory_test_initial_user_stack_oversized();
 
