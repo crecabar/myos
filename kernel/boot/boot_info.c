@@ -32,6 +32,16 @@ static bool boot_info_text_terminated(
     size_t capacity
 );
 
+static bool boot_info_module_range_valid(
+    const struct boot_info *boot_info,
+    const struct boot_module *module
+);
+
+static bool boot_info_modules_overlap(
+    const struct boot_module *left,
+    const struct boot_module *right
+);
+
 // Public functions implementations
 bool boot_info_validate(
     const struct boot_info *boot_info)
@@ -278,6 +288,9 @@ static bool boot_info_modules_valid(
         return false;
     }
 
+    /*
+     * First validate every descriptor independently.
+     */
     for (
         size_t index = 0;
         index < boot_info->module_count;
@@ -286,17 +299,39 @@ static bool boot_info_modules_valid(
         const struct boot_module *module =
             &boot_info->modules[index];
 
-        if (module->size == 0) {
-            return false;
-        }
-
         if (
+            module->size == 0 ||
             module->size >
                 UINT64_MAX -
                 module->physical_base ||
             module->size >
                 UINT64_MAX -
                 module->virtual_base
+        ) {
+            return false;
+        }
+
+        if (
+            boot_info->direct_map_offset >
+            UINT64_MAX -
+                module->physical_base
+        ) {
+            return false;
+        }
+
+        if (
+            module->virtual_base !=
+            boot_info->direct_map_offset +
+                module->physical_base
+        ) {
+            return false;
+        }
+
+        if (
+            !boot_info_module_range_valid(
+                boot_info,
+                module
+            )
         ) {
             return false;
         }
@@ -312,6 +347,34 @@ static bool boot_info_modules_valid(
             )
         ) {
             return false;
+        }
+    }
+
+    /*
+     * At this point every range is known to be non-empty and
+     * non-overflowing, so pairwise overlap checks are safe.
+     */
+    for (
+        size_t index = 0;
+        index < boot_info->module_count;
+        ++index
+    ) {
+        for (
+            size_t other_index = index + 1;
+            other_index <
+                boot_info->module_count;
+            ++other_index
+        ) {
+            if (
+                boot_info_modules_overlap(
+                    &boot_info->modules[index],
+                    &boot_info->modules[
+                        other_index
+                    ]
+                )
+            ) {
+                return false;
+            }
         }
     }
 
@@ -337,4 +400,63 @@ static bool boot_info_text_terminated(
     }
 
     return false;
+}
+
+static bool boot_info_module_range_valid(
+    const struct boot_info *boot_info,
+    const struct boot_module *module)
+{
+    uint64_t module_end =
+        module->physical_base +
+        module->size;
+
+    for (
+        size_t index = 0;
+        index < boot_info->memory_region_count;
+        ++index
+    ) {
+        const struct memory_region *region =
+            &boot_info->memory_regions[index];
+
+        if (
+            region->type !=
+            MEMORY_REGION_KERNEL
+        ) {
+            continue;
+        }
+
+        uint64_t region_end =
+            region->base +
+            region->length;
+
+        if (
+            module->physical_base >=
+                region->base &&
+            module_end <=
+                region_end
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool boot_info_modules_overlap(
+    const struct boot_module *left,
+    const struct boot_module *right)
+{
+    uint64_t left_end =
+        left->physical_base +
+        left->size;
+
+    uint64_t right_end =
+        right->physical_base +
+        right->size;
+
+    return
+        left->physical_base <
+            right_end &&
+        right->physical_base <
+            left_end;
 }

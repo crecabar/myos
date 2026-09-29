@@ -42,9 +42,14 @@ static struct boot_info boot_info_test_fixture = {
             .length = 0x100000,
             .type = MEMORY_REGION_USABLE,
         },
+        {
+            .base = 0x300000,
+            .length = 0x200000,
+            .type = MEMORY_REGION_KERNEL,
+        },
     },
 
-    .memory_region_count = 1,
+    .memory_region_count = 2,
     .module_count = 0,
 };
 
@@ -151,6 +156,38 @@ void boot_info_test_run(void)
         );
     }
 
+    module->virtual_base += 1;
+
+    if (boot_info_validate(
+        &boot_info_test_fixture
+    )) {
+        kernel_panic(
+            "Boot info validator accepted invalid module virtual address"
+        );
+    }
+
+    module->virtual_base =
+        boot_info_test_fixture.direct_map_offset +
+        module->physical_base;
+
+    module->physical_base = 0x200000;
+    module->virtual_base =
+        boot_info_test_fixture.direct_map_offset +
+        module->physical_base;
+
+    if (boot_info_validate(
+        &boot_info_test_fixture
+    )) {
+        kernel_panic(
+            "Boot info validator accepted module outside kernel memory"
+        );
+    }
+
+    module->physical_base = 0x300000;
+    module->virtual_base =
+        boot_info_test_fixture.direct_map_offset +
+        module->physical_base;
+
     module->size = 0;
 
     if (boot_info_validate(
@@ -162,6 +199,43 @@ void boot_info_test_run(void)
     }
 
     module->size = 4096;
+
+    boot_info_test_fixture.module_count = 2;
+
+    struct boot_module *other_module =
+        &boot_info_test_fixture.modules[1];
+
+    other_module->physical_base = 0x300800;
+    other_module->virtual_base =
+        boot_info_test_fixture.direct_map_offset +
+        other_module->physical_base;
+    other_module->size = 4096;
+
+    other_module->name[0] = 'n';
+    other_module->name[1] = '\0';
+
+    other_module->command_line[0] = '\0';
+
+    if (boot_info_validate(
+        &boot_info_test_fixture
+    )) {
+        kernel_panic(
+            "Boot info validator accepted overlapping modules"
+        );
+    }
+
+    other_module->physical_base = 0x301000;
+    other_module->virtual_base =
+        boot_info_test_fixture.direct_map_offset +
+        other_module->physical_base;
+
+    if (!boot_info_validate(
+        &boot_info_test_fixture
+    )) {
+        kernel_panic(
+            "Boot info validator rejected adjacent modules"
+        );
+    }
 
     boot_info_test_fixture.module_count = 0;
 

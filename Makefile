@@ -139,6 +139,20 @@ BUILD_DIR := build
 CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 
 # -----------------------------------------------------------------------------
+# Initramfs
+# -----------------------------------------------------------------------------
+
+INITRAMFS_ROOT    := initramfs/root
+INITRAMFS_BUILDER := scripts/build-initramfs.py
+INITRAMFS_IMAGE   := $(BUILD_DIR)/initramfs.cpio
+
+INITRAMFS_SOURCES := $(shell \
+	find $(INITRAMFS_ROOT) \
+		-type f \
+		-print 2>/dev/null | sort \
+)
+
+# -----------------------------------------------------------------------------
 # Userspace test images
 # -----------------------------------------------------------------------------
 
@@ -508,6 +522,15 @@ all: $(KERNEL_ELF)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
+$(INITRAMFS_IMAGE): \
+	$(INITRAMFS_BUILDER) \
+	$(INITRAMFS_SOURCES) \
+	| $(BUILD_DIR)
+	python3 \
+		$(INITRAMFS_BUILDER) \
+		$(INITRAMFS_ROOT) \
+		$@
+
 .PHONY: FORCE
 FORCE:
 
@@ -607,6 +630,7 @@ ISO_KERNEL         := $(ISO_ROOT)/boot/kernel.elf
 ISO_LIMINE_CONF    := $(ISO_ROOT)/limine.conf
 ISO_BOOTX64        := $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
 ISO_LIMINE_UEFI_CD := $(ISO_ROOT)/limine-uefi-cd.bin
+ISO_INITRAMFS := $(ISO_ROOT)/boot/initramfs.cpio
 
 TEST_ISO_ROOT           := $(BUILD_DIR)/iso-test-root
 TEST_ISO_IMAGE          := $(BUILD_DIR)/myos-test.iso
@@ -614,6 +638,7 @@ TEST_ISO_KERNEL         := $(TEST_ISO_ROOT)/boot/kernel.elf
 TEST_ISO_LIMINE_CONF    := $(TEST_ISO_ROOT)/limine.conf
 TEST_ISO_BOOTX64        := $(TEST_ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
 TEST_ISO_LIMINE_UEFI_CD := $(TEST_ISO_ROOT)/limine-uefi-cd.bin
+TEST_ISO_INITRAMFS := $(TEST_ISO_ROOT)/boot/initramfs.cpio
 
 .PHONY: iso
 
@@ -639,7 +664,8 @@ $(ISO_IMAGE): \
 	$(ISO_KERNEL) \
 	$(ISO_LIMINE_CONF) \
 	$(ISO_BOOTX64) \
-	$(ISO_LIMINE_UEFI_CD)
+	$(ISO_LIMINE_UEFI_CD) \
+	$(ISO_INITRAMFS)
 	$(XORRISO) \
 		-as mkisofs \
 		-R -r -J \
@@ -668,7 +694,8 @@ $(TEST_ISO_IMAGE): \
 	$(TEST_ISO_KERNEL) \
 	$(TEST_ISO_LIMINE_CONF) \
 	$(TEST_ISO_BOOTX64) \
-	$(TEST_ISO_LIMINE_UEFI_CD)
+	$(TEST_ISO_LIMINE_UEFI_CD) \
+	$(TEST_ISO_INITRAMFS)
 	$(XORRISO) \
 		-as mkisofs \
 		-R -r -J \
@@ -676,6 +703,12 @@ $(TEST_ISO_IMAGE): \
 		-no-emul-boot \
 		-o $(TEST_ISO_IMAGE) \
 		$(TEST_ISO_ROOT)
+
+$(ISO_INITRAMFS): $(INITRAMFS_IMAGE) | $(ISO_ROOT)
+	cp $(INITRAMFS_IMAGE) $(ISO_INITRAMFS)
+
+$(TEST_ISO_INITRAMFS): $(INITRAMFS_IMAGE) | $(TEST_ISO_ROOT)
+	cp $(INITRAMFS_IMAGE) $(TEST_ISO_INITRAMFS)
 
 # -----------------------------------------------------------------------------
 # USB boot image
@@ -730,6 +763,7 @@ check-usb-tools:
 
 $(USB_IMAGE): \
 	$(KERNEL_ELF) \
+	$(INITRAMFS_IMAGE) \
 	limine.conf \
 	$(LIMINE_EFI) | check-usb-tools
 	@echo "Creating bootable UEFI USB image..."
@@ -758,6 +792,10 @@ $(USB_IMAGE): \
 	$(MTOOLS_COPY) -i $@@@$(USB_PART_OFFSET) \
 		$(KERNEL_ELF) \
 		::/boot/kernel.elf
+
+	$(MTOOLS_COPY) -i $@@@$(USB_PART_OFFSET) \
+		$(INITRAMFS_IMAGE) \
+		::/boot/initramfs.cpio
 
 	$(MTOOLS_COPY) -i $@@@$(USB_PART_OFFSET) \
 		limine.conf \
