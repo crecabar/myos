@@ -49,7 +49,7 @@ bool boot_reclaim_preflight(
      * pointers in its persistent boot information.
      */
     if (
-        boot_info->command_line != NULL ||
+        //boot_info->command_line != NULL ||
         boot_info->smbios_entry_32 != NULL ||
         boot_info->smbios_entry_64 != NULL
     ) {

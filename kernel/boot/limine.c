@@ -69,6 +69,11 @@ static volatile uint64_t limine_requests_end_marker[] =
  */
 static bool boot_snapshot_complete;
 
+static void boot_command_line_from_limine(
+    struct boot_info *boot_info,
+    const char *command_line
+);
+
 static enum memory_region_type memory_region_type_from_limine(uint64_t limine_type)
 {
     switch (limine_type) {
@@ -230,14 +235,19 @@ void boot_init(struct boot_info *boot_info)
             smbios_request.response->entry_64;
     }
 
-    boot_info->command_line = NULL;
+    boot_info->command_line[0] = '\0';
+    boot_info->command_line_length = 0;
 
     if (
         executable_cmdline_request.response != NULL
     ) {
-        boot_info->command_line =
-            executable_cmdline_request.response->cmdline;
+        boot_command_line_from_limine(
+            boot_info,
+            executable_cmdline_request.response->cmdline
+        );
     }
+
+    boot_info->module_count = 0;
 
     boot_info->framebuffer.address =
         limine_framebuffer->address;
@@ -351,4 +361,42 @@ bool boot_protocol_snapshot_complete(void)
         rsdp_request.response == NULL &&
         smbios_request.response == NULL &&
         executable_cmdline_request.response == NULL;
+}
+
+static void boot_command_line_from_limine(
+    struct boot_info *boot_info,
+    const char *command_line)
+{
+    if (boot_info == NULL) {
+        kernel_panic(
+            "Limine command-line snapshot received NULL boot_info"
+        );
+    }
+
+    if (command_line == NULL) {
+        return;
+    }
+
+    size_t length = 0;
+
+    while (command_line[length] != '\0') {
+        if (
+            length >=
+            BOOT_COMMAND_LINE_MAX - 1
+        ) {
+            kernel_panic(
+                "Boot command line exceeds normalized limit"
+            );
+        }
+
+        boot_info->command_line[length] =
+            command_line[length];
+
+        ++length;
+    }
+
+    boot_info->command_line[length] = '\0';
+
+    boot_info->command_line_length =
+        length;
 }
