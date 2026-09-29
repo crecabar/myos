@@ -170,6 +170,14 @@ EXEC_TARGET_SOURCE := user/tests/exec_target.S
 EXEC_TARGET_OBJECT := $(USER_TEST_BUILD_DIR)/exec_target.o
 EXEC_TARGET_ELF    := $(USER_TEST_BUILD_DIR)/exec_target.elf
 
+WAITPID_PARENT_SOURCE := user/tests/waitpid_parent.S
+WAITPID_PARENT_OBJECT := $(USER_TEST_BUILD_DIR)/waitpid_parent.o
+WAITPID_PARENT_ELF    := $(USER_TEST_BUILD_DIR)/waitpid_parent.elf
+
+WAITPID_CHILD_SOURCE := user/tests/waitpid_child.S
+WAITPID_CHILD_OBJECT := $(USER_TEST_BUILD_DIR)/waitpid_child.o
+WAITPID_CHILD_ELF    := $(USER_TEST_BUILD_DIR)/waitpid_child.elf
+
 ELF_ENTRY_CFLAGS := \
 	--target=$(TARGET) \
 	-ffreestanding \
@@ -265,6 +273,32 @@ $(EXEC_TARGET_ELF): \
 		-o $@ \
 		$(EXEC_TARGET_OBJECT)
 
+$(WAITPID_PARENT_OBJECT): $(WAITPID_PARENT_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(WAITPID_PARENT_ELF): \
+	$(WAITPID_PARENT_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(WAITPID_PARENT_OBJECT)
+
+$(WAITPID_CHILD_OBJECT): $(WAITPID_CHILD_SOURCE) | $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(WAITPID_CHILD_ELF): \
+	$(WAITPID_CHILD_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(WAITPID_CHILD_OBJECT)
+
 # -----------------------------------------------------------------------------
 # Kernel
 # -----------------------------------------------------------------------------
@@ -341,6 +375,9 @@ PROCESS_SCHEDULER_CONTEXT_FIXTURE_OBJ := \
 
 PROCESS_EXEC_FIXTURE_OBJ := \
 	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_exec_fixture.o
+
+PROCESS_WAITPID_FIXTURE_OBJ := \
+	$(KERNEL_OBJ_DIR)/asm/kernel/tests/process_waitpid_fixture.o
 
 KERNEL_OBJS := \
 	$(KERNEL_C_OBJS) \
@@ -436,6 +473,10 @@ $(PROCESS_SYSCALL_POINTER_FIXTURE_OBJ): $(SYSCALL_POINTER_ELF)
 $(PROCESS_SCHEDULER_CONTEXT_FIXTURE_OBJ): $(SCHEDULER_CONTEXT_ELF)
 
 $(PROCESS_EXEC_FIXTURE_OBJ): $(EXEC_CALLER_ELF) $(EXEC_TARGET_ELF)
+
+$(PROCESS_WAITPID_FIXTURE_OBJ): \
+	$(WAITPID_PARENT_ELF) \
+	$(WAITPID_CHILD_ELF)
 endif
 
 $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)

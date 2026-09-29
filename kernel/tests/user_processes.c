@@ -14,6 +14,7 @@
 #include "user_processes/standard.h"
 #include "user_processes/syscall_abi.h"
 #include "user_processes/syscall_pointer.h"
+#include "user_processes/waitpid.h"
 
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"
@@ -48,6 +49,10 @@ static void user_process_scheduler_context_terminated_handler(
 );
 
 static void user_process_syscall_pointer_terminated_handler(
+    struct process *process
+);
+
+static void user_process_waitpid_terminated_handler(
     struct process *process
 );
 // End private helpers declarations
@@ -107,6 +112,22 @@ static void user_process_block_terminated_handler(
     struct process *process)
 {
     if (!user_process_block_test_terminated(
+        process
+    )) {
+        return;
+    }
+
+    scheduler_set_terminated_handler(
+        user_process_waitpid_terminated_handler
+    );
+
+    user_process_waitpid_test_prepare();
+}
+
+static void user_process_waitpid_terminated_handler(
+    struct process *process)
+{
+    if (!user_process_waitpid_test_terminated(
         process
     )) {
         return;
