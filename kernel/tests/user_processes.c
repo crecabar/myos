@@ -7,6 +7,7 @@
 
 #include "user_processes.h"
 #include "user_processes/block.h"
+#include "user_processes/elf_protection.h"
 #include "user_processes/exec.h"
 #include "user_processes/fork.h"
 #include "user_processes/lifecycle_stress.h"
@@ -28,6 +29,10 @@
 // Private helpers declarations
 static void user_process_exec_terminated_handler(
     struct process *process);
+
+static void user_process_elf_protection_terminated_handler(
+    struct process *process
+);
 
 static void user_process_lifecycle_stress_terminated_handler(
     struct process *process
@@ -209,6 +214,20 @@ static void user_process_exec_terminated_handler(
     struct process *process)
 {
     user_process_exec_test_terminated(
+        process
+    );
+
+    scheduler_set_terminated_handler(
+        user_process_elf_protection_terminated_handler
+    );
+
+    user_process_elf_protection_test_prepare();
+}
+
+static void user_process_elf_protection_terminated_handler(
+    struct process *process)
+{
+    user_process_elf_protection_test_terminated(
         process
     );
 
