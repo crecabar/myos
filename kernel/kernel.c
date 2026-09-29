@@ -37,6 +37,7 @@
 #include "tests/acpi_test.h"
 #include "tests/boot_config_test.h"
 #include "tests/boot_info_test.h"
+#include "tests/boot_module_test.h"
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
@@ -206,10 +207,21 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 
-    #if MYOS_RUNTIME_DIAGNOSTICS
+#if MYOS_RUNTIME_DIAGNOSTICS
     diagnostics_write(
         "[boot] Transient boot-info references released\n"
     );
+#endif
+
+#if MYOS_KERNEL_TESTS
+    if (
+        kernel_boot_config.mode ==
+        KERNEL_BOOT_MODE_TEST
+    ) {
+        boot_module_test_capture_before_reclaim(
+            &kernel_boot_info
+        );
+    }
 #endif
 
     /*
@@ -549,6 +561,10 @@ static _Noreturn void kernel_main_continue(void)
     ) {
         diagnostics_write(
             "\n--- kernel test suite ---\n"
+        );
+
+        boot_module_test_run(
+            &kernel_boot_info
         );
 
         boot_info_test_run();
