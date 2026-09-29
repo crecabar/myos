@@ -39,6 +39,13 @@ static volatile struct limine_memmap_request memmap_request = {
 };
 
 __attribute__((used, section(".limine_requests")))
+static volatile struct limine_module_request module_request = {
+    .id = LIMINE_MODULE_REQUEST_ID,
+    .revision = 0,
+    .response = NULL,
+};
+
+__attribute__((used, section(".limine_requests")))
 static volatile struct limine_rsdp_request rsdp_request = {
     .id = LIMINE_RSDP_REQUEST_ID,
     .revision = 0,
@@ -72,6 +79,17 @@ static bool boot_snapshot_complete;
 static void boot_command_line_from_limine(
     struct boot_info *boot_info,
     const char *command_line
+);
+
+static void boot_modules_from_limine(
+    struct boot_info *boot_info
+);
+
+static void boot_module_text_from_limine(
+    char *destination,
+    size_t capacity,
+    const char *source,
+    const char *failure_message
 );
 
 static enum memory_region_type memory_region_type_from_limine(uint64_t limine_type)
@@ -151,6 +169,8 @@ void boot_init(struct boot_info *boot_info)
             "Memory map unavailable"
         );
     }
+
+    boot_info->direct_map_offset = hhdm_request.response->offset;
 
     struct limine_framebuffer_response *framebuffer_response =
         framebuffer_request.response;
@@ -247,7 +267,9 @@ void boot_init(struct boot_info *boot_info)
         );
     }
 
-    boot_info->module_count = 0;
+    boot_modules_from_limine(
+        boot_info
+    );
 
     boot_info->framebuffer.address =
         limine_framebuffer->address;
@@ -281,9 +303,6 @@ void boot_init(struct boot_info *boot_info)
 
     boot_info->framebuffer.blue_mask_shift =
         limine_framebuffer->blue_mask_shift;
-
-    boot_info->direct_map_offset =
-        hhdm_request.response->offset;
 
     struct limine_memmap_response *memmap_response =
         memmap_request.response;
@@ -337,6 +356,7 @@ void boot_init(struct boot_info *boot_info)
     framebuffer_request.response = NULL;
     hhdm_request.response = NULL;
     memmap_request.response = NULL;
+    module_request.response = NULL;
     rsdp_request.response = NULL;
     smbios_request.response = NULL;
     executable_cmdline_request.response = NULL;
@@ -355,6 +375,7 @@ bool boot_protocol_snapshot_complete(void)
      * response address after bootloader-memory reclamation.
      */
     return
+        module_request.response == NULL &&
         framebuffer_request.response == NULL &&
         hhdm_request.response == NULL &&
         memmap_request.response == NULL &&
@@ -399,4 +420,152 @@ static void boot_command_line_from_limine(
 
     boot_info->command_line_length =
         length;
+}
+
+static void boot_modules_from_limine(
+    struct boot_info *boot_info)
+{
+    boot_info->module_count = 0;
+
+    if (module_request.response == NULL) {
+        return;
+    }
+
+    struct limine_module_response *response =
+        module_request.response;
+
+    if (
+        response->module_count >
+        BOOT_MODULE_MAX
+    ) {
+        kernel_panic(
+            "Too many boot modules"
+        );
+    }
+
+    if (
+        response->module_count != 0 &&
+        response->modules == NULL
+    ) {
+        kernel_panic(
+            "Boot module array missing"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < (size_t) response->module_count;
+        ++index
+    ) {
+        struct limine_file *file =
+            response->modules[index];
+
+        if (file == NULL) {
+            kernel_panic(
+                "Boot module descriptor missing"
+            );
+        }
+
+        if (
+            file->address == NULL ||
+            file->size == 0
+        ) {
+            kernel_panic(
+                "Invalid boot module range"
+            );
+        }
+
+        uint64_t virtual_base =
+            (uint64_t) file->address;
+
+        if (
+            virtual_base <
+            boot_info->direct_map_offset
+        ) {
+            kernel_panic(
+                "Boot module address is outside HHDM"
+            );
+        }
+
+        uint64_t physical_base =
+            virtual_base -
+            boot_info->direct_map_offset;
+
+        if (
+            file->size >
+                UINT64_MAX - physical_base ||
+            file->size >
+                UINT64_MAX - virtual_base
+        ) {
+            kernel_panic(
+                "Boot module range overflows"
+            );
+        }
+
+        struct boot_module *module =
+            &boot_info->modules[index];
+
+        module->physical_base =
+            physical_base;
+
+        module->virtual_base =
+            virtual_base;
+
+        module->size =
+            file->size;
+
+        boot_module_text_from_limine(
+            module->name,
+            BOOT_MODULE_NAME_MAX,
+            file->path,
+            "Boot module path exceeds normalized limit"
+        );
+
+        boot_module_text_from_limine(
+            module->command_line,
+            BOOT_MODULE_COMMAND_LINE_MAX,
+            file->string,
+            "Boot module command line exceeds normalized limit"
+        );
+    }
+
+    boot_info->module_count =
+        (size_t) response->module_count;
+}
+
+static void boot_module_text_from_limine(
+    char *destination,
+    size_t capacity,
+    const char *source,
+    const char *failure_message)
+{
+    if (
+        destination == NULL ||
+        capacity == 0 ||
+        source == NULL
+    ) {
+        kernel_panic(
+            "Invalid boot module text"
+        );
+    }
+
+    size_t length = 0;
+
+    while (source[length] != '\0') {
+        if (
+            length >=
+            capacity - 1
+        ) {
+            kernel_panic(
+                failure_message
+            );
+        }
+
+        destination[length] =
+            source[length];
+
+        ++length;
+    }
+
+    destination[length] = '\0';
 }
