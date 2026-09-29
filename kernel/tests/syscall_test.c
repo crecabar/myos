@@ -28,6 +28,16 @@ _Static_assert(
     "SYSCALL_WRITE ABI number changed"
 );
 
+_Static_assert(
+    SYSCALL_WAITPID == 5,
+    "SYSCALL_WAITPID ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_FORK == 6,
+    "SYSCALL_FORK ABI number changed"
+);
+
 void syscall_test_run(void)
 {
     if (SYSCALL_ABI_VERSION != 1U) {
@@ -45,7 +55,13 @@ void syscall_test_run(void)
         ) != -2 ||
         syscall_result_error(
             SYSCALL_ERROR_NOT_IMPLEMENTED
-        ) != -3
+        ) != -3 ||
+        syscall_result_error(
+            SYSCALL_ERROR_NO_CHILD
+        ) != -4 ||
+        syscall_result_error(
+            SYSCALL_ERROR_RESOURCE_EXHAUSTED
+        ) != -5
     ) {
         kernel_panic(
             "Syscall error encoding is unstable"
