@@ -37,8 +37,8 @@ extern char __text_end[];
 extern char __rodata_start[];
 extern char __rodata_end[];
 
-extern char __limine_requests_start[];
-extern char __limine_requests_end[];
+extern char __boot_protocol_data_start[];
+extern char __boot_protocol_data_end[];
 
 extern char __data_start[];
 extern char __data_end[];
@@ -1921,9 +1921,9 @@ static void runtime_dump_kernel_mapping_inventory(void)
     );
 
     runtime_dump_mapping_range(
-        ".limine_requests",
-        (uint64_t) __limine_requests_start,
-        (uint64_t) __limine_requests_end
+        "boot protocol data",
+        (uint64_t) __boot_protocol_data_start,
+        (uint64_t) __boot_protocol_data_end
     );
 
     runtime_dump_mapping_range(

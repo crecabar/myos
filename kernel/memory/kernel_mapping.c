@@ -21,8 +21,8 @@ extern char __text_end[];
 extern char __rodata_start[];
 extern char __rodata_end[];
 
-extern char __limine_requests_start[];
-extern char __limine_requests_end[];
+extern char __boot_protocol_data_start[];
+extern char __boot_protocol_data_end[];
 
 extern char __data_start[];
 extern char __data_end[];
@@ -462,8 +462,8 @@ static bool kernel_mapping_populate(
 
     if (!kernel_mapping_map_range(
         address_space,
-        (uint64_t) __limine_requests_start,
-        (uint64_t) __limine_requests_end,
+        (uint64_t) __boot_protocol_data_start,
+        (uint64_t) __boot_protocol_data_end,
         false,
         false
     )) {
@@ -512,8 +512,8 @@ static bool kernel_mapping_populate(
 
     if (!kernel_mapping_validate_range(
         address_space,
-        (uint64_t) __limine_requests_start,
-        (uint64_t) __limine_requests_end,
+        (uint64_t) __boot_protocol_data_start,
+        (uint64_t) __boot_protocol_data_end,
         false,
         false
     )) {

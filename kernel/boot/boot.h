@@ -4,6 +4,7 @@
 #define MYOS_BOOT_BOOT_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "../drivers/framebuffer.h"
