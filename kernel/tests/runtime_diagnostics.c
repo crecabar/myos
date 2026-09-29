@@ -333,82 +333,66 @@ void runtime_diagnostics_bootloader_frame_inventory(
     }
 
     /*
-    * Keep the negative-test fixture in zero-initialized kernel storage.
-    * Copy only the fields inspected by the current preflight, avoiding
-    * an implicit memcpy of the large boot_info structure.
-    *
-    * Update this fixture if the preflight begins inspecting more fields.
-    */
-   static struct boot_info invalid;
+     * Keep the negative-test fixture in zero-initialized kernel storage.
+     * Copy only the fields inspected by the current preflight, avoiding
+     * an implicit memcpy of the large boot_info structure.
+     *
+     * Update this fixture if the preflight begins inspecting more fields.
+     */
+    static struct boot_info invalid;
 
-   invalid.command_line = NULL;
-   invalid.smbios_entry_32 = NULL;
-   invalid.smbios_entry_64 = NULL;
-   invalid.direct_map_offset =
-       boot_info->direct_map_offset;
-   invalid.memory_region_count =
-       boot_info->memory_region_count;
-   invalid.framebuffer.address =
-       boot_info->framebuffer.address;
+    invalid.smbios_entry_32 = NULL;
+    invalid.smbios_entry_64 = NULL;
+    invalid.direct_map_offset =
+        boot_info->direct_map_offset;
+    invalid.memory_region_count =
+        boot_info->memory_region_count;
+    invalid.framebuffer.address =
+        boot_info->framebuffer.address;
 
-   invalid.command_line =
-       "stale bootloader command line";
+    invalid.smbios_entry_32 = &invalid;
 
-   if (
-       boot_reclaim_preflight(
-           &invalid,
-           &report
-       )
-   ) {
-       kernel_panic(
-           "Bootloader-memory preflight accepted stale command line"
-       );
-   }
+    if (
+        boot_reclaim_preflight(
+            &invalid,
+            &report
+        )
+    ) {
+        kernel_panic(
+            "Bootloader-memory preflight accepted stale SMBIOS entry"
+        );
+    }
 
-   invalid.command_line = NULL;
-   invalid.smbios_entry_32 = &invalid;
+    invalid.smbios_entry_32 = NULL;
+    invalid.direct_map_offset =
+        boot_info->direct_map_offset +
+        MEMORY_FRAME_SIZE;
 
-   if (
-       boot_reclaim_preflight(
-           &invalid,
-           &report
-       )
-   ) {
-       kernel_panic(
-           "Bootloader-memory preflight accepted stale SMBIOS entry"
-       );
-   }
+    if (
+        boot_reclaim_preflight(
+            &invalid,
+            &report
+        )
+    ) {
+        kernel_panic(
+            "Bootloader-memory preflight accepted incorrect direct-map base"
+        );
+    }
 
-   invalid.smbios_entry_32 = NULL;
-   invalid.direct_map_offset =
-       boot_info->direct_map_offset +
-       MEMORY_FRAME_SIZE;
+    invalid.direct_map_offset =
+        boot_info->direct_map_offset;
+    invalid.framebuffer.address = NULL;
 
-   if (
-       boot_reclaim_preflight(
-           &invalid,
-           &report
-       )
-   ) {
-       kernel_panic(
-           "Bootloader-memory preflight accepted incorrect direct-map base"
-       );
-   }
-
-   invalid.direct_map_offset =
-       boot_info->direct_map_offset;
-   invalid.framebuffer.address = NULL;
-
-   if (
-       boot_reclaim_preflight(
-           &invalid,
-           &report
-       )
-   ) {
-       kernel_panic(
-           "Bootloader-memory preflight accepted missing framebuffer"
-       );
-   }
+    if (
+        boot_reclaim_preflight(
+            &invalid,
+            &report
+        )
+    ) {
+        kernel_panic(
+            "Bootloader-memory preflight accepted missing framebuffer"
+        );
+    }
 
     uint64_t free_after =
         physical_free_frame_count();
@@ -422,7 +406,6 @@ void runtime_diagnostics_bootloader_frame_inventory(
     diagnostics_printf(
         "[tests] Bootloader-memory preflight rejections passed\n"
         "  NULL arguments rejected\n"
-        "  stale command line rejected\n"
         "  stale SMBIOS entry rejected\n"
         "  incorrect direct-map base rejected\n"
         "  missing framebuffer rejected\n"
@@ -497,7 +480,6 @@ void runtime_diagnostics_general_reclaim_rejections(
     invalid.direct_map_offset =
         boot_info->direct_map_offset;
 
-    invalid.command_line = NULL;
     invalid.smbios_entry_32 = NULL;
     invalid.smbios_entry_64 = NULL;
 
@@ -527,26 +509,6 @@ void runtime_diagnostics_general_reclaim_rejections(
         invalid.memory_regions[index].type =
             boot_info->memory_regions[index].type;
     }
-
-    /*
-     * A stale bootloader-provided pointer must stop reclamation
-     * at the preflight, before reaching the transfer loop.
-     */
-    invalid.command_line =
-        "stale bootloader command line";
-
-    if (
-        boot_memory_reclaim_remaining(
-            &invalid,
-            &result
-        )
-    ) {
-        kernel_panic(
-            "General reclaim accepted a stale command line"
-        );
-    }
-
-    invalid.command_line = NULL;
 
     /*
      * An invalid memory-map entry must be rejected by the physical
@@ -641,7 +603,6 @@ void runtime_diagnostics_general_reclaim_rejections(
     diagnostics_printf(
         "[tests] General bootloader reclaim rejections passed\n"
         "  NULL arguments rejected\n"
-        "  stale command line rejected\n"
         "  zero-length memory region rejected\n"
         "  overlapping memory regions rejected\n"
         "  pending before=%u pending after=%u\n"

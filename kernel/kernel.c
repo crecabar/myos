@@ -36,6 +36,7 @@
 #include "arch/x86_64/tests/interrupt_wait_test.h"
 #include "tests/acpi_test.h"
 #include "tests/boot_config_test.h"
+#include "tests/boot_info_test.h"
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
@@ -79,6 +80,14 @@ _Noreturn void kernel_main(void)
     boot_init(
         &kernel_boot_info
     );
+
+    if (!boot_info_validate(
+        &kernel_boot_info
+    )) {
+        kernel_panic(
+            "Invalid normalized boot information"
+        );
+    }
 
     boot_config_parse(
         kernel_boot_info.command_line,
@@ -542,6 +551,7 @@ static _Noreturn void kernel_main_continue(void)
             "\n--- kernel test suite ---\n"
         );
 
+        boot_info_test_run();
         boot_config_test_run();
 
         acpi_test_run(

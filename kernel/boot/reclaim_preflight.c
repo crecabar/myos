@@ -34,22 +34,21 @@ bool boot_reclaim_preflight(
     }
 
     /*
-     * All Limine response structures must have been consumed before
+     * All active boot-backend response structures must have been consumed before
      * the general boot-memory preflight can proceed.
      *
-     * This checks persistent protocol references. The transient pointers
-     * in boot_info are checked separately below.
+     * This checks persistent protocol references. Borrowed transient references
+     * retained in boot_info are checked separately below.
      */
     if (!boot_protocol_snapshot_complete()) {
         return false;
     }
 
     /*
-     * The kernel must not retain these transient bootloader-provided
-     * pointers in its persistent boot information.
+     * The kernel must not retain borrowed boot-time references in its persistent
+     * boot information when general boot-memory reclamation begins.
      */
     if (
-        //boot_info->command_line != NULL ||
         boot_info->smbios_entry_32 != NULL ||
         boot_info->smbios_entry_64 != NULL
     ) {

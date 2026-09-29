@@ -126,6 +126,21 @@ struct boot_info {
     size_t module_count;
 };
 
+/**
+ * Validates the bootloader-independent boot information contract.
+ *
+ * This operation is read-only and does not depend on protocol-specific
+ * response structures.
+ *
+ * @param boot_info Normalized boot information.
+ *
+ * @return true when the normalized contract is internally valid; false
+ *         otherwise.
+ */
+bool boot_info_validate(
+    const struct boot_info *boot_info
+);
+
 void boot_init(
     struct boot_info *boot_info
 );
