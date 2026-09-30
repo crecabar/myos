@@ -48,6 +48,7 @@
 #include "tests/process_fd_table_test.h"
 #include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
+#include "tests/process_namespace_test.h"
 #include "tests/process_path_test.h"
 #include "tests/ps2_scancode_set1_test.h"
 #include "tests/ps2_mouse_packet_test.h"
@@ -601,6 +602,7 @@ static _Noreturn void kernel_main_continue(void)
         vfs_parent_test_run();
         vfs_path_test_run();
         process_fd_table_test_run();
+        process_namespace_test_run();
         process_cwd_test_run();
         process_path_test_run();
         runtime_memory_test_run();

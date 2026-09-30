@@ -6,7 +6,8 @@
  *
  * A process instance owns the schedulable process descriptor, the executable
  * image referenced by that descriptor, the process file descriptor table, and
- * an optional reference to its current working directory.
+ * an optional namespace-root reference and an optional reference to its current
+ * working directory.
  *
  * Scheduler registration remains separate. The scheduler may borrow the
  * embedded process descriptor but never owns the instance, its image, or its
@@ -41,6 +42,7 @@
     struct process_image image;
     struct process_fd_table file_descriptors;
 
+    struct vfs_node *namespace_root;
     struct vfs_node *current_directory;
 
     /*
