@@ -33,3 +33,26 @@ void *memcpy(
 
     return destination;
 }
+
+void *memset(
+    void *destination,
+    int value,
+    size_t size)
+{
+    uint8_t *destination_bytes =
+        destination;
+
+    uint8_t byte =
+        (uint8_t) value;
+
+    for (
+        size_t index = 0;
+        index < size;
+        ++index
+    ) {
+        destination_bytes[index] =
+            byte;
+    }
+
+    return destination;
+}

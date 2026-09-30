@@ -91,7 +91,88 @@ void runtime_memory_test_run(void)
         );
     }
 
+    uint8_t fill_destination[66];
+
+    for (
+        size_t index = 0;
+        index < sizeof(fill_destination);
+        ++index
+    ) {
+        fill_destination[index] =
+            0xCC;
+    }
+
+    result =
+        memset(
+            &fill_destination[1],
+            0xA5,
+            sizeof(fill_destination) - 2
+        );
+
+    if (result != &fill_destination[1]) {
+        kernel_panic(
+            "memset returned incorrect destination"
+        );
+    }
+
+    if (
+        fill_destination[0] != 0xCC ||
+        fill_destination[
+            sizeof(fill_destination) - 1
+        ] != 0xCC
+    ) {
+        kernel_panic(
+            "memset wrote outside destination range"
+        );
+    }
+
+    for (
+        size_t index = 1;
+        index < sizeof(fill_destination) - 1;
+        ++index
+    ) {
+        if (fill_destination[index] != 0xA5) {
+            kernel_panic(
+                "memset produced incorrect contents"
+            );
+        }
+    }
+
+    /*
+     * memset uses the low eight bits of value.
+     */
+    uint8_t truncated_value = 0;
+
+    if (
+        memset(
+            &truncated_value,
+            0x1234,
+            1
+        ) != &truncated_value ||
+        truncated_value != 0x34
+    ) {
+        kernel_panic(
+            "memset value truncation is incorrect"
+        );
+    }
+
+    uint8_t memset_zero_size_sentinel =
+        0x5A;
+
+    if (
+        memset(
+            &memset_zero_size_sentinel,
+            0,
+            0
+        ) != &memset_zero_size_sentinel ||
+        memset_zero_size_sentinel != 0x5A
+    ) {
+        kernel_panic(
+            "memset zero-size operation is incorrect"
+        );
+    }
+
     diagnostics_write(
-        "[runtime] memcpy regression test passed\n"
+        "[runtime] memcpy/memset regression tests passed\n"
     );
 }
