@@ -88,10 +88,11 @@ struct process_instance *process_create_child_elf64(
  * The scheduler must already have detached its borrowed registration before
  * this function is called.
  *
- * Any remaining descriptor-owned open-file references are released before the
- * process executable resources are reclaimed. Normal scheduler-driven
- * termination already releases descriptors during lifecycle notification, so
- * this also covers direct teardown and rollback paths safely.
+ * Any remaining descriptor-owned open-file references and current-directory
+ * node reference are released before the process executable resources are
+ * reclaimed. Normal scheduler-driven termination already releases these VFS
+ * resources during lifecycle notification, so this also covers direct teardown
+ * and synthetic lifecycle paths safely.
  *
  * The lifecycle storage allocated by process_create_elf64() is then returned
  * to the kernel heap.

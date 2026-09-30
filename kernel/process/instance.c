@@ -7,6 +7,8 @@
 
 #include "instance.h"
 
+#include "cwd.h"
+
 #include "../core/panic.h"
 
 #include <stddef.h>
@@ -166,6 +168,32 @@ bool process_instance_prepare_clone(
         return false;
     }
 
+    if (!process_cwd_inherit(
+        instance,
+        source
+    )) {
+        if (!process_fd_table_release_all(
+            &instance->file_descriptors
+        )) {
+            kernel_panic(
+                "Unable to roll back cloned descriptor table after CWD failure"
+            );
+        }
+
+        if (!process_image_destroy(
+            &instance->image
+        )) {
+            kernel_panic(
+                "Unable to roll back cloned image after CWD failure"
+            );
+        }
+
+        instance->process.memory = NULL;
+        instance->process.layout = NULL;
+
+        return false;
+    }
+
     instance->process.instance =
         instance;
 
@@ -211,6 +239,12 @@ bool process_instance_discard(
 
     if (!process_fd_table_release_all(
         &instance->file_descriptors
+    )) {
+        return false;
+    }
+
+    if (!process_cwd_release(
+        instance
     )) {
         return false;
     }

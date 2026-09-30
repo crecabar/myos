@@ -113,6 +113,9 @@ bool process_instance_prepare_elf64(
  * Parent and child retain the same vfs_file objects and therefore share
  * per-open state such as the current file offset.
  *
+ * The current working directory is inherited as the same VFS directory node,
+ * with the clone owning an independent node reference.
+ *
  * Process-family links and wait state are initialized empty. Scheduler
  * registration and publication as a child remain the caller's responsibility.
  *
@@ -144,8 +147,8 @@ bool process_instance_prepare_clone(
  *
  * @param instance Prepared instance that is not registered with the scheduler.
  *
- * @return true when all descriptor and image resources were released; false
- * otherwise.
+ * @return true when all descriptor, current-directory and image resources
+ * were released; false otherwise.
  */
 bool process_instance_discard(
     struct process_instance *instance

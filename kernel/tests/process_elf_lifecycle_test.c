@@ -15,6 +15,7 @@
 #include "../memory/memory.h"
 #include "../memory/heap.h"
 #include "../process/create.h"
+#include "../process/cwd.h"
 #include "../process/exec.h"
 #include "../process/fd_table.h"
 #include "../process/fork.h"
@@ -1069,6 +1070,34 @@ static void process_elf_lifecycle_test_fork_clone(
         );
     }
 
+    struct vfs_node cwd_node;
+
+    if (!vfs_node_initialize(
+        &cwd_node,
+        VFS_NODE_TYPE_DIRECTORY,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Unable to initialize fork CWD fixture"
+        );
+    }
+
+    if (
+        !process_cwd_set(
+            parent,
+            &cwd_node
+        ) ||
+        process_cwd_get(
+            parent
+        ) != &cwd_node ||
+        cwd_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to install fork parent CWD"
+        );
+    }
+
     struct vfs_node descriptor_node;
     struct vfs_file descriptor_file;
 
@@ -1152,6 +1181,20 @@ static void process_elf_lifecycle_test_fork_clone(
     if (child == NULL) {
         kernel_panic(
             "Unable to create copy-based fork child"
+        );
+    }
+
+    if (
+        process_cwd_get(
+            parent
+        ) != &cwd_node ||
+        process_cwd_get(
+            child
+        ) != &cwd_node ||
+        cwd_node.reference_count != 3
+    ) {
+        kernel_panic(
+            "Fork did not inherit current directory ownership"
         );
     }
 
@@ -1325,6 +1368,20 @@ static void process_elf_lifecycle_test_fork_clone(
     );
 
     if (
+        process_cwd_get(
+            child
+        ) != NULL ||
+        process_cwd_get(
+            parent
+        ) != &cwd_node ||
+        cwd_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Fork child termination did not release CWD ownership"
+        );
+    }
+
+    if (
         process_fd_table_get(
             &child->file_descriptors,
             inherited_descriptor
@@ -1387,6 +1444,17 @@ static void process_elf_lifecycle_test_fork_clone(
     );
 
     if (
+        process_cwd_get(
+            parent
+        ) != NULL ||
+        cwd_node.reference_count != 1
+    ) {
+        kernel_panic(
+            "Fork parent termination did not release CWD ownership"
+        );
+    }
+
+    if (
         process_fd_table_get(
             &parent->file_descriptors,
             inherited_descriptor
@@ -1403,6 +1471,14 @@ static void process_elf_lifecycle_test_fork_clone(
     )) {
         kernel_panic(
             "Unable to release fork clone parent"
+        );
+    }
+
+    if (!vfs_node_release(
+        &cwd_node
+    )) {
+        kernel_panic(
+            "Fork CWD fixture cleanup failed"
         );
     }
 
@@ -1486,6 +1562,26 @@ static void process_elf_lifecycle_test_fork_rollback(
     if (parent == NULL) {
         kernel_panic(
             "Unable to create fork rollback parent"
+        );
+    }
+
+    struct vfs_node rollback_cwd_node;
+
+    if (
+        !vfs_node_initialize(
+            &rollback_cwd_node,
+            VFS_NODE_TYPE_DIRECTORY,
+            NULL,
+            NULL
+        ) ||
+        !process_cwd_set(
+            parent,
+            &rollback_cwd_node
+        ) ||
+        rollback_cwd_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to initialize fork rollback CWD fixture"
         );
     }
 
@@ -1621,6 +1717,22 @@ static void process_elf_lifecycle_test_fork_rollback(
     }
 
     /*
+     * The failed child temporarily inherited the parent's CWD while its process
+     * instance was being cloned. Rollback must have released that child-owned
+     * reference, leaving only the fixture and parent references.
+     */
+    if (
+        process_cwd_get(
+            parent
+        ) != &rollback_cwd_node ||
+        rollback_cwd_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Failed fork leaked inherited CWD ownership"
+        );
+    }
+
+    /*
      * Publication happens only after scheduler registration succeeds.
      */
     if (
@@ -1749,6 +1861,22 @@ static void process_elf_lifecycle_test_fork_rollback(
     )) {
         kernel_panic(
             "Unable to release fork rollback parent"
+        );
+    }
+
+    if (
+        rollback_cwd_node.reference_count != 1
+    ) {
+        kernel_panic(
+            "Fork rollback parent teardown retained CWD ownership"
+        );
+    }
+
+    if (!vfs_node_release(
+        &rollback_cwd_node
+    )) {
+        kernel_panic(
+            "Fork rollback CWD fixture cleanup failed"
         );
     }
 
@@ -2144,6 +2272,26 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    struct vfs_node exec_cwd_node;
+
+    if (
+        !vfs_node_initialize(
+            &exec_cwd_node,
+            VFS_NODE_TYPE_DIRECTORY,
+            NULL,
+            NULL
+        ) ||
+        !process_cwd_set(
+            &exec_instance,
+            &exec_cwd_node
+        ) ||
+        exec_cwd_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to initialize exec CWD fixture"
+        );
+    }
+
     struct vfs_node exec_descriptor_node;
     struct vfs_file exec_descriptor_file;
 
@@ -2281,6 +2429,17 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    if (
+        process_cwd_get(
+            &exec_instance
+        ) != &exec_cwd_node ||
+        exec_cwd_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Exec did not preserve current directory state"
+        );
+    }
+
     if (commit_candidate.prepared) {
         kernel_panic(
             "Committed exec candidate remained prepared"
@@ -2366,9 +2525,25 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    if (
+        exec_cwd_node.reference_count != 1
+    ) {
+        kernel_panic(
+            "Exec process discard retained CWD ownership"
+        );
+    }
+
     if (exec_descriptor_file.reference_count != 1) {
         kernel_panic(
             "Exec process discard retained descriptor ownership"
+        );
+    }
+
+    if (!vfs_node_release(
+        &exec_cwd_node
+    )) {
+        kernel_panic(
+            "Exec CWD fixture cleanup failed"
         );
     }
 
