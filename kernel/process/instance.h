@@ -4,17 +4,19 @@
  * @file instance.h
  * @brief Owned lifecycle storage for one MyOS userspace process.
  *
- * A process instance owns both the schedulable process descriptor and the
- * executable image referenced by that descriptor.
+ * A process instance owns the schedulable process descriptor, the executable
+ * image referenced by that descriptor, and the process file descriptor table.
  *
  * Scheduler registration remains separate. The scheduler may borrow the
- * embedded process descriptor but never owns the instance or its image.
+ * embedded process descriptor but never owns the instance, its image, or its
+ * file descriptor references.
  */
 
 #ifndef MYOS_PROCESS_INSTANCE_H
 #define MYOS_PROCESS_INSTANCE_H
 
 #include "../elf/elf64.h"
+#include "fd_table.h"
 #include "image.h"
 #include "process.h"
 
@@ -26,12 +28,16 @@
  * Owns the lifecycle storage of one userspace process.
  *
  * The embedded process descriptor borrows the memory and layout contained in
- * image. Therefore the instance must remain alive while the process may be
- * referenced by the scheduler.
+ * image. The instance also owns the process descriptor table, whose occupied
+ * slots own references to open-file descriptions.
+ *
+ * Therefore the instance must remain alive while the process may be referenced
+ * by the scheduler.
  */
  struct process_instance {
     struct process process;
     struct process_image image;
+    struct process_fd_table file_descriptors;
 
     /*
      * Intrusive process-family links.
@@ -96,6 +102,10 @@ bool process_instance_prepare_elf64(
  * supplied execution context becomes the initial resumable context of the
  * clone.
  *
+ * Occupied file descriptors are inherited with the same descriptor numbers.
+ * Parent and child retain the same vfs_file objects and therefore share
+ * per-open state such as the current file offset.
+ *
  * Process-family links and wait state are initialized empty. Scheduler
  * registration and publication as a child remain the caller's responsibility.
  *
@@ -127,7 +137,8 @@ bool process_instance_prepare_clone(
  *
  * @param instance Prepared instance that is not registered with the scheduler.
  *
- * @return true when all image resources were released; false otherwise.
+ * @return true when all descriptor and image resources were released; false
+ * otherwise.
  */
 bool process_instance_discard(
     struct process_instance *instance

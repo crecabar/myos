@@ -14,6 +14,10 @@
  * Notifies the process lifecycle layer that a terminated process has been
  * safely detached from the scheduler.
  *
+ * Process-owned file descriptors are released before any waiting parent is
+ * notified. A terminated process may therefore remain as waitable lifecycle
+ * metadata without retaining open-file references.
+ *
  * Legacy processes without a process_instance require no lifecycle action.
  *
  * @param process Detached terminated process.

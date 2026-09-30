@@ -88,9 +88,13 @@ struct process_instance *process_create_child_elf64(
  * The scheduler must already have detached its borrowed registration before
  * this function is called.
  *
- * Process-owned executable resources are reclaimed first. The lifecycle
- * storage allocated by process_create_elf64() is then returned to the kernel
- * heap.
+ * Any remaining descriptor-owned open-file references are released before the
+ * process executable resources are reclaimed. Normal scheduler-driven
+ * termination already releases descriptors during lifecycle notification, so
+ * this also covers direct teardown and rollback paths safely.
+ *
+ * The lifecycle storage allocated by process_create_elf64() is then returned
+ * to the kernel heap.
  *
  * @param instance Detached terminated dynamic process instance.
  *

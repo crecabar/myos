@@ -16,15 +16,19 @@
 #include "../memory/heap.h"
 #include "../process/create.h"
 #include "../process/exec.h"
+#include "../process/fd_table.h"
 #include "../process/fork.h"
 #include "../process/image.h"
 #include "../process/instance.h"
 #include "../process/layout.h"
+#include "../process/lifecycle.h"
 #include "../process/memory.h"
 #include "../process/pid.h"
 #include "../process/process.h"
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
+#include "../vfs/vfs.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -1065,6 +1069,44 @@ static void process_elf_lifecycle_test_fork_clone(
         );
     }
 
+    struct vfs_node descriptor_node;
+    struct vfs_file descriptor_file;
+
+    if (
+        !vfs_node_initialize(
+            &descriptor_node,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_file_initialize(
+            &descriptor_file,
+            &descriptor_node,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize fork descriptor fixture"
+        );
+    }
+
+    size_t inherited_descriptor;
+
+    if (
+        !process_fd_table_install(
+            &parent->file_descriptors,
+            &descriptor_file,
+            &inherited_descriptor
+        ) ||
+        inherited_descriptor != 0 ||
+        descriptor_file.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to install fork parent descriptor"
+        );
+    }
+
     /*
      * Fork must clone current process memory, not merely reconstruct the
      * original ELF image.
@@ -1110,6 +1152,36 @@ static void process_elf_lifecycle_test_fork_clone(
     if (child == NULL) {
         kernel_panic(
             "Unable to create copy-based fork child"
+        );
+    }
+
+    if (
+        process_fd_table_get(
+            &child->file_descriptors,
+            inherited_descriptor
+        ) != &descriptor_file ||
+        process_fd_table_get(
+            &parent->file_descriptors,
+            inherited_descriptor
+        ) != &descriptor_file ||
+        descriptor_file.reference_count != 3
+    ) {
+        kernel_panic(
+            "Fork did not inherit shared open-file description"
+        );
+    }
+
+    descriptor_file.offset =
+        73;
+
+    if (
+        process_fd_table_get(
+            &child->file_descriptors,
+            inherited_descriptor
+        )->offset != 73
+    ) {
+        kernel_panic(
+            "Fork child does not share open-file state"
         );
     }
 
@@ -1248,6 +1320,26 @@ static void process_elf_lifecycle_test_fork_clone(
         );
     }
 
+    process_lifecycle_notify_terminated(
+        &child->process
+    );
+
+    if (
+        process_fd_table_get(
+            &child->file_descriptors,
+            inherited_descriptor
+        ) != NULL ||
+        process_fd_table_get(
+            &parent->file_descriptors,
+            inherited_descriptor
+        ) != &descriptor_file ||
+        descriptor_file.reference_count != 2
+    ) {
+        kernel_panic(
+            "Fork child termination did not release descriptor ownership"
+        );
+    }
+
     struct process_wait_status wait_status;
 
     if (
@@ -1290,11 +1382,40 @@ static void process_elf_lifecycle_test_fork_clone(
         );
     }
 
+    process_lifecycle_notify_terminated(
+        &parent->process
+    );
+
+    if (
+        process_fd_table_get(
+            &parent->file_descriptors,
+            inherited_descriptor
+        ) != NULL ||
+        descriptor_file.reference_count != 1
+    ) {
+        kernel_panic(
+            "Fork parent termination did not release descriptor ownership"
+        );
+    }
+
     if (!process_release_terminated(
         parent
     )) {
         kernel_panic(
             "Unable to release fork clone parent"
+        );
+    }
+
+    if (
+        !vfs_file_release(
+            &descriptor_file
+        ) ||
+        !vfs_node_release(
+            &descriptor_node
+        )
+    ) {
+        kernel_panic(
+            "Fork descriptor fixture cleanup failed"
         );
     }
 
@@ -1367,6 +1488,47 @@ static void process_elf_lifecycle_test_fork_rollback(
             "Unable to create fork rollback parent"
         );
     }
+
+    struct vfs_node rollback_descriptor_node;
+    struct vfs_file rollback_descriptor_file;
+
+    if (
+        !vfs_node_initialize(
+            &rollback_descriptor_node,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_file_initialize(
+            &rollback_descriptor_file,
+            &rollback_descriptor_node,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize fork rollback descriptor fixture"
+        );
+    }
+
+    size_t rollback_descriptor;
+
+    if (
+        !process_fd_table_install(
+            &parent->file_descriptors,
+            &rollback_descriptor_file,
+            &rollback_descriptor
+        ) ||
+        rollback_descriptor != 0 ||
+        rollback_descriptor_file.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to install fork rollback descriptor"
+        );
+    }
+
+    rollback_descriptor_file.offset =
+        117;
 
     struct process_instance
         *fillers[SCHEDULER_MAX_PROCESSES - 1];
@@ -1442,6 +1604,19 @@ static void process_elf_lifecycle_test_fork_rollback(
     if (child != NULL) {
         kernel_panic(
             "Fork succeeded with full scheduler"
+        );
+    }
+
+    if (
+        process_fd_table_get(
+            &parent->file_descriptors,
+            rollback_descriptor
+        ) != &rollback_descriptor_file ||
+        rollback_descriptor_file.reference_count != 2 ||
+        rollback_descriptor_file.offset != 117
+    ) {
+        kernel_panic(
+            "Failed fork leaked inherited descriptor ownership"
         );
     }
 
@@ -1574,6 +1749,20 @@ static void process_elf_lifecycle_test_fork_rollback(
     )) {
         kernel_panic(
             "Unable to release fork rollback parent"
+        );
+    }
+
+    if (
+        rollback_descriptor_file.reference_count != 1 ||
+        !vfs_file_release(
+            &rollback_descriptor_file
+        ) ||
+        !vfs_node_release(
+            &rollback_descriptor_node
+        )
+    ) {
+        kernel_panic(
+            "Fork rollback descriptor fixture cleanup failed"
         );
     }
 
@@ -1955,6 +2144,46 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    struct vfs_node exec_descriptor_node;
+    struct vfs_file exec_descriptor_file;
+
+    if (
+        !vfs_node_initialize(
+            &exec_descriptor_node,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_file_initialize(
+            &exec_descriptor_file,
+            &exec_descriptor_node,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize exec descriptor fixture"
+        );
+    }
+
+    size_t exec_descriptor;
+
+    if (
+        !process_fd_table_install(
+            &exec_instance.file_descriptors,
+            &exec_descriptor_file,
+            &exec_descriptor
+        ) ||
+        exec_descriptor != 0
+    ) {
+        kernel_panic(
+            "Unable to install exec descriptor fixture"
+        );
+    }
+
+    exec_descriptor_file.offset =
+        91;
+
     if (
         exec_instance.process.image !=
         &exec_instance.image
@@ -2036,6 +2265,19 @@ void process_elf_lifecycle_test_run(void)
     )) {
         kernel_panic(
             "Unable to commit replacement process image"
+        );
+    }
+
+    if (
+        process_fd_table_get(
+            &exec_instance.file_descriptors,
+            exec_descriptor
+        ) != &exec_descriptor_file ||
+        exec_descriptor_file.reference_count != 2 ||
+        exec_descriptor_file.offset != 91
+    ) {
+        kernel_panic(
+            "Exec did not preserve file descriptor state"
         );
     }
 
@@ -2121,6 +2363,25 @@ void process_elf_lifecycle_test_run(void)
     )) {
         kernel_panic(
             "Unable to discard committed exec process"
+        );
+    }
+
+    if (exec_descriptor_file.reference_count != 1) {
+        kernel_panic(
+            "Exec process discard retained descriptor ownership"
+        );
+    }
+
+    if (
+        !vfs_file_release(
+            &exec_descriptor_file
+        ) ||
+        !vfs_node_release(
+            &exec_descriptor_node
+        )
+    ) {
+        kernel_panic(
+            "Exec descriptor fixture cleanup failed"
         );
     }
 

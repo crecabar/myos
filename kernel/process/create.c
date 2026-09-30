@@ -6,6 +6,7 @@
  */
 
 #include "create.h"
+#include "fd_table.h"
 #include "pid.h"
 
 #include "../core/panic.h"
@@ -94,6 +95,17 @@ bool process_release_terminated(
         instance->wait_active ||
         instance->wait_child_pid != 0
     ) {
+        return false;
+    }
+
+    /*
+     * Normal process termination releases descriptors during lifecycle
+     * notification. This also makes direct teardown and synthetic test paths
+     * deterministic when no notification was required.
+     */
+    if (!process_fd_table_release_all(
+        &instance->file_descriptors
+    )) {
         return false;
     }
 
