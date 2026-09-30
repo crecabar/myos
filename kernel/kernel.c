@@ -58,6 +58,7 @@
 #include "tests/vfs_lookup_test.h"
 #include "tests/vfs_node_test.h"
 #include "tests/vfs_parent_test.h"
+#include "tests/vfs_path_test.h"
 #endif
 
 #define KERNEL_RUNTIME_STACK_SIZE 32768
@@ -592,6 +593,7 @@ static _Noreturn void kernel_main_continue(void)
         vfs_file_test_run();
         vfs_lookup_test_run();
         vfs_parent_test_run();
+        vfs_path_test_run();
         process_fd_table_test_run();
         runtime_memory_test_run();
         syscall_test_run();
