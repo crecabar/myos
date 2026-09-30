@@ -137,9 +137,9 @@ bool process_instance_prepare_clone(
     }
 
     /*
-     * process_init() establishes the descriptor/image ownership links and
-     * validates the cloned layout. Fork resumes from the caller-supplied
-     * execution point rather than from the ELF entry point.
+     * process_init() validates the cloned layout and initializes the schedulable
+     * descriptor. Fork resumes from the caller-supplied execution point rather
+     * than from the ELF entry point.
      */
     instance->process.context =
         *context;
