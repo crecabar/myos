@@ -30,11 +30,8 @@
  *
  * The embedded process descriptor borrows the memory and layout contained in
  * image. The instance also owns the process descriptor table, whose occupied
- * slots own references to open-file descriptions.
- *
- * The instance also owns the process descriptor table, whose occupied slots
- * own references to open-file descriptions, and may own one reference to a
- * VFS directory representing the current working directory.
+ * slots own references to open-file descriptions, and may own one reference to
+ * a VFS directory representing the current working directory.
  *
  * Therefore the instance must remain alive while the process may be referenced
  * by the scheduler.
