@@ -55,6 +55,7 @@
 #include "tests/user_copy_test.h"
 #include "tests/user_processes.h"
 #include "tests/vfs_file_test.h"
+#include "tests/vfs_lookup_test.h"
 #include "tests/vfs_node_test.h"
 #endif
 
@@ -588,6 +589,7 @@ static _Noreturn void kernel_main_continue(void)
         kernel_heap_test_run();
         vfs_node_test_run();
         vfs_file_test_run();
+        vfs_lookup_test_run();
         process_fd_table_test_run();
         runtime_memory_test_run();
         syscall_test_run();
