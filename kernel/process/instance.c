@@ -5,9 +5,10 @@
  * @brief Owned process-instance lifecycle implementation.
  */
 
-#include "instance.h"
+ #include "instance.h"
 
-#include "cwd.h"
+ #include "cwd.h"
+ #include "namespace.h"
 
 #include "../core/panic.h"
 
@@ -31,6 +32,7 @@ bool process_instance_prepare_elf64(
         return false;
     }
 
+    instance->namespace_root = NULL;
     instance->current_directory = NULL;
 
     if (!process_image_create_elf64(
@@ -109,6 +111,7 @@ bool process_instance_prepare_clone(
         return false;
     }
 
+    instance->namespace_root = NULL;
     instance->current_directory = NULL;
 
     if (!process_image_clone(
@@ -168,10 +171,44 @@ bool process_instance_prepare_clone(
         return false;
     }
 
+    if (!process_namespace_root_inherit(
+        instance,
+        source
+    )) {
+        if (!process_fd_table_release_all(
+            &instance->file_descriptors
+        )) {
+            kernel_panic(
+                "Unable to roll back cloned descriptor table after namespace failure"
+            );
+        }
+
+        if (!process_image_destroy(
+            &instance->image
+        )) {
+            kernel_panic(
+                "Unable to roll back cloned image after namespace failure"
+            );
+        }
+
+        instance->process.memory = NULL;
+        instance->process.layout = NULL;
+
+        return false;
+    }
+
     if (!process_cwd_inherit(
         instance,
         source
     )) {
+        if (!process_namespace_root_release(
+            instance
+        )) {
+            kernel_panic(
+                "Unable to roll back cloned namespace root after CWD failure"
+            );
+        }
+
         if (!process_fd_table_release_all(
             &instance->file_descriptors
         )) {
@@ -244,6 +281,12 @@ bool process_instance_discard(
     }
 
     if (!process_cwd_release(
+        instance
+    )) {
+        return false;
+    }
+
+    if (!process_namespace_root_release(
         instance
     )) {
         return false;
