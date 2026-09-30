@@ -29,6 +29,8 @@ bool process_instance_prepare_elf64(
         return false;
     }
 
+    instance->current_directory = NULL;
+
     if (!process_image_create_elf64(
         &instance->image,
         elf,
@@ -104,6 +106,8 @@ bool process_instance_prepare_clone(
     )) {
         return false;
     }
+
+    instance->current_directory = NULL;
 
     if (!process_image_clone(
         &instance->image,

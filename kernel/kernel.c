@@ -43,6 +43,7 @@
 #include "tests/framebuffer_test.h"
 #include "tests/input_test.h"
 #include "tests/kernel_heap_test.h"
+#include "tests/process_cwd_test.h"
 #include "tests/process_elf_lifecycle_test.h"
 #include "tests/process_fd_table_test.h"
 #include "tests/process_lifecycle_test.h"
@@ -595,6 +596,7 @@ static _Noreturn void kernel_main_continue(void)
         vfs_parent_test_run();
         vfs_path_test_run();
         process_fd_table_test_run();
+        process_cwd_test_run();
         runtime_memory_test_run();
         syscall_test_run();
         process_memory_test_run();

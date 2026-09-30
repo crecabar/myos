@@ -5,7 +5,8 @@
  * @brief Owned lifecycle storage for one MyOS userspace process.
  *
  * A process instance owns the schedulable process descriptor, the executable
- * image referenced by that descriptor, and the process file descriptor table.
+ * image referenced by that descriptor, the process file descriptor table, and
+ * an optional reference to its current working directory.
  *
  * Scheduler registration remains separate. The scheduler may borrow the
  * embedded process descriptor but never owns the instance, its image, or its
@@ -31,6 +32,10 @@
  * image. The instance also owns the process descriptor table, whose occupied
  * slots own references to open-file descriptions.
  *
+ * The instance also owns the process descriptor table, whose occupied slots
+ * own references to open-file descriptions, and may own one reference to a
+ * VFS directory representing the current working directory.
+ *
  * Therefore the instance must remain alive while the process may be referenced
  * by the scheduler.
  */
@@ -38,6 +43,8 @@
     struct process process;
     struct process_image image;
     struct process_fd_table file_descriptors;
+
+    struct vfs_node *current_directory;
 
     /*
      * Intrusive process-family links.
