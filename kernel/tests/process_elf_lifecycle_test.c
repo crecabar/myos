@@ -1111,6 +1111,7 @@ static void process_elf_lifecycle_test_fork_clone(
         !vfs_file_initialize(
             &descriptor_file,
             &descriptor_node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         )
@@ -1598,6 +1599,7 @@ static void process_elf_lifecycle_test_fork_rollback(
         !vfs_file_initialize(
             &rollback_descriptor_file,
             &rollback_descriptor_node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         )
@@ -2305,6 +2307,7 @@ void process_elf_lifecycle_test_run(void)
         !vfs_file_initialize(
             &exec_descriptor_file,
             &exec_descriptor_node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         )

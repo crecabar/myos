@@ -6,16 +6,25 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Private functions and helpers declarations
+static bool vfs_file_access_valid(
+    enum vfs_open_access access
+);
+
 // Public functions implementations
 bool vfs_file_initialize(
     struct vfs_file *file,
     struct vfs_node *node,
+    enum vfs_open_access access,
     const struct vfs_file_operations *operations,
     void *private_data)
 {
     if (
         file == NULL ||
-        node == NULL
+        node == NULL ||
+        !vfs_file_access_valid(
+            access
+        )
     ) {
         return false;
     }
@@ -34,6 +43,9 @@ bool vfs_file_initialize(
 
     file->offset =
         0;
+
+    file->access =
+        access;
 
     file->operations =
         operations;
@@ -102,4 +114,17 @@ bool vfs_file_release(
     return vfs_node_release(
         node
     );
+}
+
+// Private functions and helpers implementations
+static bool vfs_file_access_valid(
+    enum vfs_open_access access)
+{
+    const unsigned int valid_access =
+        VFS_OPEN_ACCESS_READ |
+        VFS_OPEN_ACCESS_WRITE;
+
+    return
+        access != 0 &&
+        ((unsigned int) access & ~valid_access) == 0;
 }
