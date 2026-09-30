@@ -11,6 +11,10 @@ static bool vfs_node_type_valid(
     enum vfs_node_type type
 );
 
+static bool vfs_open_access_valid(
+    enum vfs_open_access access
+);
+
 static bool vfs_lookup_name_valid(
     const char *name,
     size_t name_length
@@ -99,6 +103,164 @@ bool vfs_node_release(
      * released the storage containing it.
      */
     return true;
+}
+
+enum vfs_open_result vfs_node_open(
+    struct vfs_node *node,
+    enum vfs_open_access access,
+    struct vfs_file **result)
+{
+    if (
+        node == NULL ||
+        result == NULL ||
+        !vfs_open_access_valid(
+            access
+        )
+    ) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (node->reference_count == 0) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        node->operations == NULL ||
+        node->operations->open == NULL
+    ) {
+        return
+            VFS_OPEN_RESULT_NOT_SUPPORTED;
+    }
+
+    struct vfs_file *file =
+        NULL;
+
+    enum vfs_open_result open_result =
+        node->operations->open(
+            node,
+            access,
+            &file
+        );
+
+    if (
+        open_result !=
+        VFS_OPEN_RESULT_OPENED
+    ) {
+        switch (open_result) {
+            case VFS_OPEN_RESULT_INVALID_ARGUMENT:
+            case VFS_OPEN_RESULT_NOT_SUPPORTED:
+            case VFS_OPEN_RESULT_ACCESS_DENIED:
+            case VFS_OPEN_RESULT_RESOURCE_EXHAUSTED:
+                return
+                    open_result;
+
+            case VFS_OPEN_RESULT_OPENED:
+                break;
+        }
+
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        file == NULL ||
+        file->reference_count == 0
+    ) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        file->node != node ||
+        file->access != access
+    ) {
+        /*
+         * OPENED transferred one owned file reference. Drop that ownership before
+         * rejecting filesystem state that violates the open contract.
+         */
+        (void) vfs_file_release(
+            file
+        );
+
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    *result =
+        file;
+
+    return
+        VFS_OPEN_RESULT_OPENED;
+}
+
+enum vfs_stat_result vfs_node_stat(
+    struct vfs_node *node,
+    struct vfs_stat *result)
+{
+    if (
+        node == NULL ||
+        result == NULL
+    ) {
+        return
+            VFS_STAT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (node->reference_count == 0) {
+        return
+            VFS_STAT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        node->operations == NULL ||
+        node->operations->stat == NULL
+    ) {
+        return
+            VFS_STAT_RESULT_NOT_SUPPORTED;
+    }
+
+    struct vfs_stat metadata = {
+        .type =
+            node->type,
+        .size =
+            0,
+    };
+
+    enum vfs_stat_result stat_result =
+        node->operations->stat(
+            node,
+            &metadata
+        );
+
+    if (
+        stat_result !=
+        VFS_STAT_RESULT_SUCCESS
+    ) {
+        switch (stat_result) {
+            case VFS_STAT_RESULT_INVALID_ARGUMENT:
+            case VFS_STAT_RESULT_NOT_SUPPORTED:
+                return
+                    stat_result;
+
+            case VFS_STAT_RESULT_SUCCESS:
+                break;
+        }
+
+        return
+            VFS_STAT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (metadata.type != node->type) {
+        return
+            VFS_STAT_RESULT_INVALID_ARGUMENT;
+    }
+
+    *result =
+        metadata;
+
+    return
+        VFS_STAT_RESULT_SUCCESS;
 }
 
 enum vfs_lookup_result vfs_node_lookup(
@@ -248,6 +410,18 @@ static bool vfs_node_type_valid(
     }
 
     return false;
+}
+
+static bool vfs_open_access_valid(
+    enum vfs_open_access access)
+{
+    const unsigned int valid_access =
+        VFS_OPEN_ACCESS_READ |
+        VFS_OPEN_ACCESS_WRITE;
+
+    return
+        access != 0 &&
+        ((unsigned int) access & ~valid_access) == 0;
 }
 
 static bool vfs_lookup_name_valid(

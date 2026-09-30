@@ -237,7 +237,6 @@ struct vfs_file_operations {
      *
      * offset is the generic VFS offset at which the operation begins. The
      * callback must not modify file->offset.
-     * must not modify file->offset.
      *
      * On success, bytes_read receives a value no greater than size. On failure,
      * bytes_read must remain unchanged.

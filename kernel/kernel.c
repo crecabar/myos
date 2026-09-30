@@ -59,6 +59,7 @@
 #include "tests/vfs_file_test.h"
 #include "tests/vfs_lookup_test.h"
 #include "tests/vfs_node_test.h"
+#include "tests/vfs_node_operations_test.h"
 #include "tests/vfs_parent_test.h"
 #include "tests/vfs_path_test.h"
 #endif
@@ -592,6 +593,7 @@ static _Noreturn void kernel_main_continue(void)
         input_test_run();
         kernel_heap_test_run();
         vfs_node_test_run();
+        vfs_node_operations_test_run();
         vfs_file_test_run();
         vfs_lookup_test_run();
         vfs_parent_test_run();
