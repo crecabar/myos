@@ -175,6 +175,67 @@ enum vfs_lookup_result vfs_node_lookup(
         VFS_LOOKUP_RESULT_FOUND;
 }
 
+enum vfs_parent_result vfs_node_parent(
+    struct vfs_node *directory,
+    struct vfs_node **result)
+{
+    if (
+        directory == NULL ||
+        result == NULL
+    ) {
+        return
+            VFS_PARENT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (directory->reference_count == 0) {
+        return
+            VFS_PARENT_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        directory->type !=
+        VFS_NODE_TYPE_DIRECTORY
+    ) {
+        return
+            VFS_PARENT_RESULT_NOT_DIRECTORY;
+    }
+
+    if (
+        directory->operations == NULL ||
+        directory->operations->parent == NULL
+    ) {
+        return
+            VFS_PARENT_RESULT_NOT_SUPPORTED;
+    }
+
+    struct vfs_node *parent =
+        directory->operations->parent(
+            directory
+        );
+
+    if (parent == NULL) {
+        return
+            VFS_PARENT_RESULT_NO_PARENT;
+    }
+
+    /*
+     * Filesystem parent traversal returns a borrowed node. The generic VFS
+     * turns that into the owned reference exposed to its caller.
+     */
+    if (!vfs_node_retain(
+        parent
+    )) {
+        return
+            VFS_PARENT_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    *result =
+        parent;
+
+    return
+        VFS_PARENT_RESULT_FOUND;
+}
+
 // Private functions and helpers implementations
 static bool vfs_node_type_valid(
     enum vfs_node_type type)

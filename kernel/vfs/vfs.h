@@ -61,6 +61,18 @@ enum vfs_lookup_result {
     VFS_LOOKUP_RESULT_RESOURCE_EXHAUSTED,
 };
 
+/**
+ * Result of resolving the parent of one directory node.
+ */
+enum vfs_parent_result {
+    VFS_PARENT_RESULT_FOUND,
+    VFS_PARENT_RESULT_NO_PARENT,
+    VFS_PARENT_RESULT_INVALID_ARGUMENT,
+    VFS_PARENT_RESULT_NOT_DIRECTORY,
+    VFS_PARENT_RESULT_NOT_SUPPORTED,
+    VFS_PARENT_RESULT_RESOURCE_EXHAUSTED,
+};
+
 struct vfs_node;
 struct vfs_file;
 
@@ -91,6 +103,25 @@ struct vfs_node_operations {
         struct vfs_node *directory,
         const char *name,
         size_t name_length
+    );
+
+    /**
+     * Returns the logical parent of one directory.
+     *
+     * On success, the callback returns a borrowed live node pointer. Ownership
+     * remains with the filesystem. The generic VFS retains the returned node
+     * before exposing it to the caller.
+     *
+     * Returning NULL means that this directory has no filesystem-provided
+     * parent. Namespace-root handling is performed by the pathname layer and
+     * does not require the root node to return itself.
+     *
+     * @param directory Directory whose parent is requested.
+     *
+     * @return Borrowed parent node, or NULL when no parent is available.
+     */
+    struct vfs_node *(*parent)(
+        struct vfs_node *directory
     );
 
     /**
@@ -312,6 +343,24 @@ enum vfs_lookup_result vfs_node_lookup(
     struct vfs_node *directory,
     const char *name,
     size_t name_length,
+    struct vfs_node **result
+);
+
+/**
+ * Resolves the logical parent of one directory.
+ *
+ * A successful lookup returns one owning reference through result. The caller
+ * must eventually release that reference with vfs_node_release().
+ *
+ * result is modified only when VFS_PARENT_RESULT_FOUND is returned.
+ *
+ * @param directory Live directory node.
+ * @param result Receives one owned parent-node reference.
+ *
+ * @return Detailed parent-resolution result.
+ */
+enum vfs_parent_result vfs_node_parent(
+    struct vfs_node *directory,
     struct vfs_node **result
 );
 
