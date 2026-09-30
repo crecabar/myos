@@ -23,6 +23,12 @@ bool process_instance_prepare_elf64(
     if (instance == NULL) return false;
     if (elf == NULL) return false;
 
+    if (!process_fd_table_initialize(
+        &instance->file_descriptors
+    )) {
+        return false;
+    }
+
     if (!process_image_create_elf64(
         &instance->image,
         elf,
@@ -93,6 +99,12 @@ bool process_instance_prepare_clone(
         return false;
     }
 
+    if (!process_fd_table_initialize(
+        &instance->file_descriptors
+    )) {
+        return false;
+    }
+
     if (!process_image_clone(
         &instance->image,
         &source->image
@@ -131,6 +143,24 @@ bool process_instance_prepare_clone(
      */
     instance->process.context =
         *context;
+
+    if (!process_fd_table_clone(
+        &instance->file_descriptors,
+        &source->file_descriptors
+    )) {
+        if (!process_image_destroy(
+            &instance->image
+        )) {
+            kernel_panic(
+                "Unable to roll back failed cloned descriptor table"
+            );
+        }
+
+        instance->process.memory = NULL;
+        instance->process.layout = NULL;
+
+        return false;
+    }
 
     instance->process.instance =
         instance;
@@ -172,6 +202,12 @@ bool process_instance_discard(
         instance->wait_active ||
         instance->wait_child_pid != 0
     ) {
+        return false;
+    }
+
+    if (!process_fd_table_release_all(
+        &instance->file_descriptors
+    )) {
         return false;
     }
 

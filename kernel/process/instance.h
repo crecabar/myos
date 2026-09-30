@@ -15,6 +15,7 @@
 #define MYOS_PROCESS_INSTANCE_H
 
 #include "../elf/elf64.h"
+#include "fd_table.h"
 #include "image.h"
 #include "process.h"
 
@@ -32,6 +33,7 @@
  struct process_instance {
     struct process process;
     struct process_image image;
+    struct process_fd_table file_descriptors;
 
     /*
      * Intrusive process-family links.

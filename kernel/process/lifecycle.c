@@ -7,6 +7,7 @@
 
 #include "lifecycle.h"
 
+#include "fd_table.h"
 #include "wait.h"
 
 #include "../core/panic.h"
@@ -41,6 +42,14 @@ void process_lifecycle_notify_terminated(
     ) {
         kernel_panic(
             "Process lifecycle instance link is inconsistent"
+        );
+    }
+
+    if (!process_fd_table_release_all(
+        &process->instance->file_descriptors
+    )) {
+        kernel_panic(
+            "Unable to release terminated process file descriptors"
         );
     }
 
