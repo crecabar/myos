@@ -15,6 +15,12 @@ static bool vfs_file_state_valid(
     const struct vfs_file *file
 );
 
+static bool vfs_file_apply_signed_offset(
+    uint64_t base,
+    int64_t offset,
+    uint64_t *result
+);
+
 // Public functions implementations
 bool vfs_file_initialize(
     struct vfs_file *file,
@@ -351,6 +357,104 @@ enum vfs_io_result vfs_file_write(
         VFS_IO_RESULT_SUCCESS;
 }
 
+enum vfs_seek_result vfs_file_seek(
+    struct vfs_file *file,
+    int64_t offset,
+    enum vfs_seek_origin origin,
+    uint64_t *result)
+{
+    if (
+        result == NULL ||
+        !vfs_file_state_valid(
+            file
+        )
+    ) {
+        return
+            VFS_SEEK_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        file->node->type !=
+        VFS_NODE_TYPE_REGULAR_FILE
+    ) {
+        return
+            VFS_SEEK_RESULT_NOT_SUPPORTED;
+    }
+
+    uint64_t base;
+
+    switch (origin) {
+        case VFS_SEEK_ORIGIN_START:
+            base =
+                0;
+            break;
+
+        case VFS_SEEK_ORIGIN_CURRENT:
+            base =
+                file->offset;
+            break;
+
+        case VFS_SEEK_ORIGIN_END: {
+            struct vfs_stat metadata;
+
+            enum vfs_stat_result stat_result =
+                vfs_node_stat(
+                    file->node,
+                    &metadata
+                );
+
+            switch (stat_result) {
+                case VFS_STAT_RESULT_SUCCESS:
+                    base =
+                        metadata.size;
+                    break;
+
+                case VFS_STAT_RESULT_NOT_SUPPORTED:
+                    return
+                        VFS_SEEK_RESULT_NOT_SUPPORTED;
+
+                case VFS_STAT_RESULT_INVALID_ARGUMENT:
+                    return
+                        VFS_SEEK_RESULT_INVALID_ARGUMENT;
+            }
+
+            if (
+                stat_result !=
+                VFS_STAT_RESULT_SUCCESS
+            ) {
+                return
+                    VFS_SEEK_RESULT_INVALID_ARGUMENT;
+            }
+
+            break;
+        }
+
+        default:
+            return
+                VFS_SEEK_RESULT_INVALID_ARGUMENT;
+    }
+
+    uint64_t new_offset;
+
+    if (!vfs_file_apply_signed_offset(
+        base,
+        offset,
+        &new_offset
+    )) {
+        return
+            VFS_SEEK_RESULT_INVALID_ARGUMENT;
+    }
+
+    file->offset =
+        new_offset;
+
+    *result =
+        new_offset;
+
+    return
+        VFS_SEEK_RESULT_SUCCESS;
+}
+
 // Private functions and helpers implementations
 static bool vfs_file_access_valid(
     enum vfs_open_access access)
@@ -382,4 +486,51 @@ static bool vfs_file_state_valid(
     return vfs_file_access_valid(
         file->access
     );
+}
+
+static bool vfs_file_apply_signed_offset(
+    uint64_t base,
+    int64_t offset,
+    uint64_t *result)
+{
+    if (result == NULL) {
+        return false;
+    }
+
+    if (offset >= 0) {
+        uint64_t positive_offset =
+            (uint64_t) offset;
+
+        if (
+            positive_offset >
+            UINT64_MAX - base
+        ) {
+            return false;
+        }
+
+        *result =
+            base +
+            positive_offset;
+
+        return true;
+    }
+
+    /*
+     * Avoid negating INT64_MIN directly. offset + 1 is representable for every
+     * negative int64_t value, so its magnitude can be completed in uint64_t.
+     */
+    uint64_t negative_magnitude =
+        (uint64_t) (
+            -(offset + 1)
+        ) + 1;
+
+    if (negative_magnitude > base) {
+        return false;
+    }
+
+    *result =
+        base -
+        negative_magnitude;
+
+    return true;
 }
