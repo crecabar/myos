@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #ifndef MYOS_INPUT_KEYBOARD_TEXT_H
 #define MYOS_INPUT_KEYBOARD_TEXT_H
