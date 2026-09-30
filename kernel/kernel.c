@@ -43,10 +43,12 @@
 #include "tests/framebuffer_test.h"
 #include "tests/input_test.h"
 #include "tests/kernel_heap_test.h"
+#include "tests/process_cwd_test.h"
 #include "tests/process_elf_lifecycle_test.h"
 #include "tests/process_fd_table_test.h"
 #include "tests/process_lifecycle_test.h"
 #include "tests/process_memory_test.h"
+#include "tests/process_path_test.h"
 #include "tests/ps2_scancode_set1_test.h"
 #include "tests/ps2_mouse_packet_test.h"
 #include "tests/runtime_memory_test.h"
@@ -55,7 +57,10 @@
 #include "tests/user_copy_test.h"
 #include "tests/user_processes.h"
 #include "tests/vfs_file_test.h"
+#include "tests/vfs_lookup_test.h"
 #include "tests/vfs_node_test.h"
+#include "tests/vfs_parent_test.h"
+#include "tests/vfs_path_test.h"
 #endif
 
 #define KERNEL_RUNTIME_STACK_SIZE 32768
@@ -588,7 +593,12 @@ static _Noreturn void kernel_main_continue(void)
         kernel_heap_test_run();
         vfs_node_test_run();
         vfs_file_test_run();
+        vfs_lookup_test_run();
+        vfs_parent_test_run();
+        vfs_path_test_run();
         process_fd_table_test_run();
+        process_cwd_test_run();
+        process_path_test_run();
         runtime_memory_test_run();
         syscall_test_run();
         process_memory_test_run();

@@ -560,7 +560,9 @@ $(KERNEL_OBJ_DIR)/c/%.o: %.c $(CONFIG_STAMP) | $(LIMINE_HEADER)
 		-c $< \
 		-o $@
 
-$(KERNEL_OBJ_DIR)/c/kernel/runtime/memory.o: CFLAGS += -fno-builtin-memcpy
+$(KERNEL_OBJ_DIR)/c/kernel/runtime/memory.o: CFLAGS += \
+	-fno-builtin-memcpy \
+	-fno-builtin-memset
 
 $(KERNEL_OBJ_DIR)/asm/%.o: %.S $(CONFIG_STAMP) | $(LIMINE_HEADER)
 	@mkdir -p $(@D)

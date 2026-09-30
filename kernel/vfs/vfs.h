@@ -42,6 +42,37 @@ enum vfs_node_type {
     VFS_NODE_TYPE_CHARACTER_DEVICE,
 };
 
+/**
+ * Maximum length of one filesystem pathname component.
+ *
+ * Components exclude path separators and are not NUL-terminated by contract.
+ */
+#define VFS_NAME_MAX 255U
+
+/**
+ * Result of resolving one ordinary name inside a directory node.
+ */
+enum vfs_lookup_result {
+    VFS_LOOKUP_RESULT_FOUND,
+    VFS_LOOKUP_RESULT_NOT_FOUND,
+    VFS_LOOKUP_RESULT_INVALID_ARGUMENT,
+    VFS_LOOKUP_RESULT_NOT_DIRECTORY,
+    VFS_LOOKUP_RESULT_NOT_SUPPORTED,
+    VFS_LOOKUP_RESULT_RESOURCE_EXHAUSTED,
+};
+
+/**
+ * Result of resolving the parent of one directory node.
+ */
+enum vfs_parent_result {
+    VFS_PARENT_RESULT_FOUND,
+    VFS_PARENT_RESULT_NO_PARENT,
+    VFS_PARENT_RESULT_INVALID_ARGUMENT,
+    VFS_PARENT_RESULT_NOT_DIRECTORY,
+    VFS_PARENT_RESULT_NOT_SUPPORTED,
+    VFS_PARENT_RESULT_RESOURCE_EXHAUSTED,
+};
+
 struct vfs_node;
 struct vfs_file;
 
@@ -49,6 +80,50 @@ struct vfs_file;
  * Filesystem-specific operations associated with a VFS node.
  */
 struct vfs_node_operations {
+    /**
+     * Looks up one ordinary child name inside a directory.
+     *
+     * name describes exactly one pathname component and is not required to be
+     * NUL-terminated. "." and ".." are handled by the generic pathname layer
+     * and are never passed to this callback.
+     *
+     * On success, the callback returns a borrowed live node pointer. Ownership
+     * remains with the filesystem. The generic VFS retains the returned node
+     * before exposing it to the lookup caller.
+     *
+     * Returning NULL means that no child with this name exists.
+     *
+     * @param directory Directory in which to search.
+     * @param name Component bytes.
+     * @param name_length Number of component bytes.
+     *
+     * @return Borrowed child node, or NULL when not found.
+     */
+    struct vfs_node *(*lookup)(
+        struct vfs_node *directory,
+        const char *name,
+        size_t name_length
+    );
+
+    /**
+     * Returns the logical parent of one directory.
+     *
+     * On success, the callback returns a borrowed live node pointer. Ownership
+     * remains with the filesystem. The generic VFS retains the returned node
+     * before exposing it to the caller.
+     *
+     * Returning NULL means that this directory has no filesystem-provided
+     * parent. Namespace-root handling is performed by the pathname layer and
+     * does not require the root node to return itself.
+     *
+     * @param directory Directory whose parent is requested.
+     *
+     * @return Borrowed parent node, or NULL when no parent is available.
+     */
+    struct vfs_node *(*parent)(
+        struct vfs_node *directory
+    );
+
     /**
      * Called exactly once when the final node reference is released.
      *
@@ -244,6 +319,49 @@ bool vfs_file_retain(
  */
 bool vfs_file_release(
     struct vfs_file *file
+);
+
+/**
+ * Looks up one ordinary child component inside a directory.
+ *
+ * A successful lookup returns one owning reference through result. The caller
+ * must eventually release that reference with vfs_node_release().
+ *
+ * result is modified only when VFS_LOOKUP_RESULT_FOUND is returned.
+ *
+ * The component must be non-empty, at most VFS_NAME_MAX bytes long, contain
+ * neither '/' nor embedded NUL bytes, and must not be "." or "..".
+ *
+ * @param directory Live directory node.
+ * @param name Pathname component bytes.
+ * @param name_length Number of component bytes.
+ * @param result Receives one owned child-node reference.
+ *
+ * @return Detailed lookup result.
+ */
+enum vfs_lookup_result vfs_node_lookup(
+    struct vfs_node *directory,
+    const char *name,
+    size_t name_length,
+    struct vfs_node **result
+);
+
+/**
+ * Resolves the logical parent of one directory.
+ *
+ * A successful lookup returns one owning reference through result. The caller
+ * must eventually release that reference with vfs_node_release().
+ *
+ * result is modified only when VFS_PARENT_RESULT_FOUND is returned.
+ *
+ * @param directory Live directory node.
+ * @param result Receives one owned parent-node reference.
+ *
+ * @return Detailed parent-resolution result.
+ */
+enum vfs_parent_result vfs_node_parent(
+    struct vfs_node *directory,
+    struct vfs_node **result
 );
 
 #endif

@@ -27,4 +27,19 @@ void *memcpy(
     size_t size
 );
 
+/**
+ * Fills size bytes of memory with the low eight bits of value.
+ *
+ * @param destination Destination memory.
+ * @param value Byte value, interpreted as unsigned char.
+ * @param size Number of bytes to fill.
+ *
+ * @return destination.
+ */
+void *memset(
+    void *destination,
+    int value,
+    size_t size
+);
+
 #endif

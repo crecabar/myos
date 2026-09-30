@@ -7,6 +7,7 @@
 
 #include "lifecycle.h"
 
+#include "cwd.h"
 #include "fd_table.h"
 #include "wait.h"
 
@@ -50,6 +51,14 @@ void process_lifecycle_notify_terminated(
     )) {
         kernel_panic(
             "Unable to release terminated process file descriptors"
+        );
+    }
+
+    if (!process_cwd_release(
+        process->instance
+    )) {
+        kernel_panic(
+            "Unable to release terminated process current directory"
         );
     }
 
