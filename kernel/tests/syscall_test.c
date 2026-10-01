@@ -38,6 +38,56 @@ _Static_assert(
     "SYSCALL_FORK ABI number changed"
 );
 
+_Static_assert(
+    SYSCALL_FD_OPEN == 7,
+    "SYSCALL_FD_OPEN ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_FD_CLOSE == 8,
+    "SYSCALL_FD_CLOSE ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_FD_READ == 9,
+    "SYSCALL_FD_READ ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_FD_WRITE == 10,
+    "SYSCALL_FD_WRITE ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_FD_LSEEK == 11,
+    "SYSCALL_FD_LSEEK ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_FD_FSTAT == 12,
+    "SYSCALL_FD_FSTAT ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_OPEN_ACCESS_READ == 1 &&
+    SYSCALL_OPEN_ACCESS_WRITE == 2,
+    "Syscall open access ABI changed"
+);
+
+_Static_assert(
+    SYSCALL_SEEK_ORIGIN_START == 0 &&
+    SYSCALL_SEEK_ORIGIN_CURRENT == 1 &&
+    SYSCALL_SEEK_ORIGIN_END == 2,
+    "Syscall seek-origin ABI changed"
+);
+
+_Static_assert(
+    SYSCALL_FILE_TYPE_REGULAR_FILE == 1 &&
+    SYSCALL_FILE_TYPE_DIRECTORY == 2 &&
+    SYSCALL_FILE_TYPE_CHARACTER_DEVICE == 3,
+    "Syscall file-type ABI changed"
+);
+
 void syscall_test_run(void)
 {
     if (SYSCALL_ABI_VERSION != 1U) {
@@ -61,7 +111,25 @@ void syscall_test_run(void)
         ) != -4 ||
         syscall_result_error(
             SYSCALL_ERROR_RESOURCE_EXHAUSTED
-        ) != -5
+        ) != -5 ||
+        syscall_result_error(
+            SYSCALL_ERROR_BAD_DESCRIPTOR
+        ) != -6 ||
+        syscall_result_error(
+            SYSCALL_ERROR_NOT_FOUND
+        ) != -7 ||
+        syscall_result_error(
+            SYSCALL_ERROR_NOT_DIRECTORY
+        ) != -8 ||
+        syscall_result_error(
+            SYSCALL_ERROR_NOT_SUPPORTED
+        ) != -9 ||
+        syscall_result_error(
+            SYSCALL_ERROR_ACCESS_DENIED
+        ) != -10 ||
+        syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        ) != -11
     ) {
         kernel_panic(
             "Syscall error encoding is unstable"
