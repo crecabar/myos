@@ -34,6 +34,32 @@ static size_t user_copy_page_chunk_size(
 );
 
 // Public functions implementations
+bool user_copy_range_readable(
+    const struct process_memory *memory,
+    uint64_t user_address,
+    size_t size)
+{
+    return user_copy_range_accessible(
+        memory,
+        user_address,
+        size,
+        USER_COPY_ACCESS_READ
+    );
+}
+
+bool user_copy_range_writable(
+    const struct process_memory *memory,
+    uint64_t user_address,
+    size_t size)
+{
+    return user_copy_range_accessible(
+        memory,
+        user_address,
+        size,
+        USER_COPY_ACCESS_WRITE
+    );
+}
+
 bool copy_from_user(
     const struct process_memory *memory,
     uint64_t user_address,
@@ -52,11 +78,10 @@ bool copy_from_user(
         return false;
     }
 
-    if (!user_copy_range_accessible(
+    if (!user_copy_range_readable(
         memory,
         user_address,
-        size,
-        USER_COPY_ACCESS_READ
+        size
     )) {
         return false;
     }
@@ -128,11 +153,10 @@ bool copy_to_user(
         return false;
     }
 
-    if (!user_copy_range_accessible(
+    if (!user_copy_range_writable(
         memory,
         user_address,
-        size,
-        USER_COPY_ACCESS_WRITE
+        size
     )) {
         return false;
     }
