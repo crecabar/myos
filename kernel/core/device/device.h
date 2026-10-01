@@ -5,7 +5,7 @@
 
 /**
  * @file device.h
- * @brief Generic kernel device identity and lifetime contracts.
+ * @brief Generic kernel device identity, topology, and lifetime contracts.
  *
  * A device represents one physical, virtual, or pseudo device known to the
  * kernel independently of VFS publication, bus discovery, driver binding, or
@@ -19,6 +19,15 @@
  * removal begins, new references cannot be acquired, while references that
  * already exist may keep the object alive until removal completes and those
  * references are released.
+ *
+ * Parent/child topology follows asymmetric ownership:
+ *
+ * - a child owns exactly one reference to its parent;
+ * - a parent keeps only non-owning links to its children;
+ * - the parent reference is released when the child reaches final
+ *   destruction;
+ * - parent removal requires every attached child to have reached GONE, but
+ *   does not require those child objects to have been physically destroyed.
  */
 
 #ifndef MYOS_CORE_DEVICE_DEVICE_H
@@ -28,42 +37,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/**
- * Device identifier value reserved to mean "no identity".
- */
 #define DEVICE_IDENTIFIER_INVALID 0ULL
 
-/**
- * Maximum number of bytes in one stable internal device name.
- *
- * The terminating NUL stored by struct device is not included in this limit.
- */
 #define DEVICE_NAME_MAX 63U
 
-/**
- * Describes the origin of a generic device object.
- *
- * This is deliberately not a functional device class. Character, block,
- * display, input, network, and other subsystem boundaries are defined
- * separately.
- */
 enum device_kind {
     DEVICE_KIND_PHYSICAL,
     DEVICE_KIND_VIRTUAL,
     DEVICE_KIND_PSEUDO,
 };
 
-/**
- * Describes generic device lifetime state.
- *
- * ACTIVE devices may acquire new references.
- *
- * REMOVING devices are no longer available for new acquisitions but remain
- * alive while existing references are released.
- *
- * GONE devices have completed logical removal. They remain allocated until
- * their final reference is released.
- */
 enum device_state {
     DEVICE_STATE_ACTIVE,
     DEVICE_STATE_REMOVING,
@@ -72,9 +55,6 @@ enum device_state {
 
 struct device;
 
-/**
- * Optional lifetime operations associated with one device object.
- */
 struct device_operations {
     /**
      * Called exactly once when the final reference to a GONE device is
@@ -82,10 +62,13 @@ struct device_operations {
      *
      * reference_count has already reached zero when the callback runs.
      *
+     * The device has already been unlinked from its parent's child list.
+     * If it has a parent, that parent is still kept alive by the child's
+     * topology reference for the duration of this callback. The generic
+     * device core releases that parent reference after destroy() returns.
+     *
      * The callback may release the storage containing device. The generic
      * device core must therefore not dereference device afterward.
-     *
-     * @param device Device whose lifetime has ended.
      */
     void (*destroy)(
         struct device *device
@@ -101,12 +84,11 @@ struct device_operations {
  * name is a stable internal name copied into device storage. It is not a VFS
  * pathname and must not contain '/'.
  *
- * private_data belongs entirely to the consumer implementing the concrete
- * device.
+ * parent is an owning relationship: every attached child owns one reference
+ * to its parent. first_child and sibling links are non-owning topology links.
  *
- * reference_count and state are managed by the device core. They are
- * currently serialized by MyOS's single-CPU execution model and will require
- * synchronization before concurrent device-core access is introduced.
+ * Parent assignment is immutable after initialization in the initial device
+ * model. Reparenting is deliberately not supported.
  */
 struct device {
     uint64_t identifier;
@@ -122,35 +104,22 @@ struct device {
 
     size_t reference_count;
 
+    struct device *parent;
+
+    struct device *first_child;
+
+    struct device *previous_sibling;
+    struct device *next_sibling;
+
     const struct device_operations *operations;
 
     void *private_data;
 };
 
 /**
- * Initializes one caller-owned device object.
+ * Initializes one root/unparented caller-owned device object.
  *
- * identifier must not be DEVICE_IDENTIFIER_INVALID.
- *
- * name is supplied as an explicit byte sequence and need not be
- * NUL-terminated. It must be non-empty, at most DEVICE_NAME_MAX bytes long,
- * contain no embedded NUL, and contain no '/' because device identity must
- * not encode a VFS pathname.
- *
- * On success, device begins ACTIVE with one owning reference. The internal
- * name is copied and NUL-terminated.
- *
- * Invalid arguments leave device unchanged.
- *
- * @param device Caller-owned device storage.
- * @param identifier Non-zero opaque identity.
- * @param name Stable internal name bytes.
- * @param name_length Number of name bytes.
- * @param kind Device origin kind.
- * @param operations Optional lifetime operations.
- * @param private_data Consumer-owned implementation state.
- *
- * @return true when initialization succeeded; false otherwise.
+ * On success, device begins ACTIVE with one owning reference and no parent.
  */
 bool device_initialize(
     struct device *device,
@@ -163,15 +132,33 @@ bool device_initialize(
 );
 
 /**
- * Acquires one additional reference to an ACTIVE device.
+ * Initializes one caller-owned child device.
  *
- * REMOVING and GONE devices cannot acquire new references. Reference-count
- * overflow is rejected.
+ * parent must be a distinct, live ACTIVE device.
  *
- * @param device Device to retain.
+ * On success:
  *
- * @return true when the reference was acquired; false otherwise.
+ * - child begins ACTIVE with one owning reference;
+ * - child owns one additional reference to parent;
+ * - child is linked into parent's child topology.
+ *
+ * The parent's reference is held until the child is finally destroyed, even
+ * if both objects have already reached GONE.
+ *
+ * Invalid arguments or inability to retain parent leave both objects
+ * unchanged.
  */
+bool device_initialize_child(
+    struct device *device,
+    struct device *parent,
+    uint64_t identifier,
+    const char *name,
+    size_t name_length,
+    enum device_kind kind,
+    const struct device_operations *operations,
+    void *private_data
+);
+
 bool device_retain(
     struct device *device
 );
@@ -179,17 +166,11 @@ bool device_retain(
 /**
  * Releases one existing device reference.
  *
- * References may be released while the device is ACTIVE, REMOVING, or GONE.
- * However, the final owning reference may be released only after the device
- * reaches GONE.
+ * The final reference may be released only after the device reaches GONE.
  *
- * Releasing the final reference sets reference_count to zero and invokes the
- * optional destroy callback exactly once.
- *
- * @param device Device whose reference is released.
- *
- * @return true when a reference was released; false for invalid state or when
- *         releasing the final reference before DEVICE_STATE_GONE.
+ * If the final device is a child, it is unlinked from its parent's topology
+ * before destroy() runs. Its owning parent reference remains held while the
+ * child destroy callback executes and is released immediately afterward.
  */
 bool device_release(
     struct device *device
@@ -198,26 +179,16 @@ bool device_release(
 /**
  * Begins logical removal of one ACTIVE device.
  *
- * After success, the device enters REMOVING and device_retain() rejects new
- * references. Existing references remain valid and may be released.
+ * Every attached child must already be GONE. GONE children may remain alive
+ * due to outstanding references and continue retaining the parent object.
  *
- * @param device Device to remove.
- *
- * @return true for the ACTIVE -> REMOVING transition; false otherwise.
+ * After success, no new child can be attached because the parent is no longer
+ * ACTIVE, and device_retain() rejects new references.
  */
 bool device_begin_removal(
     struct device *device
 );
 
-/**
- * Completes logical removal of one REMOVING device.
- *
- * The device enters GONE but remains allocated while references exist.
- *
- * @param device Device whose removal has completed.
- *
- * @return true for the REMOVING -> GONE transition; false otherwise.
- */
 bool device_finish_removal(
     struct device *device
 );
