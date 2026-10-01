@@ -21,6 +21,15 @@
  *   successful multi-chunk write
  *   read-back verification of written data
  *
+ *   SEEK_START / SEEK_CURRENT / SEEK_END
+ *   positive and negative seek offsets
+ *   seek-underflow rejection without offset mutation
+ *   INT64_MIN signed-offset decoding
+ *   representable seeks beyond EOF
+ *   syscall-result overflow without offset mutation
+ *   invalid seek origin
+ *   seek on a closed descriptor
+ *
  * The hostile I/O ranges begin in valid stack memory but extend into the
  * unmapped page above the initial userspace stack. BAD_ADDRESS must therefore
  * be detected before any backend-visible I/O occurs.
@@ -38,6 +47,7 @@
 .set SYSCALL_FD_CLOSE,   8
 .set SYSCALL_FD_READ,    9
 .set SYSCALL_FD_WRITE,  10
+.set SYSCALL_FD_LSEEK,  11
 .set SYSCALL_FD_FSTAT,  12
 
 /*
@@ -54,9 +64,18 @@
 /*
  * Published syscall errors are returned negated.
  */
-.set ERROR_BAD_ADDRESS,     -2
-.set ERROR_BAD_DESCRIPTOR,  -6
-.set ERROR_NOT_FOUND,       -7
+.set ERROR_INVALID_ARGUMENT,  -1
+.set ERROR_BAD_ADDRESS,       -2
+.set ERROR_BAD_DESCRIPTOR,    -6
+.set ERROR_NOT_FOUND,         -7
+.set ERROR_OVERFLOW,         -11
+
+/*
+ * Published seek origins.
+ */
+.set SEEK_ORIGIN_START,       0
+.set SEEK_ORIGIN_CURRENT,     1
+.set SEEK_ORIGIN_END,         2
 
 /*
  * Test-file and buffer geometry.
@@ -401,11 +420,222 @@ _start:
     decq %rcx
     jne .Lverify_written_data
 
+        /*
+     * ----------------------------------------------------------------------
+     * LSEEK regressions
+     * ----------------------------------------------------------------------
+     *
+     * The descriptor is still open on the regular file. Its current offset
+     * is TEST_FILE_SIZE because the preceding complete read consumed all
+     * 600 bytes.
+     *
+     * Seek operations below deliberately exercise all three origins, signed
+     * offsets, transactional failures and the syscall result boundary.
+     */
+
+    /*
+     * SEEK_START: move to an absolute offset inside the file.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    movq $100, %rsi
+    movq $SEEK_ORIGIN_START, %rdx
+    int $0x80
+
+    cmpq $100, %rax
+    jne .Lfail
+
+    /*
+     * SEEK_CURRENT with a positive offset.
+     *
+     * 100 + 50 = 150.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    movq $50, %rsi
+    movq $SEEK_ORIGIN_CURRENT, %rdx
+    int $0x80
+
+    cmpq $150, %rax
+    jne .Lfail
+
+    /*
+     * SEEK_CURRENT with a negative signed offset.
+     *
+     * 150 - 25 = 125.
+     *
+     * RSI contains the ordinary x86-64 two's-complement representation of
+     * -25; the syscall boundary must decode it as a signed int64_t.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    movq $-25, %rsi
+    movq $SEEK_ORIGIN_CURRENT, %rdx
+    int $0x80
+
+    cmpq $125, %rax
+    jne .Lfail
+
+    /*
+     * SEEK_END with a negative offset.
+     *
+     * The fixture reports a 600-byte file, so:
+     *
+     *   600 - 100 = 500.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    movq $-100, %rsi
+    movq $SEEK_ORIGIN_END, %rdx
+    int $0x80
+
+    cmpq $500, %rax
+    jne .Lfail
+
+    /*
+     * Seeking before offset zero must fail transactionally.
+     *
+     * SEEK_START -1 has no valid unsigned VFS result.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    movq $-1, %rsi
+    movq $SEEK_ORIGIN_START, %rdx
+    int $0x80
+
+    cmpq $ERROR_INVALID_ARGUMENT, %rax
+    jne .Lfail
+
+    /*
+     * Confirm the failed seek did not modify the shared OFD offset.
+     *
+     * SEEK_CURRENT 0 is also a convenient observable "tell me the current
+     * offset" operation.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    xorq %rsi, %rsi
+    movq $SEEK_ORIGIN_CURRENT, %rdx
+    int $0x80
+
+    cmpq $500, %rax
+    jne .Lfail
+
+    /*
+     * Exercise the INT64_MIN decoder edge explicitly.
+     *
+     * 0x8000000000000000 represents INT64_MIN in the syscall register ABI.
+     * Applying it from SEEK_START necessarily underflows and must leave the
+     * existing offset unchanged.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    movabsq $0x8000000000000000, %rsi
+    movq $SEEK_ORIGIN_START, %rdx
+    int $0x80
+
+    cmpq $ERROR_INVALID_ARGUMENT, %rax
+    jne .Lfail
+
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    xorq %rsi, %rsi
+    movq $SEEK_ORIGIN_CURRENT, %rdx
+    int $0x80
+
+    cmpq $500, %rax
+    jne .Lfail
+
+    /*
+     * Regular-file seeks beyond EOF are valid.
+     *
+     * Move exactly to the greatest offset representable as a successful
+     * syscall_result_t.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    movabsq $0x7fffffffffffffff, %rsi
+    movq $SEEK_ORIGIN_START, %rdx
+    int $0x80
+
+    movabsq $0x7fffffffffffffff, %r14
+
+    cmpq %r14, %rax
+    jne .Lfail
+
+    /*
+     * The VFS itself can represent INT64_MAX + 1, but the syscall ABI cannot
+     * return that value as a successful non-negative syscall_result_t.
+     *
+     * This operation must therefore return OVERFLOW and, crucially, restore
+     * the previous OFD offset.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    movq $1, %rsi
+    movq $SEEK_ORIGIN_CURRENT, %rdx
+    int $0x80
+
+    cmpq $ERROR_OVERFLOW, %rax
+    jne .Lfail
+
+    /*
+     * Verify the overflow was transactional.
+     *
+     * If process_file_seek_bounded() had left the VFS mutation visible, this
+     * would observe 0x8000000000000000 rather than INT64_MAX.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    xorq %rsi, %rsi
+    movq $SEEK_ORIGIN_CURRENT, %rdx
+    int $0x80
+
+    cmpq %r14, %rax
+    jne .Lfail
+
+    /*
+     * Unknown ABI seek origins are rejected before they reach VFS.
+     * The OFD offset must again remain unchanged.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    xorq %rsi, %rsi
+    movq $99, %rdx
+    int $0x80
+
+    cmpq $ERROR_INVALID_ARGUMENT, %rax
+    jne .Lfail
+
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    xorq %rsi, %rsi
+    movq $SEEK_ORIGIN_CURRENT, %rdx
+    int $0x80
+
+    cmpq %r14, %rax
+    jne .Lfail
+
+    /*
+     * Close the live descriptor after all seek operations.
+     */
     movq $SYSCALL_FD_CLOSE, %rax
     movq %r12, %rdi
     int $0x80
 
     testq %rax, %rax
+    jne .Lfail
+
+    /*
+     * LSEEK on the now-closed descriptor must report BAD_DESCRIPTOR.
+     */
+    movq $SYSCALL_FD_LSEEK, %rax
+    movq %r12, %rdi
+    xorq %rsi, %rsi
+    movq $SEEK_ORIGIN_START, %rdx
+    int $0x80
+
+    cmpq $ERROR_BAD_DESCRIPTOR, %rax
     jne .Lfail
 
     addq $STACK_BUFFER_SIZE, %rsp

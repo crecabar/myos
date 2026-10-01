@@ -289,7 +289,7 @@ void user_process_fd_syscalls_test_terminated(
     }
 
     diagnostics_write(
-        "[syscall] Ring-3 descriptor open/close/stat/read/write test passed\n"
+        "[syscall] Ring-3 descriptor syscall regression passed\n"
     );
 }
 
