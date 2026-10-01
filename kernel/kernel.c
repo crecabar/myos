@@ -14,12 +14,14 @@
 #include "arch/x86_64/stack.h"
 #include "boot/active_paging_audit.h"
 #include "boot/boot.h"
+#include "boot/initramfs.h"
 #include "boot/memory_reclaim.h"
 #include "boot/physical_range_audit.h"
 #include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
 #include "core/panic.h"
 #include "diagnostics/diagnostics.h"
+#include "fs/initramfs.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
 #include "input/input.h"
@@ -30,6 +32,7 @@
 #include "memory/kernel_mapping.h"
 #include "memory/memory.h"
 #include "scheduler/scheduler.h"
+#include "vfs/root.h"
 
 #if MYOS_RUNTIME_DIAGNOSTICS
 #include "tests/runtime_diagnostics.h"
@@ -48,6 +51,7 @@
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
 #include "tests/input_test.h"
+#include "tests/initramfs_boot_test.h"
 #include "tests/initramfs_format_test.h"
 #include "tests/initramfs_test.h"
 #include "tests/kernel_heap_test.h"
@@ -80,6 +84,7 @@
 static struct boot_info kernel_boot_info;
 static struct kernel_boot_config kernel_boot_config;
 static struct kernel_display kernel_display;
+static struct initramfs *kernel_root_filesystem;
 
 static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
@@ -88,6 +93,8 @@ static uint8_t kernel_runtime_stack[
 static void kernel_input_system_action(
     enum input_system_action action
 );
+
+static void kernel_mount_root_filesystem(void);
 
 static _Noreturn void kernel_main_continue(void);
 
@@ -163,6 +170,93 @@ static void kernel_input_system_action(
                 "Unknown kernel input system action"
             );
     }
+}
+
+static void kernel_mount_root_filesystem(void)
+{
+    if (
+        kernel_root_filesystem != NULL ||
+        vfs_root_get() != NULL
+    ) {
+        kernel_panic(
+            "System root filesystem already installed"
+        );
+    }
+
+    const struct boot_module *module =
+        NULL;
+
+    if (!boot_initramfs_find(
+        &kernel_boot_info,
+        &module
+    )) {
+        kernel_panic(
+            "Unable to locate boot initramfs"
+        );
+    }
+
+    if (
+        module == NULL ||
+        module->size == 0 ||
+        module->size > SIZE_MAX
+    ) {
+        kernel_panic(
+            "Boot initramfs has invalid range"
+        );
+    }
+
+    struct initramfs *filesystem =
+        NULL;
+
+    enum initramfs_mount_result mount_result =
+        initramfs_mount(
+            (const void *)
+                (uintptr_t)
+                module->virtual_base,
+            (size_t) module->size,
+            &filesystem
+        );
+
+    if (
+        mount_result !=
+            INITRAMFS_MOUNT_RESULT_MOUNTED ||
+        filesystem == NULL
+    ) {
+        kernel_panic(
+            "Unable to mount boot initramfs"
+        );
+    }
+
+    struct vfs_node *root =
+        initramfs_root(
+            filesystem
+        );
+
+    if (
+        root == NULL ||
+        !vfs_root_install(
+            root
+        )
+    ) {
+        if (!initramfs_unmount(
+            filesystem
+        )) {
+            kernel_panic(
+                "Unable to roll back failed root installation"
+            );
+        }
+
+        kernel_panic(
+            "Unable to install system VFS root"
+        );
+    }
+
+    kernel_root_filesystem =
+        filesystem;
+
+    diagnostics_write(
+        "[fs] Initramfs mounted as system root\n"
+    );
 }
 
 static _Noreturn void kernel_main_continue(void)
@@ -243,6 +337,13 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 #endif
+
+    /*
+     * Consume the preserved boot initramfs while its normalized descriptor and
+     * module mapping are known-good. The mounted filesystem borrows immutable
+     * archive bytes that remain reserved for the lifetime of the system.
+     */
+    kernel_mount_root_filesystem();
 
     /*
      * Install kernel-owned GDT, TSS and IDT before returning any
@@ -586,6 +687,8 @@ static _Noreturn void kernel_main_continue(void)
         boot_module_test_run(
             &kernel_boot_info
         );
+
+        initramfs_boot_test_run();
 
         boot_info_test_run();
         boot_config_test_run();
