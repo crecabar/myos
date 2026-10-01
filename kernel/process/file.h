@@ -17,6 +17,7 @@
 #include "../vfs/vfs.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 enum process_file_result {
     PROCESS_FILE_RESULT_SUCCESS,
@@ -73,6 +74,64 @@ enum process_file_result process_file_open(
 enum process_file_result process_file_close(
     struct process_instance *instance,
     size_t descriptor
+);
+
+/**
+ * Reads bytes through one process file descriptor.
+ *
+ * buffer is a kernel address. Userspace copy-out belongs to the syscall layer.
+ *
+ * On success, bytes_read receives the number of bytes transferred. On failure,
+ * bytes_read remains unchanged.
+ */
+enum process_file_result process_file_read(
+    struct process_instance *instance,
+    size_t descriptor,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read
+);
+
+/**
+ * Writes bytes through one process file descriptor.
+ *
+ * buffer is a kernel address. Userspace copy-in belongs to the syscall layer.
+ *
+ * On success, bytes_written receives the number of bytes transferred. On
+ * failure, bytes_written remains unchanged.
+ */
+enum process_file_result process_file_write(
+    struct process_instance *instance,
+    size_t descriptor,
+    const void *buffer,
+    size_t size,
+    size_t *bytes_written
+);
+
+/**
+ * Changes the shared offset of one open-file description.
+ *
+ * On success, result receives the resulting absolute offset. On failure,
+ * result remains unchanged.
+ */
+enum process_file_result process_file_seek(
+    struct process_instance *instance,
+    size_t descriptor,
+    int64_t offset,
+    enum vfs_seek_origin origin,
+    uint64_t *result
+);
+
+/**
+ * Obtains metadata for the node referenced by one open descriptor.
+ *
+ * This is a descriptor-level stat operation. On success, result receives the
+ * node metadata. On failure, result remains unchanged.
+ */
+enum process_file_result process_file_stat(
+    struct process_instance *instance,
+    size_t descriptor,
+    struct vfs_stat *result
 );
 
 #endif

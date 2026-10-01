@@ -23,6 +23,18 @@ static enum process_file_result process_file_map_open_result(
     enum vfs_open_result result
 );
 
+static enum process_file_result process_file_map_io_result(
+    enum vfs_io_result result
+);
+
+static enum process_file_result process_file_map_seek_result(
+    enum vfs_seek_result result
+);
+
+static enum process_file_result process_file_map_stat_result(
+    enum vfs_stat_result result
+);
+
 // Public functions implementations
 enum process_file_result process_file_open(
     struct process_instance *instance,
@@ -179,6 +191,208 @@ enum process_file_result process_file_close(
         PROCESS_FILE_RESULT_SUCCESS;
 }
 
+enum process_file_result process_file_read(
+    struct process_instance *instance,
+    size_t descriptor,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read)
+{
+    if (
+        instance == NULL ||
+        bytes_read == NULL
+    ) {
+        return
+            PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_file *file =
+        process_fd_table_get(
+            &instance->file_descriptors,
+            descriptor
+        );
+
+    if (file == NULL) {
+        return
+            PROCESS_FILE_RESULT_BAD_DESCRIPTOR;
+    }
+
+    size_t transferred;
+
+    enum vfs_io_result io_result =
+        vfs_file_read(
+            file,
+            buffer,
+            size,
+            &transferred
+        );
+
+    if (io_result != VFS_IO_RESULT_SUCCESS) {
+        return
+            process_file_map_io_result(
+                io_result
+            );
+    }
+
+    *bytes_read =
+        transferred;
+
+    return
+        PROCESS_FILE_RESULT_SUCCESS;
+}
+
+enum process_file_result process_file_write(
+    struct process_instance *instance,
+    size_t descriptor,
+    const void *buffer,
+    size_t size,
+    size_t *bytes_written)
+{
+    if (
+        instance == NULL ||
+        bytes_written == NULL
+    ) {
+        return
+            PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_file *file =
+        process_fd_table_get(
+            &instance->file_descriptors,
+            descriptor
+        );
+
+    if (file == NULL) {
+        return
+            PROCESS_FILE_RESULT_BAD_DESCRIPTOR;
+    }
+
+    size_t transferred;
+
+    enum vfs_io_result io_result =
+        vfs_file_write(
+            file,
+            buffer,
+            size,
+            &transferred
+        );
+
+    if (io_result != VFS_IO_RESULT_SUCCESS) {
+        return
+            process_file_map_io_result(
+                io_result
+            );
+    }
+
+    *bytes_written =
+        transferred;
+
+    return
+        PROCESS_FILE_RESULT_SUCCESS;
+}
+
+enum process_file_result process_file_seek(
+    struct process_instance *instance,
+    size_t descriptor,
+    int64_t offset,
+    enum vfs_seek_origin origin,
+    uint64_t *result)
+{
+    if (
+        instance == NULL ||
+        result == NULL
+    ) {
+        return
+            PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_file *file =
+        process_fd_table_get(
+            &instance->file_descriptors,
+            descriptor
+        );
+
+    if (file == NULL) {
+        return
+            PROCESS_FILE_RESULT_BAD_DESCRIPTOR;
+    }
+
+    uint64_t new_offset;
+
+    enum vfs_seek_result seek_result =
+        vfs_file_seek(
+            file,
+            offset,
+            origin,
+            &new_offset
+        );
+
+    if (
+        seek_result !=
+        VFS_SEEK_RESULT_SUCCESS
+    ) {
+        return
+            process_file_map_seek_result(
+                seek_result
+            );
+    }
+
+    *result =
+        new_offset;
+
+    return
+        PROCESS_FILE_RESULT_SUCCESS;
+}
+
+enum process_file_result process_file_stat(
+    struct process_instance *instance,
+    size_t descriptor,
+    struct vfs_stat *result)
+{
+    if (
+        instance == NULL ||
+        result == NULL
+    ) {
+        return
+            PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_file *file =
+        process_fd_table_get(
+            &instance->file_descriptors,
+            descriptor
+        );
+
+    if (file == NULL) {
+        return
+            PROCESS_FILE_RESULT_BAD_DESCRIPTOR;
+    }
+
+    struct vfs_stat metadata;
+
+    enum vfs_stat_result stat_result =
+        vfs_node_stat(
+            file->node,
+            &metadata
+        );
+
+    if (
+        stat_result !=
+        VFS_STAT_RESULT_SUCCESS
+    ) {
+        return
+            process_file_map_stat_result(
+                stat_result
+            );
+    }
+
+    *result =
+        metadata;
+
+    return
+        PROCESS_FILE_RESULT_SUCCESS;
+}
+
 // Private functions and helpers implementations
 static enum process_file_result process_file_map_path_result(
     enum process_path_result result)
@@ -244,6 +458,77 @@ static enum process_file_result process_file_map_open_result(
         case VFS_OPEN_RESULT_RESOURCE_EXHAUSTED:
             return
                 PROCESS_FILE_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    return
+        PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+}
+
+static enum process_file_result process_file_map_io_result(
+    enum vfs_io_result result)
+{
+    switch (result) {
+        case VFS_IO_RESULT_SUCCESS:
+            return
+                PROCESS_FILE_RESULT_SUCCESS;
+
+        case VFS_IO_RESULT_INVALID_ARGUMENT:
+            return
+                PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+
+        case VFS_IO_RESULT_NOT_SUPPORTED:
+            return
+                PROCESS_FILE_RESULT_NOT_SUPPORTED;
+
+        case VFS_IO_RESULT_ACCESS_DENIED:
+            return
+                PROCESS_FILE_RESULT_ACCESS_DENIED;
+
+        case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
+            return
+                PROCESS_FILE_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    return
+        PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+}
+
+static enum process_file_result process_file_map_seek_result(
+    enum vfs_seek_result result)
+{
+    switch (result) {
+        case VFS_SEEK_RESULT_SUCCESS:
+            return
+                PROCESS_FILE_RESULT_SUCCESS;
+
+        case VFS_SEEK_RESULT_INVALID_ARGUMENT:
+            return
+                PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+
+        case VFS_SEEK_RESULT_NOT_SUPPORTED:
+            return
+                PROCESS_FILE_RESULT_NOT_SUPPORTED;
+    }
+
+    return
+        PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+}
+
+static enum process_file_result process_file_map_stat_result(
+    enum vfs_stat_result result)
+{
+    switch (result) {
+        case VFS_STAT_RESULT_SUCCESS:
+            return
+                PROCESS_FILE_RESULT_SUCCESS;
+
+        case VFS_STAT_RESULT_INVALID_ARGUMENT:
+            return
+                PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+
+        case VFS_STAT_RESULT_NOT_SUPPORTED:
+            return
+                PROCESS_FILE_RESULT_NOT_SUPPORTED;
     }
 
     return
