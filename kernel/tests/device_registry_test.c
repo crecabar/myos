@@ -132,18 +132,24 @@ static void device_registry_test_register_lookup_unregister(void)
     /*
      * Existing lookup references survive registry withdrawal.
      */
+    struct device *detached =
+        NULL;
+
     if (
         device_registry_unregister(
             &registry,
-            &object
+            &object,
+            &detached
         ) !=
             DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+        detached !=
+            &object ||
         registry.count != 0 ||
         registry.devices[0] !=
             NULL ||
         object.state !=
             DEVICE_STATE_REMOVING ||
-        object.reference_count != 3
+        object.reference_count != 4
     ) {
         kernel_panic(
             "Device registry unregister contract failed"
@@ -207,6 +213,9 @@ static void device_registry_test_register_lookup_unregister(void)
         ) ||
         !device_release(
             by_name
+        ) ||
+        !device_release(
+            detached
         ) ||
         object.reference_count != 1 ||
         !device_release(
@@ -296,15 +305,26 @@ static void device_registry_test_duplicates(void)
         );
     }
 
+    struct device *detached =
+        NULL;
+
     if (
         device_registry_unregister(
             &registry,
-            &first
+            &first,
+            &detached
         ) !=
             DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+        detached !=
+            &first ||
+        first.reference_count != 2 ||
         !device_finish_removal(
             &first
         ) ||
+        !device_release(
+            detached
+        ) ||
+        first.reference_count != 1 ||
         !device_release(
             &first
         )
@@ -429,13 +449,21 @@ static void device_registry_test_invalid_arguments(void)
             &result
         ) !=
             DEVICE_REGISTRY_LOOKUP_RESULT_INVALID_ARGUMENT ||
-        device_registry_unregister(
+                device_registry_unregister(
             NULL,
-            &object
+            &object,
+            &result
         ) !=
             DEVICE_REGISTRY_UNREGISTER_RESULT_INVALID_ARGUMENT ||
         device_registry_unregister(
             &registry,
+            NULL,
+            &result
+        ) !=
+            DEVICE_REGISTRY_UNREGISTER_RESULT_INVALID_ARGUMENT ||
+        device_registry_unregister(
+            &registry,
+            &object,
             NULL
         ) !=
             DEVICE_REGISTRY_UNREGISTER_RESULT_INVALID_ARGUMENT ||
@@ -539,12 +567,16 @@ static void device_registry_test_parent_removal_blocked(void)
      * - registry ownership remains held;
      * - reference count does not change.
      */
+    struct device *detached =
+        NULL;
+
     if (
         device_registry_unregister(
             &registry,
-            &parent
-        ) !=
-            DEVICE_REGISTRY_UNREGISTER_RESULT_REMOVAL_BLOCKED ||
+            &parent,
+            &detached
+        ) != DEVICE_REGISTRY_UNREGISTER_RESULT_REMOVAL_BLOCKED ||
+        detached != NULL ||
         registry.count != 1 ||
         registry.devices[0] !=
             &parent ||
@@ -623,15 +655,18 @@ static void device_registry_test_parent_removal_blocked(void)
     if (
         device_registry_unregister(
             &registry,
-            &parent
+            &parent,
+            &detached
         ) !=
             DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+        detached !=
+            &parent ||
         registry.count != 0 ||
         registry.devices[0] !=
             NULL ||
         parent.state !=
             DEVICE_STATE_REMOVING ||
-        parent.reference_count != 1
+        parent.reference_count != 2
     ) {
         kernel_panic(
             "Device registry unregister failed after child removal"
@@ -642,6 +677,10 @@ static void device_registry_test_parent_removal_blocked(void)
         !device_finish_removal(
             &parent
         ) ||
+        !device_release(
+            detached
+        ) ||
+        parent.reference_count != 1 ||
         !device_release(
             &parent
         ) ||

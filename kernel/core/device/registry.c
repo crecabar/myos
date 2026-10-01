@@ -248,13 +248,15 @@ enum device_registry_lookup_result device_registry_lookup_name(
 
 enum device_registry_unregister_result device_registry_unregister(
     struct device_registry *registry,
-    struct device *device)
+    struct device *device,
+    struct device **detached)
 {
     if (
         !device_registry_valid(
             registry
         ) ||
-        device == NULL
+        device == NULL ||
+        detached == NULL
     ) {
         return
             DEVICE_REGISTRY_UNREGISTER_RESULT_INVALID_ARGUMENT;
@@ -280,8 +282,8 @@ enum device_registry_unregister_result device_registry_unregister(
     }
 
     /*
-     * device_begin_removal() also verifies bottom-up topology ordering.
-     * Do not withdraw the device if that transition cannot be established.
+     * Establish the logical removal transition before changing discovery.
+     * A blocked transition must leave the registry completely unchanged.
      */
     if (!device_begin_removal(
         device
@@ -291,11 +293,8 @@ enum device_registry_unregister_result device_registry_unregister(
     }
 
     /*
-     * Compact the table before releasing registry ownership. From this point
-     * onward no registry lookup can discover the device.
-     *
-     * Under the current single-CPU execution model this entire operation is
-     * serialized. A future SMP registry lock must cover transition + unlink.
+     * Compact the publication table first. From this point onward no new
+     * registry lookup can discover the device.
      */
     for (
         size_t move = index;
@@ -315,20 +314,14 @@ enum device_registry_unregister_result device_registry_unregister(
     ] = NULL;
 
     /*
-     * Registration acquired exactly one reference. The caller's original
-     * ownership guarantees this release cannot be the forbidden final release
-     * of a REMOVING object.
+     * Registration acquired one reference. Ownership of that exact reference
+     * now moves from the registry to the detach caller.
+     *
+     * Do not call device_release() here: REMOVING deliberately represents the
+     * interval in which device-specific teardown may still need the object.
      */
-    if (!device_release(
-        device
-    )) {
-        /*
-         * This indicates corruption of a registry/device-core ownership
-         * invariant after visibility has already been withdrawn.
-         */
-        return
-            DEVICE_REGISTRY_UNREGISTER_RESULT_INVALID_ARGUMENT;
-    }
+    *detached =
+        device;
 
     return
         DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED;

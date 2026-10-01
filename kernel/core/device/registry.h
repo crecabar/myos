@@ -109,18 +109,22 @@ enum device_registry_lookup_result device_registry_lookup_name(
  *
  * 1. begins ACTIVE -> REMOVING;
  * 2. removes the device from registry discovery;
- * 3. releases the registry-owned reference.
+ * 3. transfers the registry-owned reference to the caller.
  *
- * The device deliberately remains REMOVING after success. Resource/driver
- * teardown may therefore occur before device_finish_removal() transitions it
- * to GONE.
+ * On success, detached receives one owned device reference. The caller must
+ * use that ownership to complete device-specific teardown, eventually call
+ * device_finish_removal(), and release the transferred reference.
  *
- * Existing references remain valid, but no new device_retain() or registry
- * lookup can acquire the device.
+ * The device deliberately remains REMOVING after success. Existing references
+ * remain valid, but no new device_retain() or registry lookup can acquire the
+ * device.
+ *
+ * Failure leaves detached unchanged.
  */
 enum device_registry_unregister_result device_registry_unregister(
     struct device_registry *registry,
-    struct device *device
+    struct device *device,
+    struct device **detached
 );
 
 #endif
