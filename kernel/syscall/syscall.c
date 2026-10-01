@@ -493,7 +493,7 @@ static syscall_result_t syscall_fd_open(
 {
     if (
         path_length == 0 ||
-        path_length > VFS_PATH_MAX
+        path_length > SYSCALL_PATH_MAX
     ) {
         return syscall_result_error(
             SYSCALL_ERROR_INVALID_ARGUMENT
