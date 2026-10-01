@@ -12,6 +12,7 @@
 #define MYOS_SYSCALL_SYSCALL_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #if MYOS_KERNEL_TESTS
@@ -64,12 +65,18 @@ typedef int64_t syscall_result_t;
  * A future libc may translate these identifiers into its public errno
  * representation independently of the kernel ABI.
  */
- enum syscall_error {
+enum syscall_error {
     SYSCALL_ERROR_INVALID_ARGUMENT = 1,
     SYSCALL_ERROR_BAD_ADDRESS = 2,
     SYSCALL_ERROR_NOT_IMPLEMENTED = 3,
     SYSCALL_ERROR_NO_CHILD = 4,
-    SYSCALL_ERROR_RESOURCE_EXHAUSTED = 5
+    SYSCALL_ERROR_RESOURCE_EXHAUSTED = 5,
+    SYSCALL_ERROR_BAD_DESCRIPTOR = 6,
+    SYSCALL_ERROR_NOT_FOUND = 7,
+    SYSCALL_ERROR_NOT_DIRECTORY = 8,
+    SYSCALL_ERROR_NOT_SUPPORTED = 9,
+    SYSCALL_ERROR_ACCESS_DENIED = 10,
+    SYSCALL_ERROR_OVERFLOW = 11
 };
 
 _Static_assert(
@@ -99,8 +106,19 @@ static inline bool syscall_result_is_error(
 #define SYSCALL_WRITE      4    // RDI = buffer, RSI = length
 #define SYSCALL_WAITPID    5    // RDI = pid, RSI = status, RDX = options
 #define SYSCALL_FORK       6    // no arguments
+#define SYSCALL_FD_OPEN    7
+#define SYSCALL_FD_CLOSE   8
+#define SYSCALL_FD_READ    9
+#define SYSCALL_FD_WRITE   10
+#define SYSCALL_FD_LSEEK   11
+#define SYSCALL_FD_FSTAT   12
 
 #define SYSCALL_WAITPID_NOHANG (1ULL << 0)
+
+#define SYSCALL_OPEN_ACCESS_READ  (1ULL << 0)
+#define SYSCALL_OPEN_ACCESS_WRITE (1ULL << 1)
+
+#define SYSCALL_PATH_MAX 4096U
 
 enum syscall_wait_termination_reason {
     SYSCALL_WAIT_TERMINATION_EXITED = 1,
@@ -154,6 +172,43 @@ enum syscall_waitpid_action syscall_waitpid_prepare(
     uint64_t status_address,
     uint64_t options,
     syscall_result_t *result
+);
+
+enum syscall_seek_origin {
+    SYSCALL_SEEK_ORIGIN_START = 0,
+    SYSCALL_SEEK_ORIGIN_CURRENT = 1,
+    SYSCALL_SEEK_ORIGIN_END = 2,
+};
+
+enum syscall_file_type {
+    SYSCALL_FILE_TYPE_REGULAR_FILE = 1,
+    SYSCALL_FILE_TYPE_DIRECTORY = 2,
+    SYSCALL_FILE_TYPE_CHARACTER_DEVICE = 3,
+};
+
+struct syscall_file_stat {
+    uint64_t type;
+    uint64_t size;
+};
+
+_Static_assert(
+    sizeof(struct syscall_file_stat) == 16,
+    "syscall file stat ABI must occupy 16 bytes"
+);
+
+_Static_assert(
+    _Alignof(struct syscall_file_stat) == 8,
+    "syscall file stat ABI must be 8-byte aligned"
+);
+
+_Static_assert(
+    offsetof(struct syscall_file_stat, type) == 0,
+    "syscall file stat type offset changed"
+);
+
+_Static_assert(
+    offsetof(struct syscall_file_stat, size) == 8,
+    "syscall file stat size offset changed"
 );
 
 /**

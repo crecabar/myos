@@ -9,7 +9,8 @@
  *
  * A process instance owns the schedulable process descriptor, the executable
  * image referenced by that descriptor, the process file descriptor table, and
- * an optional reference to its current working directory.
+ * an optional namespace-root reference and an optional reference to its current
+ * working directory.
  *
  * Scheduler registration remains separate. The scheduler may borrow the
  * embedded process descriptor but never owns the instance, its image, or its
@@ -33,8 +34,10 @@
  *
  * The embedded process descriptor borrows the memory and layout contained in
  * image. The instance also owns the process descriptor table, whose occupied
- * slots own references to open-file descriptions, and may own one reference to
- * a VFS directory representing the current working directory.
+ * slots own references to open-file descriptions. The instance may also own
+ * one reference to a VFS directory representing its namespace root and one
+ * independent reference to a VFS directory representing its current working
+ * directory.
  *
  * Therefore the instance must remain alive while the process may be referenced
  * by the scheduler.
@@ -44,6 +47,7 @@
     struct process_image image;
     struct process_fd_table file_descriptors;
 
+    struct vfs_node *namespace_root;
     struct vfs_node *current_directory;
 
     /*
@@ -113,8 +117,9 @@ bool process_instance_prepare_elf64(
  * Parent and child retain the same vfs_file objects and therefore share
  * per-open state such as the current file offset.
  *
- * The current working directory is inherited as the same VFS directory node,
- * with the clone owning an independent node reference.
+ * The namespace root and current working directory are inherited as the same
+ * VFS directory nodes referenced by the source, with the clone owning one
+ * independent reference to each non-NULL node.
  *
  * Process-family links and wait state are initialized empty. Scheduler
  * registration and publication as a child remain the caller's responsibility.
@@ -147,8 +152,8 @@ bool process_instance_prepare_clone(
  *
  * @param instance Prepared instance that is not registered with the scheduler.
  *
- * @return true when all descriptor, current-directory and image resources
- * were released; false otherwise.
+ * @return true when all descriptor, namespace, current-directory and image
+ * resources were released; false otherwise.
  */
 bool process_instance_discard(
     struct process_instance *instance

@@ -26,6 +26,7 @@
 #include "../process/instance.h"
 #include "../process/layout.h"
 #include "../process/lifecycle.h"
+#include "../process/namespace.h"
 #include "../process/memory.h"
 #include "../process/pid.h"
 #include "../process/process.h"
@@ -1073,6 +1074,29 @@ static void process_elf_lifecycle_test_fork_clone(
         );
     }
 
+    struct vfs_node namespace_root_node;
+
+    if (
+        !vfs_node_initialize(
+            &namespace_root_node,
+            VFS_NODE_TYPE_DIRECTORY,
+            NULL,
+            NULL
+        ) ||
+        !process_namespace_root_set(
+            parent,
+            &namespace_root_node
+        ) ||
+        process_namespace_root_get(
+            parent
+        ) != &namespace_root_node ||
+        namespace_root_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to install fork parent namespace root"
+        );
+    }
+
     struct vfs_node cwd_node;
 
     if (!vfs_node_initialize(
@@ -1114,6 +1138,7 @@ static void process_elf_lifecycle_test_fork_clone(
         !vfs_file_initialize(
             &descriptor_file,
             &descriptor_node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         )
@@ -1184,6 +1209,20 @@ static void process_elf_lifecycle_test_fork_clone(
     if (child == NULL) {
         kernel_panic(
             "Unable to create copy-based fork child"
+        );
+    }
+
+    if (
+        process_namespace_root_get(
+            parent
+        ) != &namespace_root_node ||
+        process_namespace_root_get(
+            child
+        ) != &namespace_root_node ||
+        namespace_root_node.reference_count != 3
+    ) {
+        kernel_panic(
+            "Fork did not inherit namespace root ownership"
         );
     }
 
@@ -1371,6 +1410,20 @@ static void process_elf_lifecycle_test_fork_clone(
     );
 
     if (
+        process_namespace_root_get(
+            child
+        ) != NULL ||
+        process_namespace_root_get(
+            parent
+        ) != &namespace_root_node ||
+        namespace_root_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Fork child termination did not release namespace root ownership"
+        );
+    }
+
+    if (
         process_cwd_get(
             child
         ) != NULL ||
@@ -1447,6 +1500,17 @@ static void process_elf_lifecycle_test_fork_clone(
     );
 
     if (
+        process_namespace_root_get(
+            parent
+        ) != NULL ||
+        namespace_root_node.reference_count != 1
+    ) {
+        kernel_panic(
+            "Fork parent termination did not release namespace root ownership"
+        );
+    }
+
+    if (
         process_cwd_get(
             parent
         ) != NULL ||
@@ -1474,6 +1538,14 @@ static void process_elf_lifecycle_test_fork_clone(
     )) {
         kernel_panic(
             "Unable to release fork clone parent"
+        );
+    }
+
+    if (!vfs_node_release(
+        &namespace_root_node
+    )) {
+        kernel_panic(
+            "Fork namespace root fixture cleanup failed"
         );
     }
 
@@ -1568,6 +1640,26 @@ static void process_elf_lifecycle_test_fork_rollback(
         );
     }
 
+    struct vfs_node rollback_namespace_root_node;
+
+    if (
+        !vfs_node_initialize(
+            &rollback_namespace_root_node,
+            VFS_NODE_TYPE_DIRECTORY,
+            NULL,
+            NULL
+        ) ||
+        !process_namespace_root_set(
+            parent,
+            &rollback_namespace_root_node
+        ) ||
+        rollback_namespace_root_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to initialize fork rollback namespace fixture"
+        );
+    }
+
     struct vfs_node rollback_cwd_node;
 
     if (
@@ -1601,6 +1693,7 @@ static void process_elf_lifecycle_test_fork_rollback(
         !vfs_file_initialize(
             &rollback_descriptor_file,
             &rollback_descriptor_node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         )
@@ -1732,6 +1825,21 @@ static void process_elf_lifecycle_test_fork_rollback(
     ) {
         kernel_panic(
             "Failed fork leaked inherited CWD ownership"
+        );
+    }
+
+    /*
+     * The failed child also temporarily inherited the parent's namespace root.
+     * Rollback must release that child-owned reference.
+     */
+    if (
+        process_namespace_root_get(
+            parent
+        ) != &rollback_namespace_root_node ||
+        rollback_namespace_root_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Failed fork leaked inherited namespace root ownership"
         );
     }
 
@@ -1872,6 +1980,22 @@ static void process_elf_lifecycle_test_fork_rollback(
     ) {
         kernel_panic(
             "Fork rollback parent teardown retained CWD ownership"
+        );
+    }
+
+    if (
+        rollback_namespace_root_node.reference_count != 1
+    ) {
+        kernel_panic(
+            "Fork rollback parent teardown retained namespace root ownership"
+        );
+    }
+
+    if (!vfs_node_release(
+        &rollback_namespace_root_node
+    )) {
+        kernel_panic(
+            "Fork rollback namespace fixture cleanup failed"
         );
     }
 
@@ -2275,6 +2399,26 @@ void process_elf_lifecycle_test_run(void)
         );
     }
 
+    struct vfs_node exec_namespace_root_node;
+
+    if (
+        !vfs_node_initialize(
+            &exec_namespace_root_node,
+            VFS_NODE_TYPE_DIRECTORY,
+            NULL,
+            NULL
+        ) ||
+        !process_namespace_root_set(
+            &exec_instance,
+            &exec_namespace_root_node
+        ) ||
+        exec_namespace_root_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to initialize exec namespace root fixture"
+        );
+    }
+
     struct vfs_node exec_cwd_node;
 
     if (
@@ -2308,6 +2452,7 @@ void process_elf_lifecycle_test_run(void)
         !vfs_file_initialize(
             &exec_descriptor_file,
             &exec_descriptor_node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         )
@@ -2433,6 +2578,17 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
+        process_namespace_root_get(
+            &exec_instance
+        ) != &exec_namespace_root_node ||
+        exec_namespace_root_node.reference_count != 2
+    ) {
+        kernel_panic(
+            "Exec did not preserve namespace root state"
+        );
+    }
+
+    if (
         process_cwd_get(
             &exec_instance
         ) != &exec_cwd_node ||
@@ -2529,6 +2685,17 @@ void process_elf_lifecycle_test_run(void)
     }
 
     if (
+        process_namespace_root_get(
+            &exec_instance
+        ) != NULL ||
+        exec_namespace_root_node.reference_count != 1
+    ) {
+        kernel_panic(
+            "Exec process discard retained namespace root ownership"
+        );
+    }
+
+    if (
         exec_cwd_node.reference_count != 1
     ) {
         kernel_panic(
@@ -2539,6 +2706,14 @@ void process_elf_lifecycle_test_run(void)
     if (exec_descriptor_file.reference_count != 1) {
         kernel_panic(
             "Exec process discard retained descriptor ownership"
+        );
+    }
+
+    if (!vfs_node_release(
+        &exec_namespace_root_node
+    )) {
+        kernel_panic(
+            "Exec namespace root fixture cleanup failed"
         );
     }
 

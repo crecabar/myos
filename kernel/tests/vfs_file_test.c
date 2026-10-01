@@ -120,6 +120,8 @@ static void vfs_file_test_initialization(void)
     if (!vfs_file_initialize(
         &file,
         &node,
+        VFS_OPEN_ACCESS_READ |
+            VFS_OPEN_ACCESS_WRITE,
         &operations,
         &private_value
     )) {
@@ -132,6 +134,11 @@ static void vfs_file_test_initialization(void)
         file.reference_count != 1 ||
         file.node != &node ||
         file.offset != 0 ||
+        file.access !=
+            (
+                VFS_OPEN_ACCESS_READ |
+                VFS_OPEN_ACCESS_WRITE
+            ) ||
         file.operations != &operations ||
         file.private_data != &private_value ||
         node.reference_count != 2
@@ -203,6 +210,7 @@ static void vfs_file_test_reference_lifetime(void)
     if (!vfs_file_initialize(
         &file,
         &node,
+        VFS_OPEN_ACCESS_READ,
         &file_operations,
         &private_value
     )) {
@@ -329,12 +337,14 @@ static void vfs_file_test_shared_node_state(void)
         !vfs_file_initialize(
             &first_file,
             &node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         ) ||
         !vfs_file_initialize(
             &second_file,
             &node,
+            VFS_OPEN_ACCESS_WRITE,
             NULL,
             NULL
         ) ||
@@ -354,7 +364,11 @@ static void vfs_file_test_shared_node_state(void)
     if (
         first_file.node != second_file.node ||
         first_file.offset != 11 ||
-        second_file.offset != 97
+        second_file.offset != 97 ||
+        first_file.access !=
+            VFS_OPEN_ACCESS_READ ||
+        second_file.access !=
+            VFS_OPEN_ACCESS_WRITE
     ) {
         kernel_panic(
             "VFS per-open state isolation failed"
@@ -398,6 +412,7 @@ static void vfs_file_test_initialization_rollback(void)
         .reference_count = 7,
         .node = NULL,
         .offset = 41,
+        .access = VFS_OPEN_ACCESS_WRITE,
         .operations = NULL,
         .private_data = &node,
     };
@@ -419,6 +434,7 @@ static void vfs_file_test_initialization_rollback(void)
     if (vfs_file_initialize(
         &file,
         &node,
+        VFS_OPEN_ACCESS_READ,
         NULL,
         NULL
     )) {
@@ -431,6 +447,7 @@ static void vfs_file_test_initialization_rollback(void)
         file.reference_count != 7 ||
         file.node != NULL ||
         file.offset != 41 ||
+        file.access != VFS_OPEN_ACCESS_WRITE ||
         file.operations != NULL ||
         file.private_data != &node ||
         node.reference_count != SIZE_MAX
@@ -440,9 +457,17 @@ static void vfs_file_test_initialization_rollback(void)
         );
     }
 
+    /*
+     * Restore the deliberately corrupted reference count before testing
+     * independent argument and access validation failures.
+     */
+    node.reference_count =
+        1;
+
     if (vfs_file_initialize(
         NULL,
         &node,
+        VFS_OPEN_ACCESS_READ,
         NULL,
         NULL
     )) {
@@ -454,6 +479,7 @@ static void vfs_file_test_initialization_rollback(void)
     if (vfs_file_initialize(
         &file,
         NULL,
+        VFS_OPEN_ACCESS_READ,
         NULL,
         NULL
     )) {
@@ -462,9 +488,100 @@ static void vfs_file_test_initialization_rollback(void)
         );
     }
 
-    node.reference_count =
-        1;
+    if (vfs_file_initialize(
+        &file,
+        &node,
+        0,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "VFS file initialization accepted empty access mode"
+        );
+    }
 
+    if (file.reference_count != 7) {
+        kernel_panic(
+            "Invalid VFS access mode mutated file reference count"
+        );
+    }
+
+    if (file.node != NULL) {
+        kernel_panic(
+            "Invalid VFS access mode mutated file node"
+        );
+    }
+
+    if (file.offset != 41) {
+        kernel_panic(
+            "Invalid VFS access mode mutated file offset"
+        );
+    }
+
+    if (
+        file.access !=
+        VFS_OPEN_ACCESS_WRITE
+    ) {
+        kernel_panic(
+            "Invalid VFS access mode mutated file access"
+        );
+    }
+
+    if (file.operations != NULL) {
+        kernel_panic(
+            "Invalid VFS access mode mutated file operations"
+        );
+    }
+
+    if (file.private_data != &node) {
+        kernel_panic(
+            "Invalid VFS access mode mutated file private data"
+        );
+    }
+
+    if (node.reference_count != 1) {
+        kernel_panic(
+            "Invalid VFS access mode mutated node reference count"
+        );
+    }
+
+    enum vfs_open_access invalid_access =
+        (enum vfs_open_access) (
+            VFS_OPEN_ACCESS_READ |
+            (1U << 2)
+        );
+
+    if (vfs_file_initialize(
+        &file,
+        &node,
+        invalid_access,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "VFS file initialization accepted unknown access bits"
+        );
+    }
+
+    if (
+        file.reference_count != 7 ||
+        file.node != NULL ||
+        file.offset != 41 ||
+        file.access !=
+            VFS_OPEN_ACCESS_WRITE ||
+        file.operations != NULL ||
+        file.private_data != &node ||
+        node.reference_count != 1
+    ) {
+        kernel_panic(
+            "Unknown VFS access bits mutated initialization state"
+        );
+    }
+
+    /*
+     * The following release deliberately ends the node lifetime so the next
+     * regression can verify that file initialization cannot resurrect it.
+     */
     if (!vfs_node_release(
         &node
     )) {
@@ -476,6 +593,7 @@ static void vfs_file_test_initialization_rollback(void)
     if (vfs_file_initialize(
         &file,
         &node,
+        VFS_OPEN_ACCESS_READ,
         NULL,
         NULL
     )) {
@@ -500,6 +618,7 @@ static void vfs_file_test_optional_destroy(void)
         !vfs_file_initialize(
             &file,
             &node,
+            VFS_OPEN_ACCESS_WRITE,
             NULL,
             NULL
         )
@@ -543,6 +662,7 @@ static void vfs_file_test_reference_overflow(void)
         !vfs_file_initialize(
             &file,
             &node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         )

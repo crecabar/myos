@@ -7,14 +7,22 @@
 
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../process/file.h"
 #include "../process/user_copy.h"
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
+#include "../vfs/path.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
 #define SYSCALL_WRITE_MAX_SIZE 256
+#define SYSCALL_FD_IO_BUFFER_SIZE 256
+
+_Static_assert(
+    SYSCALL_PATH_MAX <= VFS_PATH_MAX,
+    "Syscall path limit exceeds VFS path capacity"
+);
 
 // Private functions and helpers declarations
 static syscall_result_t syscall_write(
@@ -23,6 +31,64 @@ static syscall_result_t syscall_write(
 
 static uint64_t syscall_wait_termination_reason(
     enum process_termination_reason reason
+);
+
+static struct process_instance *syscall_current_instance(void);
+
+static enum syscall_error syscall_file_map_error(
+    enum process_file_result result
+);
+
+static syscall_result_t syscall_fd_close(
+    uint64_t descriptor
+);
+
+static syscall_result_t syscall_fd_open(
+    uint64_t user_path_address,
+    uint64_t path_length,
+    uint64_t access
+);
+
+static bool syscall_fd_open_access(
+    uint64_t syscall_access,
+    enum vfs_open_access *vfs_access
+);
+
+static syscall_result_t syscall_fd_write(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length
+);
+
+static syscall_result_t syscall_fd_read(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length
+);
+
+static syscall_result_t syscall_fd_fstat(
+    uint64_t descriptor,
+    uint64_t user_stat_address
+);
+
+static syscall_result_t syscall_fd_lseek(
+    uint64_t descriptor,
+    uint64_t offset,
+    uint64_t origin
+);
+
+static bool syscall_fd_seek_origin(
+    uint64_t syscall_origin,
+    enum vfs_seek_origin *vfs_origin
+);
+
+static int64_t syscall_decode_signed_64(
+    uint64_t value
+);
+
+static bool syscall_file_type(
+    enum vfs_node_type type,
+    uint64_t *syscall_type
 );
 
 // Public functions implementations
@@ -204,7 +270,6 @@ syscall_result_t syscall_dispatch(
     uint64_t argument4,
     uint64_t argument5
 ) {
-    (void) argument2;
     (void) argument3;
     (void) argument4;
     (void) argument5;
@@ -220,6 +285,45 @@ syscall_result_t syscall_dispatch(
 
         case SYSCALL_WRITE:
             return syscall_write(argument0, argument1);
+
+        case SYSCALL_FD_CLOSE:
+            return syscall_fd_close(
+                argument0
+            );
+
+        case SYSCALL_FD_OPEN:
+            return syscall_fd_open(
+                argument0,
+                argument1,
+                argument2
+            );
+
+        case SYSCALL_FD_WRITE:
+            return syscall_fd_write(
+                argument0,
+                argument1,
+                argument2
+            );
+
+        case SYSCALL_FD_READ:
+            return syscall_fd_read(
+                argument0,
+                argument1,
+                argument2
+            );
+
+        case SYSCALL_FD_FSTAT:
+            return syscall_fd_fstat(
+                argument0,
+                argument1
+            );
+
+        case SYSCALL_FD_LSEEK:
+            return syscall_fd_lseek(
+                argument0,
+                argument1,
+                argument2
+            );
 
         default:
             return syscall_result_error(
@@ -305,4 +409,774 @@ static uint64_t syscall_wait_termination_reason(
                 "waitpid observed invalid termination reason"
             );
     }
+}
+
+static struct process_instance *syscall_current_instance(void)
+{
+    struct process *process =
+        scheduler_current();
+
+    if (
+        process == NULL ||
+        process->instance == NULL ||
+        process->instance->process.instance !=
+            process->instance
+    ) {
+        return NULL;
+    }
+
+    return
+        process->instance;
+}
+
+static enum syscall_error syscall_file_map_error(
+    enum process_file_result result)
+{
+    switch (result) {
+        case PROCESS_FILE_RESULT_INVALID_ARGUMENT:
+            return
+                SYSCALL_ERROR_INVALID_ARGUMENT;
+
+        case PROCESS_FILE_RESULT_BAD_DESCRIPTOR:
+            return
+                SYSCALL_ERROR_BAD_DESCRIPTOR;
+
+        case PROCESS_FILE_RESULT_NOT_FOUND:
+            return
+                SYSCALL_ERROR_NOT_FOUND;
+
+        case PROCESS_FILE_RESULT_NO_NAMESPACE_ROOT:
+        case PROCESS_FILE_RESULT_NO_CURRENT_DIRECTORY:
+            return
+                SYSCALL_ERROR_INVALID_ARGUMENT;
+
+        case PROCESS_FILE_RESULT_NOT_DIRECTORY:
+            return
+                SYSCALL_ERROR_NOT_DIRECTORY;
+
+        case PROCESS_FILE_RESULT_NOT_SUPPORTED:
+            return
+                SYSCALL_ERROR_NOT_SUPPORTED;
+
+        case PROCESS_FILE_RESULT_ACCESS_DENIED:
+            return
+                SYSCALL_ERROR_ACCESS_DENIED;
+
+        case PROCESS_FILE_RESULT_RESOURCE_EXHAUSTED:
+            return
+                SYSCALL_ERROR_RESOURCE_EXHAUSTED;
+        case PROCESS_FILE_RESULT_OVERFLOW:
+            return
+                SYSCALL_ERROR_OVERFLOW;
+
+        case PROCESS_FILE_RESULT_SUCCESS:
+            kernel_panic(
+                "Successful process file result cannot map to syscall error"
+            );
+    }
+
+    kernel_panic(
+        "Unknown process file result"
+    );
+}
+
+static syscall_result_t syscall_fd_close(
+    uint64_t descriptor)
+{
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (instance == NULL) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    enum process_file_result result =
+        process_file_close(
+            instance,
+            (size_t) descriptor
+        );
+
+    if (
+        result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_file_map_error(
+                result
+            )
+        );
+    }
+
+    return 0;
+}
+
+static bool syscall_fd_open_access(
+    uint64_t syscall_access,
+    enum vfs_open_access *vfs_access)
+{
+    if (vfs_access == NULL) {
+        return false;
+    }
+
+    if (
+        syscall_access == 0 ||
+        (
+            syscall_access &
+            ~(
+                SYSCALL_OPEN_ACCESS_READ |
+                SYSCALL_OPEN_ACCESS_WRITE
+            )
+        ) != 0
+    ) {
+        return false;
+    }
+
+    enum vfs_open_access result = 0;
+
+    if (
+        (syscall_access &
+         SYSCALL_OPEN_ACCESS_READ) != 0
+    ) {
+        result |=
+            VFS_OPEN_ACCESS_READ;
+    }
+
+    if (
+        (syscall_access &
+         SYSCALL_OPEN_ACCESS_WRITE) != 0
+    ) {
+        result |=
+            VFS_OPEN_ACCESS_WRITE;
+    }
+
+    *vfs_access =
+        result;
+
+    return true;
+}
+
+static syscall_result_t syscall_fd_open(
+    uint64_t user_path_address,
+    uint64_t path_length,
+    uint64_t access)
+{
+    if (
+        path_length == 0 ||
+        path_length > SYSCALL_PATH_MAX
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    enum vfs_open_access vfs_access;
+
+    if (!syscall_fd_open_access(
+        access,
+        &vfs_access
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    char path[VFS_PATH_MAX];
+
+    if (!copy_from_user(
+        instance->process.memory,
+        user_path_address,
+        path,
+        (size_t) path_length
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    size_t descriptor;
+
+    enum process_file_result result =
+        process_file_open(
+            instance,
+            path,
+            (size_t) path_length,
+            vfs_access,
+            &descriptor
+        );
+
+    if (
+        result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_file_map_error(
+                result
+            )
+        );
+    }
+
+    return
+        (syscall_result_t) descriptor;
+}
+
+static syscall_result_t syscall_fd_write(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length)
+{
+    /*
+     * Successful syscall results must be representable by syscall_result_t.
+     */
+    if (length > (uint64_t) INT64_MAX) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    /*
+     * A zero-length operation still validates the descriptor and access mode,
+     * but intentionally does not inspect the userspace address.
+     */
+    if (length == 0) {
+        size_t bytes_written;
+
+        enum process_file_result result =
+            process_file_write(
+                instance,
+                (size_t) descriptor,
+                NULL,
+                0,
+                &bytes_written
+            );
+
+        if (
+            result !=
+            PROCESS_FILE_RESULT_SUCCESS
+        ) {
+            return syscall_result_error(
+                syscall_file_map_error(
+                    result
+                )
+            );
+        }
+
+        return 0;
+    }
+
+    /*
+     * Validate the complete source before allowing any backend side effect.
+     */
+    if (!user_copy_range_readable(
+        instance->process.memory,
+        user_address,
+        (size_t) length
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    uint8_t buffer[SYSCALL_FD_IO_BUFFER_SIZE];
+
+    size_t total_written =
+        0;
+
+    while (
+        total_written <
+        (size_t) length
+    ) {
+        size_t remaining =
+            (size_t) length -
+            total_written;
+
+        size_t chunk_size =
+            remaining <
+                sizeof(buffer)
+                ? remaining
+                : sizeof(buffer);
+
+        if (!copy_from_user(
+            instance->process.memory,
+            user_address +
+                (uint64_t) total_written,
+            buffer,
+            chunk_size
+        )) {
+            /*
+             * Full-range validation already succeeded. If mappings become
+             * mutable concurrently in the future, preserve any completed
+             * progress instead of reporting an error after side effects.
+             */
+            if (total_written != 0) {
+                return
+                    (syscall_result_t)
+                        total_written;
+            }
+
+            return syscall_result_error(
+                SYSCALL_ERROR_BAD_ADDRESS
+            );
+        }
+
+        size_t chunk_written =
+            0;
+
+        enum process_file_result result =
+            process_file_write(
+                instance,
+                (size_t) descriptor,
+                buffer,
+                chunk_size,
+                &chunk_written
+            );
+
+        if (
+            result !=
+            PROCESS_FILE_RESULT_SUCCESS
+        ) {
+            if (total_written != 0) {
+                return
+                    (syscall_result_t)
+                        total_written;
+            }
+
+            return syscall_result_error(
+                syscall_file_map_error(
+                    result
+                )
+            );
+        }
+
+        total_written +=
+            chunk_written;
+
+        /*
+         * A short successful write is visible to userspace immediately.
+         * Do not repeatedly call a backend that chose not to consume the
+         * complete requested chunk.
+         */
+        if (chunk_written < chunk_size) {
+            break;
+        }
+    }
+
+    return
+        (syscall_result_t)
+            total_written;
+}
+
+static syscall_result_t syscall_fd_read(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length)
+{
+    /*
+     * Successful syscall results must be representable by syscall_result_t.
+     */
+    if (length > (uint64_t) INT64_MAX) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    /*
+     * A zero-length operation still validates the descriptor and access mode,
+     * but intentionally does not inspect the userspace address.
+     */
+    if (length == 0) {
+        size_t bytes_read;
+
+        enum process_file_result result =
+            process_file_read(
+                instance,
+                (size_t) descriptor,
+                NULL,
+                0,
+                &bytes_read
+            );
+
+        if (
+            result !=
+            PROCESS_FILE_RESULT_SUCCESS
+        ) {
+            return syscall_result_error(
+                syscall_file_map_error(
+                    result
+                )
+            );
+        }
+
+        return 0;
+    }
+
+    /*
+     * Validate the complete destination before allowing the backend to consume
+     * any data or advance shared open-file state.
+     */
+    if (!user_copy_range_writable(
+        instance->process.memory,
+        user_address,
+        (size_t) length
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    uint8_t buffer[SYSCALL_FD_IO_BUFFER_SIZE];
+
+    size_t total_read =
+        0;
+
+    while (
+        total_read <
+        (size_t) length
+    ) {
+        size_t remaining =
+            (size_t) length -
+            total_read;
+
+        size_t chunk_size =
+            remaining <
+                sizeof(buffer)
+                ? remaining
+                : sizeof(buffer);
+
+        size_t chunk_read =
+            0;
+
+        enum process_file_result result =
+            process_file_read(
+                instance,
+                (size_t) descriptor,
+                buffer,
+                chunk_size,
+                &chunk_read
+            );
+
+        if (
+            result !=
+            PROCESS_FILE_RESULT_SUCCESS
+        ) {
+            if (total_read != 0) {
+                return
+                    (syscall_result_t)
+                        total_read;
+            }
+
+            return syscall_result_error(
+                syscall_file_map_error(
+                    result
+                )
+            );
+        }
+
+        /*
+         * The complete destination range was validated before the first
+         * backend operation. Under the current single-CPU memory model its
+         * accessibility cannot change during this syscall.
+         */
+        if (
+            chunk_read != 0 &&
+            !copy_to_user(
+                instance->process.memory,
+                user_address +
+                    (uint64_t) total_read,
+                buffer,
+                chunk_read
+            )
+        ) {
+            kernel_panic(
+                "Validated descriptor read destination became inaccessible"
+            );
+        }
+
+        total_read +=
+            chunk_read;
+
+        /*
+         * EOF is represented by a successful zero-byte read. Any other short
+         * read is likewise returned immediately rather than issuing another
+         * backend operation.
+         */
+        if (chunk_read < chunk_size) {
+            break;
+        }
+    }
+
+    return
+        (syscall_result_t)
+            total_read;
+}
+
+static bool syscall_file_type(
+    enum vfs_node_type type,
+    uint64_t *syscall_type)
+{
+    if (syscall_type == NULL) {
+        return false;
+    }
+
+    switch (type) {
+        case VFS_NODE_TYPE_REGULAR_FILE:
+            *syscall_type =
+                SYSCALL_FILE_TYPE_REGULAR_FILE;
+            return true;
+
+        case VFS_NODE_TYPE_DIRECTORY:
+            *syscall_type =
+                SYSCALL_FILE_TYPE_DIRECTORY;
+            return true;
+
+        case VFS_NODE_TYPE_CHARACTER_DEVICE:
+            *syscall_type =
+                SYSCALL_FILE_TYPE_CHARACTER_DEVICE;
+            return true;
+    }
+
+    return false;
+}
+
+static syscall_result_t syscall_fd_fstat(
+    uint64_t descriptor,
+    uint64_t user_stat_address)
+{
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    /*
+     * Validate the complete userspace destination before consulting the
+     * filesystem backend.
+     */
+    if (!user_copy_range_writable(
+        instance->process.memory,
+        user_stat_address,
+        sizeof(struct syscall_file_stat)
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    struct vfs_stat metadata;
+
+    enum process_file_result result =
+        process_file_stat(
+            instance,
+            (size_t) descriptor,
+            &metadata
+        );
+
+    if (
+        result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_file_map_error(
+                result
+            )
+        );
+    }
+
+    uint64_t syscall_type;
+
+    if (!syscall_file_type(
+        metadata.type,
+        &syscall_type
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_NOT_SUPPORTED
+        );
+    }
+
+    struct syscall_file_stat user_stat = {
+        .type =
+            syscall_type,
+        .size =
+            metadata.size,
+    };
+
+    /*
+     * The complete destination was already validated. Under the current
+     * single-CPU address-space model, failure here indicates a broken kernel
+     * invariant rather than a normal userspace fault.
+     */
+    if (!copy_to_user(
+        instance->process.memory,
+        user_stat_address,
+        &user_stat,
+        sizeof(user_stat)
+    )) {
+        kernel_panic(
+            "Validated descriptor stat destination became inaccessible"
+        );
+    }
+
+    return 0;
+}
+
+static int64_t syscall_decode_signed_64(
+    uint64_t value)
+{
+    if (value <= (uint64_t) INT64_MAX) {
+        return
+            (int64_t) value;
+    }
+
+    /*
+     * Decode the x86-64 two's-complement register representation without
+     * relying on an out-of-range unsigned-to-signed C conversion.
+     */
+    uint64_t magnitude =
+        UINT64_MAX -
+        value +
+        1ULL;
+
+    if (
+        magnitude ==
+        (uint64_t) INT64_MAX + 1ULL
+    ) {
+        return
+            INT64_MIN;
+    }
+
+    return
+        -(int64_t) magnitude;
+}
+
+static bool syscall_fd_seek_origin(
+    uint64_t syscall_origin,
+    enum vfs_seek_origin *vfs_origin)
+{
+    if (vfs_origin == NULL) {
+        return false;
+    }
+
+    switch (syscall_origin) {
+        case SYSCALL_SEEK_ORIGIN_START:
+            *vfs_origin =
+                VFS_SEEK_ORIGIN_START;
+            return true;
+
+        case SYSCALL_SEEK_ORIGIN_CURRENT:
+            *vfs_origin =
+                VFS_SEEK_ORIGIN_CURRENT;
+            return true;
+
+        case SYSCALL_SEEK_ORIGIN_END:
+            *vfs_origin =
+                VFS_SEEK_ORIGIN_END;
+            return true;
+    }
+
+    return false;
+}
+
+static syscall_result_t syscall_fd_lseek(
+    uint64_t descriptor,
+    uint64_t offset,
+    uint64_t origin)
+{
+    enum vfs_seek_origin vfs_origin;
+
+    if (!syscall_fd_seek_origin(
+        origin,
+        &vfs_origin
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (instance == NULL) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    int64_t signed_offset =
+        syscall_decode_signed_64(
+            offset
+        );
+
+    uint64_t new_offset;
+
+    enum process_file_result result =
+        process_file_seek_bounded(
+            instance,
+            (size_t) descriptor,
+            signed_offset,
+            vfs_origin,
+            (uint64_t) INT64_MAX,
+            &new_offset
+        );
+
+    if (
+        result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_file_map_error(
+                result
+            )
+        );
+    }
+
+    /*
+     * process_file_seek_bounded() guarantees this value fits the successful
+     * non-negative syscall_result_t domain.
+     */
+    return
+        (syscall_result_t)
+            new_offset;
 }

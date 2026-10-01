@@ -26,6 +26,7 @@ static void user_copy_test_read_only(void);
 static void user_copy_test_kernel_only(void);
 static void user_copy_test_all_or_nothing(void);
 static void user_copy_test_invalid_ranges(void);
+static void user_copy_test_access_validation(void);
 
 // PUBLIC FUNCTIONS IMPLEMENTATIONS
 void user_copy_test_run(void)
@@ -35,6 +36,7 @@ void user_copy_test_run(void)
     user_copy_test_kernel_only();
     user_copy_test_all_or_nothing();
     user_copy_test_invalid_ranges();
+    user_copy_test_access_validation();
 
     diagnostics_write(
         "[process] User copy boundary tests passed\n"
@@ -704,6 +706,137 @@ static void user_copy_test_invalid_ranges(void)
     if (!process_memory_destroy(&memory)) {
         kernel_panic(
             "Unable to destroy invalid-range user-copy address space"
+        );
+    }
+}
+
+static void user_copy_test_access_validation(void)
+{
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct process_memory memory;
+
+    if (!process_memory_create(
+        &memory
+    )) {
+        kernel_panic(
+            "Unable to create user access-validation address space"
+        );
+    }
+
+    if (
+        !process_memory_allocate_page(
+            &memory,
+            USER_COPY_TEST_BASE,
+            true
+        ) ||
+        !process_memory_allocate_executable_page(
+            &memory,
+            USER_COPY_TEST_READ_ONLY
+        )
+    ) {
+        kernel_panic(
+            "Unable to allocate user access-validation mappings"
+        );
+    }
+
+    if (
+        !user_copy_range_readable(
+            &memory,
+            USER_COPY_TEST_BASE,
+            32
+        ) ||
+        !user_copy_range_writable(
+            &memory,
+            USER_COPY_TEST_BASE,
+            32
+        )
+    ) {
+        kernel_panic(
+            "Writable user range failed access validation"
+        );
+    }
+
+    if (
+        !user_copy_range_readable(
+            &memory,
+            USER_COPY_TEST_READ_ONLY,
+            32
+        ) ||
+        user_copy_range_writable(
+            &memory,
+            USER_COPY_TEST_READ_ONLY,
+            32
+        )
+    ) {
+        kernel_panic(
+            "Read-only user range has incorrect access validation"
+        );
+    }
+
+    if (
+        user_copy_range_readable(
+            &memory,
+            USER_COPY_TEST_BASE + 0x1000ULL,
+            1
+        ) ||
+        user_copy_range_writable(
+            &memory,
+            USER_COPY_TEST_BASE + 0x1000ULL,
+            1
+        )
+    ) {
+        kernel_panic(
+            "Unmapped user range passed access validation"
+        );
+    }
+
+    /*
+     * Validation follows the existing zero-length copy contract and does not
+     * inspect the supplied address when no byte can be accessed.
+     */
+    if (
+        !user_copy_range_readable(
+            &memory,
+            0,
+            0
+        ) ||
+        !user_copy_range_writable(
+            &memory,
+            UINT64_MAX,
+            0
+        )
+    ) {
+        kernel_panic(
+            "Zero-length user range validation changed semantics"
+        );
+    }
+
+    if (
+        !process_memory_release_page(
+            &memory,
+            USER_COPY_TEST_BASE
+        ) ||
+        !process_memory_release_page(
+            &memory,
+            USER_COPY_TEST_READ_ONLY
+        ) ||
+        !process_memory_destroy(
+            &memory
+        )
+    ) {
+        kernel_panic(
+            "User access-validation fixture cleanup failed"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+        free_before
+    ) {
+        kernel_panic(
+            "User access-validation test leaked physical frames"
         );
     }
 }

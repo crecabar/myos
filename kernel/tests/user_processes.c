@@ -20,6 +20,7 @@
 #include "user_processes/standard.h"
 #include "user_processes/syscall_abi.h"
 #include "user_processes/syscall_pointer.h"
+#include "user_processes/fd_syscalls.h"
 #include "user_processes/waitpid.h"
 
 #include "../process/process.h"
@@ -63,6 +64,10 @@ static void user_process_scheduler_context_terminated_handler(
 );
 
 static void user_process_syscall_pointer_terminated_handler(
+    struct process *process
+);
+
+static void user_process_fd_syscalls_terminated_handler(
     struct process *process
 );
 
@@ -192,6 +197,20 @@ static void user_process_syscall_pointer_terminated_handler(
     struct process *process)
 {
     user_process_syscall_pointer_test_terminated(
+        process
+    );
+
+    scheduler_set_terminated_handler(
+        user_process_fd_syscalls_terminated_handler
+    );
+
+    user_process_fd_syscalls_test_prepare();
+}
+
+static void user_process_fd_syscalls_terminated_handler(
+    struct process *process)
+{
+    user_process_fd_syscalls_test_terminated(
         process
     );
 

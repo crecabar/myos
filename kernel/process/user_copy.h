@@ -26,6 +26,44 @@
 #include <stdint.h>
 
 /**
+ * Validates that a complete userspace range can be read by the kernel.
+ *
+ * No data is copied and no memory is modified.
+ *
+ * A zero-length range succeeds without validating user_address.
+ *
+ * @param memory Process address space containing the range.
+ * @param user_address First userspace byte.
+ * @param size Number of bytes in the range.
+ *
+ * @return true when the complete range is readable from userspace.
+ */
+bool user_copy_range_readable(
+    const struct process_memory *memory,
+    uint64_t user_address,
+    size_t size
+);
+
+/**
+ * Validates that a complete userspace range can be written by the kernel.
+ *
+ * No data is copied and no memory is modified.
+ *
+ * A zero-length range succeeds without validating user_address.
+ *
+ * @param memory Process address space containing the range.
+ * @param user_address First userspace byte.
+ * @param size Number of bytes in the range.
+ *
+ * @return true when the complete range is writable from userspace.
+ */
+bool user_copy_range_writable(
+    const struct process_memory *memory,
+    uint64_t user_address,
+    size_t size
+);
+
+/**
  * Copies bytes from untrusted userspace into kernel-owned memory.
  *
  * The complete userspace range must:

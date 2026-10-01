@@ -76,6 +76,50 @@ enum vfs_parent_result {
     VFS_PARENT_RESULT_RESOURCE_EXHAUSTED,
 };
 
+enum vfs_io_result {
+    VFS_IO_RESULT_SUCCESS,
+    VFS_IO_RESULT_INVALID_ARGUMENT,
+    VFS_IO_RESULT_NOT_SUPPORTED,
+    VFS_IO_RESULT_ACCESS_DENIED,
+    VFS_IO_RESULT_RESOURCE_EXHAUSTED,
+};
+
+enum vfs_open_result {
+    VFS_OPEN_RESULT_OPENED,
+    VFS_OPEN_RESULT_INVALID_ARGUMENT,
+    VFS_OPEN_RESULT_NOT_SUPPORTED,
+    VFS_OPEN_RESULT_ACCESS_DENIED,
+    VFS_OPEN_RESULT_RESOURCE_EXHAUSTED,
+};
+
+enum vfs_stat_result {
+    VFS_STAT_RESULT_SUCCESS,
+    VFS_STAT_RESULT_INVALID_ARGUMENT,
+    VFS_STAT_RESULT_NOT_SUPPORTED,
+};
+
+enum vfs_seek_result {
+    VFS_SEEK_RESULT_SUCCESS,
+    VFS_SEEK_RESULT_INVALID_ARGUMENT,
+    VFS_SEEK_RESULT_NOT_SUPPORTED,
+};
+
+enum vfs_open_access {
+    VFS_OPEN_ACCESS_READ  = 1U << 0,
+    VFS_OPEN_ACCESS_WRITE = 1U << 1,
+};
+
+enum vfs_seek_origin {
+    VFS_SEEK_ORIGIN_START,
+    VFS_SEEK_ORIGIN_CURRENT,
+    VFS_SEEK_ORIGIN_END,
+};
+
+struct vfs_stat {
+    enum vfs_node_type type;
+    uint64_t size;
+};
+
 struct vfs_node;
 struct vfs_file;
 
@@ -83,6 +127,44 @@ struct vfs_file;
  * Filesystem-specific operations associated with a VFS node.
  */
 struct vfs_node_operations {
+    /**
+     * Opens one VFS node as an independent open-file description.
+     *
+     * The filesystem owns the policy and storage used to create the
+     * vfs_file. On success, result receives exactly one owned live file
+     * reference whose node is node and whose access mode matches access.
+     *
+     * On failure, no file ownership is transferred.
+     *
+     * @param node Live node to open.
+     * @param access Requested read/write access.
+     * @param result Receives one owned open-file description.
+     *
+     * @return Detailed open result.
+     */
+    enum vfs_open_result (*open)(
+        struct vfs_node *node,
+        enum vfs_open_access access,
+        struct vfs_file **result
+    );
+
+    /**
+     * Obtains metadata for one VFS node.
+     *
+     * The callback must report metadata belonging to node. The generic VFS
+     * verifies that the reported object type agrees with node->type before
+     * publishing the result to its caller.
+     *
+     * @param node Live node to inspect.
+     * @param result Receives node metadata.
+     *
+     * @return Detailed stat result.
+     */
+    enum vfs_stat_result (*stat)(
+        struct vfs_node *node,
+        struct vfs_stat *result
+    );
+
     /**
      * Looks up one ordinary child name inside a directory.
      *
@@ -146,10 +228,47 @@ struct vfs_node_operations {
 /**
  * Operations associated with one open-file description.
  *
- * The initial contract contains only lifetime cleanup. I/O operations are
- * added by later VFS work without changing file ownership semantics.
+ * Read and write callbacks operate at the offset supplied by the generic VFS.
+ * They must not modify file->offset directly. On successful transfer, the
+ * generic VFS advances the shared open-file offset by the reported byte count.
+ *
+ * Callbacks must not report more bytes transferred than requested.
  */
 struct vfs_file_operations {
+    /**
+     * Reads bytes from one open-file description.
+     *
+     * offset is the generic VFS offset at which the operation begins. The
+     * callback must not modify file->offset.
+     *
+     * On success, bytes_read receives a value no greater than size. On failure,
+     * bytes_read must remain unchanged.
+     */
+    enum vfs_io_result (*read)(
+        struct vfs_file *file,
+        uint64_t offset,
+        void *buffer,
+        size_t size,
+        size_t *bytes_read
+    );
+
+    /**
+     * Writes bytes to one open-file description.
+     *
+     * offset is the generic VFS offset at which the operation begins. The
+     * callback must not modify file->offset.
+     *
+     * On success, bytes_written receives a value no greater than size. On
+     * failure, bytes_written must remain unchanged.
+     */
+    enum vfs_io_result (*write)(
+        struct vfs_file *file,
+        uint64_t offset,
+        const void *buffer,
+        size_t size,
+        size_t *bytes_written
+    );
+
     /**
      * Called exactly once when the final file reference is released.
      *
@@ -194,16 +313,20 @@ struct vfs_node {
 /**
  * Represents one open-file description independently of descriptor numbers.
  *
- * Multiple descriptors may later retain the same vfs_file, while separate
- * vfs_file objects referring to the same node keep independent per-open state.
+ * Multiple descriptors may retain the same vfs_file, while separate vfs_file
+ * objects referring to the same node keep independent per-open state.
  *
  * A live file owns exactly one reference to node. The node remains retained
  * through the optional file destroy callback and is released immediately
  * afterward by the generic VFS.
  *
- * offset is generic per-open state and starts at zero. private_data is owned
- * and interpreted by the filesystem or device implementation; the generic VFS
- * neither allocates nor releases it directly.
+ * offset is generic per-open state and starts at zero. access records the
+ * read/write permissions requested when this open-file description was
+ * created. Both belong to the open-file description and are therefore shared
+ * by every descriptor referring to the same vfs_file.
+ *
+ * private_data is owned and interpreted by the filesystem or device
+ * implementation; the generic VFS neither allocates nor releases it directly.
  */
 struct vfs_file {
     size_t reference_count;
@@ -211,6 +334,8 @@ struct vfs_file {
     struct vfs_node *node;
 
     uint64_t offset;
+
+    enum vfs_open_access access;
 
     const struct vfs_file_operations *operations;
 
@@ -271,15 +396,17 @@ bool vfs_node_release(
 /**
  * Initializes an open-file description with one owning reference.
  *
- * Initialization first retains node. If the node is invalid, dead, or cannot
- * be retained because its reference count would overflow, initialization
- * fails without modifying file.
+ * Initialization first validates access and retains node. If the node is
+ * invalid, dead, cannot be retained because its reference count would
+ * overflow, or access contains an invalid combination, initialization fails
+ * without modifying file.
  *
  * On success, file owns one node reference until its final release. offset is
- * initialized to zero.
+ * initialized to zero and access records the requested open mode.
  *
  * @param file File storage supplied by the filesystem or VFS caller.
  * @param node Live filesystem object represented by the open file.
+ * @param access Requested read/write access.
  * @param operations Optional per-open operations.
  * @param private_data Filesystem-specific per-open state, or NULL.
  *
@@ -288,6 +415,7 @@ bool vfs_node_release(
 bool vfs_file_initialize(
     struct vfs_file *file,
     struct vfs_node *node,
+    enum vfs_open_access access,
     const struct vfs_file_operations *operations,
     void *private_data
 );
@@ -365,6 +493,38 @@ enum vfs_lookup_result vfs_node_lookup(
 enum vfs_parent_result vfs_node_parent(
     struct vfs_node *directory,
     struct vfs_node **result
+);
+
+enum vfs_open_result vfs_node_open(
+    struct vfs_node *node,
+    enum vfs_open_access access,
+    struct vfs_file **result
+);
+
+enum vfs_io_result vfs_file_read(
+    struct vfs_file *file,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read
+);
+
+enum vfs_io_result vfs_file_write(
+    struct vfs_file *file,
+    const void *buffer,
+    size_t size,
+    size_t *bytes_written
+);
+
+enum vfs_stat_result vfs_node_stat(
+    struct vfs_node *node,
+    struct vfs_stat *result
+);
+
+enum vfs_seek_result vfs_file_seek(
+    struct vfs_file *file,
+    int64_t offset,
+    enum vfs_seek_origin origin,
+    uint64_t *result
 );
 
 #endif

@@ -12,6 +12,7 @@
 
 #include "cwd.h"
 #include "fd_table.h"
+#include "namespace.h"
 #include "pid.h"
 
 #include "../core/panic.h"
@@ -104,10 +105,10 @@ bool process_release_terminated(
     }
 
     /*
-     * Normal process termination releases descriptor and current-directory
-     * ownership during lifecycle notification. These releases are idempotent so
-     * direct teardown and synthetic test paths remain deterministic when no
-     * notification was required.
+     * Normal process termination releases descriptor, current-directory and
+     * namespace-root ownership during lifecycle notification. These releases are
+     * idempotent so direct teardown and synthetic test paths remain deterministic
+     * when no notification was required.
      */
     if (!process_fd_table_release_all(
         &instance->file_descriptors
@@ -116,6 +117,12 @@ bool process_release_terminated(
     }
 
     if (!process_cwd_release(
+        instance
+    )) {
+        return false;
+    }
+
+    if (!process_namespace_root_release(
         instance
     )) {
         return false;

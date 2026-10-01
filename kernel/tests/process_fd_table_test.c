@@ -75,6 +75,7 @@ static void process_fd_table_test_allocation_and_reuse(void)
         !vfs_file_initialize(
             &file,
             &node,
+            VFS_OPEN_ACCESS_READ,
             &operations,
             NULL
         ) ||
@@ -222,6 +223,7 @@ static void process_fd_table_test_clone(void)
         !vfs_file_initialize(
             &file,
             &node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         ) ||
@@ -327,6 +329,7 @@ static void process_fd_table_test_capacity(void)
         !vfs_file_initialize(
             &file,
             &node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         ) ||
@@ -432,12 +435,14 @@ static void process_fd_table_test_clone_rollback(void)
         !vfs_file_initialize(
             &first_file,
             &first_node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         ) ||
         !vfs_file_initialize(
             &second_file,
             &second_node,
+            VFS_OPEN_ACCESS_READ,
             NULL,
             NULL
         ) ||

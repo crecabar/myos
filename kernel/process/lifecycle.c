@@ -12,6 +12,7 @@
 
 #include "cwd.h"
 #include "fd_table.h"
+#include "namespace.h"
 #include "wait.h"
 
 #include "../core/panic.h"
@@ -62,6 +63,14 @@ void process_lifecycle_notify_terminated(
     )) {
         kernel_panic(
             "Unable to release terminated process current directory"
+        );
+    }
+
+    if (!process_namespace_root_release(
+        process->instance
+    )) {
+        kernel_panic(
+            "Unable to release terminated process namespace root"
         );
     }
 
