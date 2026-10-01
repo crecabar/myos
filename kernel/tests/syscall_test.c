@@ -430,6 +430,56 @@ void syscall_test_run(void)
         );
     }
 
+    /*
+     * FD_LSEEK rejects unknown ABI origins before consulting process state.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_LSEEK,
+            0,
+            0,
+            UINT64_MAX,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "FD_LSEEK accepted unknown seek origin"
+        );
+    }
+
+    /*
+    * A valid seek request still requires a current process instance.
+    */
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_LSEEK,
+            0,
+            0,
+            SYSCALL_SEEK_ORIGIN_START,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "FD_LSEEK accepted missing current process"
+        );
+    }
+
     diagnostics_write(
         "[syscall] ABI version and error contract tests passed\n"
     );

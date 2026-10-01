@@ -68,6 +68,21 @@ static syscall_result_t syscall_fd_fstat(
     uint64_t user_stat_address
 );
 
+static syscall_result_t syscall_fd_lseek(
+    uint64_t descriptor,
+    uint64_t offset,
+    uint64_t origin
+);
+
+static bool syscall_fd_seek_origin(
+    uint64_t syscall_origin,
+    enum vfs_seek_origin *vfs_origin
+);
+
+static int64_t syscall_decode_signed_64(
+    uint64_t value
+);
+
 static bool syscall_file_type(
     enum vfs_node_type type,
     uint64_t *syscall_type
@@ -298,6 +313,13 @@ syscall_result_t syscall_dispatch(
             return syscall_fd_fstat(
                 argument0,
                 argument1
+            );
+
+        case SYSCALL_FD_LSEEK:
+            return syscall_fd_lseek(
+                argument0,
+                argument1,
+                argument2
             );
 
         default:
@@ -1035,4 +1057,123 @@ static syscall_result_t syscall_fd_fstat(
     }
 
     return 0;
+}
+
+static int64_t syscall_decode_signed_64(
+    uint64_t value)
+{
+    if (value <= (uint64_t) INT64_MAX) {
+        return
+            (int64_t) value;
+    }
+
+    /*
+     * Decode the x86-64 two's-complement register representation without
+     * relying on an out-of-range unsigned-to-signed C conversion.
+     */
+    uint64_t magnitude =
+        UINT64_MAX -
+        value +
+        1ULL;
+
+    if (
+        magnitude ==
+        (uint64_t) INT64_MAX + 1ULL
+    ) {
+        return
+            INT64_MIN;
+    }
+
+    return
+        -(int64_t) magnitude;
+}
+
+static bool syscall_fd_seek_origin(
+    uint64_t syscall_origin,
+    enum vfs_seek_origin *vfs_origin)
+{
+    if (vfs_origin == NULL) {
+        return false;
+    }
+
+    switch (syscall_origin) {
+        case SYSCALL_SEEK_ORIGIN_START:
+            *vfs_origin =
+                VFS_SEEK_ORIGIN_START;
+            return true;
+
+        case SYSCALL_SEEK_ORIGIN_CURRENT:
+            *vfs_origin =
+                VFS_SEEK_ORIGIN_CURRENT;
+            return true;
+
+        case SYSCALL_SEEK_ORIGIN_END:
+            *vfs_origin =
+                VFS_SEEK_ORIGIN_END;
+            return true;
+    }
+
+    return false;
+}
+
+static syscall_result_t syscall_fd_lseek(
+    uint64_t descriptor,
+    uint64_t offset,
+    uint64_t origin)
+{
+    enum vfs_seek_origin vfs_origin;
+
+    if (!syscall_fd_seek_origin(
+        origin,
+        &vfs_origin
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (instance == NULL) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    int64_t signed_offset =
+        syscall_decode_signed_64(
+            offset
+        );
+
+    uint64_t new_offset;
+
+    enum process_file_result result =
+        process_file_seek_bounded(
+            instance,
+            (size_t) descriptor,
+            signed_offset,
+            vfs_origin,
+            (uint64_t) INT64_MAX,
+            &new_offset
+        );
+
+    if (
+        result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_file_map_error(
+                result
+            )
+        );
+    }
+
+    /*
+     * process_file_seek_bounded() guarantees this value fits the successful
+     * non-negative syscall_result_t domain.
+     */
+    return
+        (syscall_result_t)
+            new_offset;
 }
