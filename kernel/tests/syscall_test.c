@@ -408,6 +408,28 @@ void syscall_test_run(void)
         );
     }
 
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_FSTAT,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "FD_FSTAT accepted missing current process"
+        );
+    }
+
     diagnostics_write(
         "[syscall] ABI version and error contract tests passed\n"
     );

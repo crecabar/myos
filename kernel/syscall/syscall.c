@@ -63,6 +63,16 @@ static syscall_result_t syscall_fd_read(
     uint64_t length
 );
 
+static syscall_result_t syscall_fd_fstat(
+    uint64_t descriptor,
+    uint64_t user_stat_address
+);
+
+static bool syscall_file_type(
+    enum vfs_node_type type,
+    uint64_t *syscall_type
+);
+
 // Public functions implementations
 enum syscall_waitpid_action syscall_waitpid_prepare(
     uint64_t child_pid,
@@ -282,6 +292,12 @@ syscall_result_t syscall_dispatch(
                 argument0,
                 argument1,
                 argument2
+            );
+
+        case SYSCALL_FD_FSTAT:
+            return syscall_fd_fstat(
+                argument0,
+                argument1
             );
 
         default:
@@ -901,4 +917,119 @@ static syscall_result_t syscall_fd_read(
     return
         (syscall_result_t)
             total_read;
+}
+
+static bool syscall_file_type(
+    enum vfs_node_type type,
+    uint64_t *syscall_type)
+{
+    if (syscall_type == NULL) {
+        return false;
+    }
+
+    switch (type) {
+        case VFS_NODE_TYPE_REGULAR_FILE:
+            *syscall_type =
+                SYSCALL_FILE_TYPE_REGULAR_FILE;
+            return true;
+
+        case VFS_NODE_TYPE_DIRECTORY:
+            *syscall_type =
+                SYSCALL_FILE_TYPE_DIRECTORY;
+            return true;
+
+        case VFS_NODE_TYPE_CHARACTER_DEVICE:
+            *syscall_type =
+                SYSCALL_FILE_TYPE_CHARACTER_DEVICE;
+            return true;
+    }
+
+    return false;
+}
+
+static syscall_result_t syscall_fd_fstat(
+    uint64_t descriptor,
+    uint64_t user_stat_address)
+{
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    /*
+     * Validate the complete userspace destination before consulting the
+     * filesystem backend.
+     */
+    if (!user_copy_range_writable(
+        instance->process.memory,
+        user_stat_address,
+        sizeof(struct syscall_file_stat)
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    struct vfs_stat metadata;
+
+    enum process_file_result result =
+        process_file_stat(
+            instance,
+            (size_t) descriptor,
+            &metadata
+        );
+
+    if (
+        result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_file_map_error(
+                result
+            )
+        );
+    }
+
+    uint64_t syscall_type;
+
+    if (!syscall_file_type(
+        metadata.type,
+        &syscall_type
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_NOT_SUPPORTED
+        );
+    }
+
+    struct syscall_file_stat user_stat = {
+        .type =
+            syscall_type,
+        .size =
+            metadata.size,
+    };
+
+    /*
+     * The complete destination was already validated. Under the current
+     * single-CPU address-space model, failure here indicates a broken kernel
+     * invariant rather than a normal userspace fault.
+     */
+    if (!copy_to_user(
+        instance->process.memory,
+        user_stat_address,
+        &user_stat,
+        sizeof(user_stat)
+    )) {
+        kernel_panic(
+            "Validated descriptor stat destination became inaccessible"
+        );
+    }
+
+    return 0;
 }
