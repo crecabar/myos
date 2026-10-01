@@ -30,6 +30,7 @@ enum process_file_result {
     PROCESS_FILE_RESULT_NOT_SUPPORTED,
     PROCESS_FILE_RESULT_ACCESS_DENIED,
     PROCESS_FILE_RESULT_RESOURCE_EXHAUSTED,
+    PROCESS_FILE_RESULT_OVERFLOW,
 };
 
 /**
@@ -119,6 +120,24 @@ enum process_file_result process_file_seek(
     size_t descriptor,
     int64_t offset,
     enum vfs_seek_origin origin,
+    uint64_t *result
+);
+
+/**
+ * Changes the shared offset while enforcing a caller-supplied upper bound.
+ *
+ * If the VFS-computed offset exceeds maximum_offset, the original open-file
+ * offset is restored and result remains unchanged.
+ *
+ * The bound is a kernel-internal policy supplied by the caller; it is not a
+ * VFS limitation.
+ */
+enum process_file_result process_file_seek_bounded(
+    struct process_instance *instance,
+    size_t descriptor,
+    int64_t offset,
+    enum vfs_seek_origin origin,
+    uint64_t maximum_offset,
     uint64_t *result
 );
 

@@ -1180,6 +1180,65 @@ static void process_file_test_seek_stat_failures(void)
         );
     }
 
+    /*
+     * The bounded process operation must reject an offset that the syscall ABI
+     * cannot represent, without modifying shared open-file state.
+     */
+    fixture.file_storage.offset =
+        (uint64_t) INT64_MAX;
+
+    offset =
+        1234;
+
+    if (
+        process_file_seek_bounded(
+            &fixture.instance,
+            descriptor,
+            1,
+            VFS_SEEK_ORIGIN_CURRENT,
+            (uint64_t) INT64_MAX,
+            &offset
+        ) != PROCESS_FILE_RESULT_OVERFLOW ||
+        offset != 1234 ||
+        fixture.file_storage.offset !=
+            (uint64_t) INT64_MAX
+    ) {
+        kernel_panic(
+            "Process bounded seek overflow was not transactional"
+        );
+    }
+
+    /*
+     * The generic process API remains capable of representing the complete
+     * uint64_t VFS offset range.
+     */
+    if (
+        process_file_seek(
+            &fixture.instance,
+            descriptor,
+            1,
+            VFS_SEEK_ORIGIN_CURRENT,
+            &offset
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        offset !=
+            (uint64_t) INT64_MAX + 1ULL ||
+        fixture.file_storage.offset !=
+            (uint64_t) INT64_MAX + 1ULL
+    ) {
+        kernel_panic(
+            "Process generic seek was incorrectly ABI-bounded"
+        );
+    }
+
+    /*
+     * Restore the fixture state expected by the remaining seek failure tests.
+     */
+    fixture.file_storage.offset =
+        0;
+
+    offset =
+        1234;
+
     enum vfs_seek_origin invalid_origin =
         (enum vfs_seek_origin) 99;
 

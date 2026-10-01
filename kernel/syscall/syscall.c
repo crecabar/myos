@@ -440,6 +440,9 @@ static enum syscall_error syscall_file_map_error(
         case PROCESS_FILE_RESULT_RESOURCE_EXHAUSTED:
             return
                 SYSCALL_ERROR_RESOURCE_EXHAUSTED;
+        case PROCESS_FILE_RESULT_OVERFLOW:
+            return
+                SYSCALL_ERROR_OVERFLOW;
 
         case PROCESS_FILE_RESULT_SUCCESS:
             kernel_panic(

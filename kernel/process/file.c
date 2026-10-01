@@ -298,6 +298,24 @@ enum process_file_result process_file_seek(
     enum vfs_seek_origin origin,
     uint64_t *result)
 {
+    return process_file_seek_bounded(
+        instance,
+        descriptor,
+        offset,
+        origin,
+        UINT64_MAX,
+        result
+    );
+}
+
+enum process_file_result process_file_seek_bounded(
+    struct process_instance *instance,
+    size_t descriptor,
+    int64_t offset,
+    enum vfs_seek_origin origin,
+    uint64_t maximum_offset,
+    uint64_t *result)
+{
     if (
         instance == NULL ||
         result == NULL
@@ -317,6 +335,9 @@ enum process_file_result process_file_seek(
             PROCESS_FILE_RESULT_BAD_DESCRIPTOR;
     }
 
+    uint64_t original_offset =
+        file->offset;
+
     uint64_t new_offset;
 
     enum vfs_seek_result seek_result =
@@ -335,6 +356,19 @@ enum process_file_result process_file_seek(
             process_file_map_seek_result(
                 seek_result
             );
+    }
+
+    if (new_offset > maximum_offset) {
+        /*
+         * vfs_file_seek() mutates only the generic open-file offset after all
+         * validation has succeeded. Under the current serialized VFS model,
+         * restoring it here makes the bounded operation transactional.
+         */
+        file->offset =
+            original_offset;
+
+        return
+            PROCESS_FILE_RESULT_OVERFLOW;
     }
 
     *result =
