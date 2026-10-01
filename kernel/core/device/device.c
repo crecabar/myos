@@ -46,6 +46,10 @@ static void device_initialize_validated(
     void *private_data
 );
 
+static bool device_child_list_valid(
+    const struct device *parent
+);
+
 static bool device_children_removed(
     const struct device *device
 );
@@ -116,7 +120,10 @@ bool device_initialize_child(
             parent->state
         ) ||
         parent->state !=
-            DEVICE_STATE_ACTIVE
+            DEVICE_STATE_ACTIVE ||
+        !device_child_list_valid(
+            parent
+        )
     ) {
         return false;
     }
@@ -486,10 +493,83 @@ static void device_initialize_validated(
         private_data;
 }
 
+static bool device_child_list_valid(
+    const struct device *parent)
+{
+    if (
+        parent == NULL ||
+        parent->reference_count == 0 ||
+        !device_state_valid(
+            parent->state
+        )
+    ) {
+        return false;
+    }
+
+    /*
+     * Detect sibling cycles before the ordinary linear validation below.
+     * Without this check, corrupted topology could make removal or attachment
+     * loop forever.
+     */
+    const struct device *slow =
+        parent->first_child;
+
+    const struct device *fast =
+        parent->first_child;
+
+    while (
+        fast != NULL &&
+        fast->next_sibling != NULL
+    ) {
+        slow =
+            slow->next_sibling;
+
+        fast =
+            fast->next_sibling->next_sibling;
+
+        if (
+            slow != NULL &&
+            slow == fast
+        ) {
+            return false;
+        }
+    }
+
+    const struct device *previous =
+        NULL;
+
+    for (
+        const struct device *child =
+            parent->first_child;
+        child != NULL;
+        child = child->next_sibling
+    ) {
+        if (
+            child == parent ||
+            child->parent != parent ||
+            child->previous_sibling !=
+                previous ||
+            child->reference_count == 0 ||
+            !device_state_valid(
+                child->state
+            )
+        ) {
+            return false;
+        }
+
+        previous =
+            child;
+    }
+
+    return true;
+}
+
 static bool device_children_removed(
     const struct device *device)
 {
-    if (device == NULL) {
+    if (!device_child_list_valid(
+        device
+    )) {
         return false;
     }
 
@@ -500,13 +580,8 @@ static bool device_children_removed(
         child = child->next_sibling
     ) {
         if (
-            child->parent != device ||
-            child->reference_count == 0 ||
-            !device_state_valid(
-                child->state
-            ) ||
             child->state !=
-                DEVICE_STATE_GONE
+            DEVICE_STATE_GONE
         ) {
             return false;
         }
@@ -552,39 +627,29 @@ static bool device_parent_link_valid(
         return false;
     }
 
-    if (
-        device->previous_sibling == NULL
-    ) {
-        if (
-            parent->first_child !=
-            device
-        ) {
-            return false;
-        }
-    } else {
-        if (
-            device->previous_sibling->parent !=
-                parent ||
-            device->previous_sibling->next_sibling !=
-                device
-        ) {
-            return false;
-        }
-    }
-
-    if (
-        device->next_sibling != NULL &&
-        (
-            device->next_sibling->parent !=
-                parent ||
-            device->next_sibling->previous_sibling !=
-                device
-        )
-    ) {
+    /*
+     * Validate the complete sibling chain, not only this node's immediate
+     * neighbors. Then require device to be genuinely reachable from the
+     * parent's first-child anchor.
+     */
+    if (!device_child_list_valid(
+        parent
+    )) {
         return false;
     }
 
-    return true;
+    for (
+        const struct device *child =
+            parent->first_child;
+        child != NULL;
+        child = child->next_sibling
+    ) {
+        if (child == device) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static void device_unlink_from_parent(

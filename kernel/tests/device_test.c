@@ -30,6 +30,9 @@ static size_t device_test_destroy_count;
 static void *device_test_destroy_private_data;
 static uint64_t device_test_destroy_identifier;
 
+static struct device *device_test_expected_destroy_parent;
+static bool device_test_destroy_saw_live_parent;
+
 // Private functions and helpers declarations
 static void device_test_destroy(
     struct device *device
@@ -39,6 +42,10 @@ static bool device_test_name_equal(
     const struct device *device,
     const char *name,
     size_t name_length
+);
+
+static void device_test_destroy_check_parent(
+    struct device *device
 );
 
 static void device_test_initialization(void);
@@ -61,6 +68,14 @@ static void device_test_multiple_gone_children(void);
 
 static void device_test_child_initialization_errors(void);
 
+static void device_test_invalid_state_rejection(void);
+
+static void device_test_sibling_unlink_positions(void);
+
+static void device_test_corrupt_topology_rejection(void);
+
+static void device_test_destroy_parent_lifetime(void);
+
 // Public functions implementations
 void device_test_run(void)
 {
@@ -74,9 +89,13 @@ void device_test_run(void)
     device_test_parent_removal_order();
     device_test_multiple_gone_children();
     device_test_child_initialization_errors();
+    device_test_invalid_state_rejection();
+    device_test_sibling_unlink_positions();
+    device_test_corrupt_topology_rejection();
+    device_test_destroy_parent_lifetime();
 
     diagnostics_write(
-        "[device] Generic device lifetime and topology tests passed\n"
+        "[device] Generic device lifetime, topology and rejection tests passed\n"
     );
 }
 
@@ -118,6 +137,55 @@ static void device_test_destroy(
 
         ++device_test_destroy_order_count;
     }
+}
+
+static void device_test_destroy_check_parent(
+    struct device *device)
+{
+    if (
+        device == NULL ||
+        device->reference_count != 0 ||
+        device->state !=
+            DEVICE_STATE_GONE
+    ) {
+        kernel_panic(
+            "Device parent-lifetime callback observed invalid child"
+        );
+    }
+
+    struct device *parent =
+        device->parent;
+
+    if (
+        parent == NULL ||
+        parent !=
+            device_test_expected_destroy_parent ||
+        parent->reference_count == 0
+    ) {
+        kernel_panic(
+            "Device parent died before child destroy callback"
+        );
+    }
+
+    /*
+     * Topology membership ends before destroy(), while the parent ownership
+     * reference deliberately remains alive until the callback returns.
+     */
+    if (
+        parent->first_child ==
+            device ||
+        device->previous_sibling !=
+            NULL ||
+        device->next_sibling !=
+            NULL
+    ) {
+        kernel_panic(
+            "Device child remained linked during destroy callback"
+        );
+    }
+
+    device_test_destroy_saw_live_parent =
+        true;
 }
 
 static bool device_test_name_equal(
@@ -1553,4 +1621,512 @@ static void device_test_child_initialization_errors(void)
             "Device saturated-parent fixture cleanup failed"
         );
     }
+}
+
+static void device_test_invalid_state_rejection(void)
+{
+    struct device object;
+
+    if (
+        !device_initialize(
+            &object,
+            500,
+            "invalid-state",
+            sizeof("invalid-state") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        !device_retain(
+            &object
+        )
+    ) {
+        kernel_panic(
+            "Device invalid-state fixture initialization failed"
+        );
+    }
+
+    object.state =
+        (enum device_state) 99;
+
+    size_t references =
+        object.reference_count;
+
+    if (
+        device_retain(
+            &object
+        ) ||
+        device_release(
+            &object
+        ) ||
+        device_begin_removal(
+            &object
+        ) ||
+        device_finish_removal(
+            &object
+        ) ||
+        object.reference_count !=
+            references ||
+        object.state !=
+            (enum device_state) 99
+    ) {
+        kernel_panic(
+            "Device invalid-state rejection mutated object"
+        );
+    }
+
+    object.state =
+        DEVICE_STATE_ACTIVE;
+
+    if (
+        !device_release(
+            &object
+        ) ||
+        object.reference_count != 1 ||
+        !device_begin_removal(
+            &object
+        ) ||
+        !device_finish_removal(
+            &object
+        ) ||
+        !device_release(
+            &object
+        )
+    ) {
+        kernel_panic(
+            "Device invalid-state fixture cleanup failed"
+        );
+    }
+}
+
+static void device_test_sibling_unlink_positions(void)
+{
+    struct device parent;
+    struct device first;
+    struct device middle;
+    struct device last;
+
+    if (
+        !device_initialize(
+            &parent,
+            510,
+            "unlink-parent",
+            sizeof("unlink-parent") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize_child(
+            &first,
+            &parent,
+            511,
+            "first",
+            sizeof("first") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize_child(
+            &middle,
+            &parent,
+            512,
+            "middle",
+            sizeof("middle") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize_child(
+            &last,
+            &parent,
+            513,
+            "last",
+            sizeof("last") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Device sibling-unlink fixture initialization failed"
+        );
+    }
+
+    /*
+     * Insertion occurs at the head:
+     *
+     * last <-> middle <-> first
+     */
+    if (
+        parent.first_child !=
+            &last ||
+        last.previous_sibling !=
+            NULL ||
+        last.next_sibling !=
+            &middle ||
+        middle.previous_sibling !=
+            &last ||
+        middle.next_sibling !=
+            &first ||
+        first.previous_sibling !=
+            &middle ||
+        first.next_sibling !=
+            NULL ||
+        parent.reference_count != 4
+    ) {
+        kernel_panic(
+            "Device sibling-unlink initial topology mismatch"
+        );
+    }
+
+    /*
+     * Remove the middle element.
+     */
+    if (
+        !device_begin_removal(
+            &middle
+        ) ||
+        !device_finish_removal(
+            &middle
+        ) ||
+        !device_release(
+            &middle
+        )
+    ) {
+        kernel_panic(
+            "Device middle-sibling removal failed"
+        );
+    }
+
+    if (
+        parent.first_child !=
+            &last ||
+        last.next_sibling !=
+            &first ||
+        first.previous_sibling !=
+            &last ||
+        parent.reference_count != 3
+    ) {
+        kernel_panic(
+            "Device middle-sibling unlink mismatch"
+        );
+    }
+
+    /*
+     * Remove the head.
+     */
+    if (
+        !device_begin_removal(
+            &last
+        ) ||
+        !device_finish_removal(
+            &last
+        ) ||
+        !device_release(
+            &last
+        )
+    ) {
+        kernel_panic(
+            "Device head-sibling removal failed"
+        );
+    }
+
+    if (
+        parent.first_child !=
+            &first ||
+        first.previous_sibling !=
+            NULL ||
+        first.next_sibling !=
+            NULL ||
+        parent.reference_count != 2
+    ) {
+        kernel_panic(
+            "Device head-sibling unlink mismatch"
+        );
+    }
+
+    /*
+     * Remove the remaining tail.
+     */
+    if (
+        !device_begin_removal(
+            &first
+        ) ||
+        !device_finish_removal(
+            &first
+        ) ||
+        !device_release(
+            &first
+        )
+    ) {
+        kernel_panic(
+            "Device tail-sibling removal failed"
+        );
+    }
+
+    if (
+        parent.first_child != NULL ||
+        parent.reference_count != 1
+    ) {
+        kernel_panic(
+            "Device tail-sibling unlink mismatch"
+        );
+    }
+
+    if (
+        !device_begin_removal(
+            &parent
+        ) ||
+        !device_finish_removal(
+            &parent
+        ) ||
+        !device_release(
+            &parent
+        )
+    ) {
+        kernel_panic(
+            "Device sibling-unlink fixture cleanup failed"
+        );
+    }
+}
+
+static void device_test_corrupt_topology_rejection(void)
+{
+    struct device parent;
+    struct device child;
+
+    struct device candidate = {
+        .identifier =
+            0xaabbccddeeff0011ULL,
+    };
+
+    if (
+        !device_initialize(
+            &parent,
+            520,
+            "corrupt-parent",
+            sizeof("corrupt-parent") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize_child(
+            &child,
+            &parent,
+            521,
+            "corrupt-child",
+            sizeof("corrupt-child") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Device corrupt-topology fixture initialization failed"
+        );
+    }
+
+    /*
+     * Manufacture a self-cycle from valid object pointers. The device core
+     * must detect it rather than traversing forever or mutating the topology.
+     */
+    child.previous_sibling =
+        &child;
+
+    child.next_sibling =
+        &child;
+
+    size_t parent_references =
+        parent.reference_count;
+
+    if (
+        device_initialize_child(
+            &candidate,
+            &parent,
+            522,
+            "candidate",
+            sizeof("candidate") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        candidate.identifier !=
+            0xaabbccddeeff0011ULL ||
+        parent.reference_count !=
+            parent_references ||
+        parent.first_child !=
+            &child
+    ) {
+        kernel_panic(
+            "Device attached child to corrupt topology"
+        );
+    }
+
+    if (
+        device_begin_removal(
+            &parent
+        ) ||
+        parent.state !=
+            DEVICE_STATE_ACTIVE ||
+        parent.reference_count !=
+            parent_references
+    ) {
+        kernel_panic(
+            "Device removed parent with corrupt child topology"
+        );
+    }
+
+    /*
+     * A child may complete its own logical removal because its children are
+     * independent of its sibling membership. Its final destruction, however,
+     * must reject the corrupt parent link without changing ownership.
+     */
+    if (
+        !device_begin_removal(
+            &child
+        ) ||
+        !device_finish_removal(
+            &child
+        ) ||
+        device_release(
+            &child
+        ) ||
+        child.reference_count != 1 ||
+        parent.reference_count !=
+            parent_references ||
+        parent.first_child !=
+            &child
+    ) {
+        kernel_panic(
+            "Device final release accepted corrupt parent topology"
+        );
+    }
+
+    /*
+     * Restore the synthetic corruption and prove normal teardown still works.
+     */
+    child.previous_sibling =
+        NULL;
+
+    child.next_sibling =
+        NULL;
+
+    if (
+        !device_release(
+            &child
+        ) ||
+        parent.first_child !=
+            NULL ||
+        parent.reference_count != 1 ||
+        !device_begin_removal(
+            &parent
+        ) ||
+        !device_finish_removal(
+            &parent
+        ) ||
+        !device_release(
+            &parent
+        )
+    ) {
+        kernel_panic(
+            "Device corrupt-topology fixture cleanup failed"
+        );
+    }
+}
+
+static void device_test_destroy_parent_lifetime(void)
+{
+    struct device parent;
+    struct device child;
+
+    struct device_operations child_operations = {
+        .destroy =
+            device_test_destroy_check_parent,
+    };
+
+    device_test_expected_destroy_parent =
+        &parent;
+
+    device_test_destroy_saw_live_parent =
+        false;
+
+    if (
+        !device_initialize(
+            &parent,
+            530,
+            "callback-parent",
+            sizeof("callback-parent") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize_child(
+            &child,
+            &parent,
+            531,
+            "callback-child",
+            sizeof("callback-child") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            &child_operations,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Device destroy-parent fixture initialization failed"
+        );
+    }
+
+    if (
+        !device_begin_removal(
+            &child
+        ) ||
+        !device_finish_removal(
+            &child
+        ) ||
+        !device_begin_removal(
+            &parent
+        ) ||
+        !device_finish_removal(
+            &parent
+        )
+    ) {
+        kernel_panic(
+            "Device destroy-parent fixture removal failed"
+        );
+    }
+
+    /*
+     * Remove the parent's original ownership. The child topology reference is
+     * now the only thing keeping the parent object alive.
+     */
+    if (
+        !device_release(
+            &parent
+        ) ||
+        parent.reference_count != 1
+    ) {
+        kernel_panic(
+            "Device destroy-parent ownership setup failed"
+        );
+    }
+
+    if (!device_release(
+        &child
+    )) {
+        kernel_panic(
+            "Device child destroy callback release failed"
+        );
+    }
+
+    if (
+        !device_test_destroy_saw_live_parent ||
+        parent.reference_count != 0
+    ) {
+        kernel_panic(
+            "Device parent lifetime did not cover child destroy callback"
+        );
+    }
+
+    device_test_expected_destroy_parent =
+        NULL;
 }
