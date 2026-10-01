@@ -10,6 +10,7 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/cwd.h"
+#include "../process/namespace.h"
 #include "../process/path.h"
 #include "../vfs/vfs.h"
 #include "../vfs/path.h"
@@ -333,6 +334,11 @@ static void process_path_test_expect_steady_refs(
     const struct process_path_test_tree *tree,
     const struct process_instance *instance)
 {
+    const struct vfs_node *namespace_root =
+        process_namespace_root_get(
+            instance
+        );
+
     const struct vfs_node *cwd =
         process_cwd_get(
             instance
@@ -340,7 +346,11 @@ static void process_path_test_expect_steady_refs(
 
     if (
         tree->root.reference_count !=
-            (cwd == &tree->root ? 2U : 1U) ||
+            1U +
+            (namespace_root == &tree->root ? 1U : 0U) +
+            (cwd == &tree->root ? 1U : 0U) ||
+        tree->home.reference_count !=
+            (cwd == &tree->home ? 2U : 1U) ||
         tree->home.reference_count !=
             (cwd == &tree->home ? 2U : 1U) ||
         tree->docs.reference_count !=
@@ -405,7 +415,6 @@ static void process_path_test_expect_resolved(
     if (
         process_path_resolve(
             instance,
-            &tree->root,
             path,
             path_length,
             &result
@@ -446,7 +455,6 @@ static void process_path_test_expect_failure(
     if (
         process_path_resolve(
             instance,
-            &tree->root,
             path,
             path_length,
             &result
@@ -471,6 +479,31 @@ static void process_path_test_resolution(void)
 
     process_path_test_tree_initialize(
         &tree
+    );
+
+    /*
+     * No pathname can be resolved before the process owns a namespace root.
+     */
+    process_path_test_expect_failure(
+        &tree,
+        &instance,
+        "/etc",
+        sizeof("/etc") - 1,
+        PROCESS_PATH_RESULT_NO_NAMESPACE_ROOT
+    );
+
+    if (!process_namespace_root_set(
+        &instance,
+        &tree.root
+    )) {
+        kernel_panic(
+            "Unable to initialize process pathname namespace root"
+        );
+    }
+
+    process_path_test_expect_steady_refs(
+        &tree,
+        &instance
     );
 
     /*
@@ -546,6 +579,14 @@ static void process_path_test_resolution(void)
         );
     }
 
+    if (!process_namespace_root_release(
+        &instance
+    )) {
+        kernel_panic(
+            "Unable to release process pathname namespace root"
+        );
+    }
+
     process_path_test_expect_steady_refs(
         &tree,
         &instance
@@ -565,13 +606,21 @@ static void process_path_test_chdir(void)
         &tree
     );
 
+    if (!process_namespace_root_set(
+        &instance,
+        &tree.root
+    )) {
+        kernel_panic(
+            "Unable to initialize chdir namespace root"
+        );
+    }
+
     /*
      * An absolute chdir can establish the first CWD of a fresh process.
      */
     if (
         process_chdir(
             &instance,
-            &tree.root,
             "/home",
             sizeof("/home") - 1
         ) != PROCESS_PATH_RESULT_RESOLVED ||
@@ -592,7 +641,6 @@ static void process_path_test_chdir(void)
     if (
         process_chdir(
             &instance,
-            &tree.root,
             "docs",
             sizeof("docs") - 1
         ) != PROCESS_PATH_RESULT_RESOLVED ||
@@ -613,7 +661,6 @@ static void process_path_test_chdir(void)
     if (
         process_chdir(
             &instance,
-            &tree.root,
             "/etc",
             sizeof("/etc") - 1
         ) != PROCESS_PATH_RESULT_RESOLVED ||
@@ -637,7 +684,6 @@ static void process_path_test_chdir(void)
     if (
         process_chdir(
             &instance,
-            &tree.root,
             "/etc/motd",
             sizeof("/etc/motd") - 1
         ) != PROCESS_PATH_RESULT_NOT_DIRECTORY ||
@@ -658,7 +704,6 @@ static void process_path_test_chdir(void)
     if (
         process_chdir(
             &instance,
-            &tree.root,
             "/missing",
             sizeof("/missing") - 1
         ) != PROCESS_PATH_RESULT_NOT_FOUND ||
@@ -683,7 +728,6 @@ static void process_path_test_chdir(void)
     if (
         process_chdir(
             &instance,
-            &tree.root,
             ".",
             sizeof(".") - 1
         ) != PROCESS_PATH_RESULT_RESOLVED ||
@@ -704,7 +748,6 @@ static void process_path_test_chdir(void)
     if (
         process_chdir(
             &instance,
-            &tree.root,
             "..",
             sizeof("..") - 1
         ) != PROCESS_PATH_RESULT_RESOLVED ||
@@ -730,6 +773,14 @@ static void process_path_test_chdir(void)
         );
     }
 
+    if (!process_namespace_root_release(
+        &instance
+    )) {
+        kernel_panic(
+            "Unable to release chdir test namespace root"
+        );
+    }
+
     process_path_test_expect_steady_refs(
         &tree,
         &instance
@@ -752,49 +803,53 @@ static void process_path_test_errors(void)
     struct vfs_node *result =
         &tree.sentinel;
 
+    result =
+        &tree.sentinel;
+
     if (
         process_path_resolve(
-            NULL,
-            &tree.root,
+            &instance,
             "/",
             sizeof("/") - 1,
             &result
-        ) != PROCESS_PATH_RESULT_INVALID_ARGUMENT ||
+        ) != PROCESS_PATH_RESULT_NO_NAMESPACE_ROOT ||
         result != &tree.sentinel ||
         process_path_resolve(
             &instance,
-            NULL,
-            "/",
-            sizeof("/") - 1,
+            "etc",
+            sizeof("etc") - 1,
             &result
-        ) != PROCESS_PATH_RESULT_INVALID_ARGUMENT ||
-        result != &tree.sentinel ||
-        process_path_resolve(
-            &instance,
-            &tree.root,
-            NULL,
-            1,
-            &result
-        ) != PROCESS_PATH_RESULT_INVALID_ARGUMENT ||
-        result != &tree.sentinel ||
-        process_path_resolve(
-            &instance,
-            &tree.root,
-            "",
-            0,
-            &result
-        ) != PROCESS_PATH_RESULT_INVALID_ARGUMENT ||
-        result != &tree.sentinel ||
-        process_path_resolve(
-            &instance,
-            &tree.root,
-            "/",
-            sizeof("/") - 1,
-            NULL
-        ) != PROCESS_PATH_RESULT_INVALID_ARGUMENT
+        ) != PROCESS_PATH_RESULT_NO_NAMESPACE_ROOT ||
+        result != &tree.sentinel
     ) {
         kernel_panic(
-            "Process pathname accepted invalid arguments"
+            "Process pathname accepted missing namespace root"
+        );
+    }
+
+    if (
+        process_chdir(
+            NULL,
+            "/",
+            sizeof("/") - 1
+        ) != PROCESS_PATH_RESULT_INVALID_ARGUMENT ||
+        process_chdir(
+            &instance,
+            "/",
+            sizeof("/") - 1
+        ) != PROCESS_PATH_RESULT_NO_NAMESPACE_ROOT
+    ) {
+        kernel_panic(
+            "chdir accepted invalid process namespace context"
+        );
+    }
+
+    if (!process_namespace_root_set(
+        &instance,
+        &tree.root
+    )) {
+        kernel_panic(
+            "Unable to initialize pathname error namespace root"
         );
     }
 
@@ -834,7 +889,6 @@ static void process_path_test_errors(void)
     if (
         process_path_resolve(
             &instance,
-            &tree.root,
             "/",
             sizeof("/") - 1,
             &result
@@ -848,7 +902,7 @@ static void process_path_test_errors(void)
     }
 
     tree.root.reference_count =
-        1;
+        2;
 
     process_path_test_expect_steady_refs(
         &tree,
@@ -874,7 +928,6 @@ static void process_path_test_errors(void)
     if (
         process_chdir(
             &instance,
-            &tree.root,
             "/etc",
             sizeof("/etc") - 1
         ) != PROCESS_PATH_RESULT_RESOURCE_EXHAUSTED ||
@@ -900,19 +953,20 @@ static void process_path_test_errors(void)
     if (
         process_chdir(
             NULL,
-            &tree.root,
-            "/",
-            sizeof("/") - 1
-        ) != PROCESS_PATH_RESULT_INVALID_ARGUMENT ||
-        process_chdir(
-            &instance,
-            NULL,
             "/",
             sizeof("/") - 1
         ) != PROCESS_PATH_RESULT_INVALID_ARGUMENT
     ) {
         kernel_panic(
             "chdir accepted invalid process context"
+        );
+    }
+
+    if (!process_namespace_root_release(
+        &instance
+    )) {
+        kernel_panic(
+            "Unable to release pathname error namespace root"
         );
     }
 

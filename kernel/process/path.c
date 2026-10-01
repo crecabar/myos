@@ -5,9 +5,10 @@
  * @brief Process-relative pathname resolution implementation.
  */
 
-#include "path.h"
+ #include "path.h"
 
-#include "cwd.h"
+ #include "cwd.h"
+ #include "namespace.h"
 
 #include "../vfs/path.h"
 
@@ -21,14 +22,12 @@ static enum process_path_result process_path_map_vfs_result(
 // Public functions implementations
 enum process_path_result process_path_resolve(
     const struct process_instance *instance,
-    struct vfs_node *root,
     const char *path,
     size_t path_length,
     struct vfs_node **result)
 {
     if (
         instance == NULL ||
-        root == NULL ||
         path == NULL ||
         result == NULL ||
         path_length == 0
@@ -38,12 +37,21 @@ enum process_path_result process_path_resolve(
     }
 
     /*
-     * Reject this here rather than allowing a missing CWD to hide an invalid
-     * path-length error.
+     * Reject malformed lengths before consulting process namespace state.
      */
     if (path_length > VFS_PATH_MAX) {
         return
             PROCESS_PATH_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_node *root =
+        process_namespace_root_get(
+            instance
+        );
+
+    if (root == NULL) {
+        return
+            PROCESS_PATH_RESULT_NO_NAMESPACE_ROOT;
     }
 
     struct vfs_node *start;
@@ -80,14 +88,10 @@ enum process_path_result process_path_resolve(
 
 enum process_path_result process_chdir(
     struct process_instance *instance,
-    struct vfs_node *root,
     const char *path,
     size_t path_length)
 {
-    if (
-        instance == NULL ||
-        root == NULL
-    ) {
+    if (instance == NULL) {
         return
             PROCESS_PATH_RESULT_INVALID_ARGUMENT;
     }
@@ -98,7 +102,6 @@ enum process_path_result process_chdir(
     enum process_path_result result =
         process_path_resolve(
             instance,
-            root,
             path,
             path_length,
             &directory
