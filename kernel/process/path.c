@@ -5,10 +5,10 @@
  * @brief Process-relative pathname resolution implementation.
  */
 
- #include "path.h"
+#include "path.h"
 
- #include "cwd.h"
- #include "namespace.h"
+#include "cwd.h"
+#include "namespace.h"
 
 #include "../vfs/path.h"
 
