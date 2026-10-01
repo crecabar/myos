@@ -46,6 +46,10 @@ static size_t device_registry_find_name(
     size_t name_length
 );
 
+static void device_registry_generation_advance(
+    struct device_registry *registry
+);
+
 // Public functions implementations
 bool device_registry_initialize(
     struct device_registry *registry)
@@ -65,6 +69,9 @@ bool device_registry_initialize(
 
     registry->count =
         0;
+
+    registry->generation =
+        1;
 
     return true;
 }
@@ -137,6 +144,10 @@ enum device_registry_register_result device_registry_register(
     ] = device;
 
     ++registry->count;
+
+    device_registry_generation_advance(
+        registry
+    );
 
     return
         DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED;
@@ -313,6 +324,10 @@ enum device_registry_unregister_result device_registry_unregister(
         registry->count
     ] = NULL;
 
+    device_registry_generation_advance(
+        registry
+    );
+
     /*
      * Registration acquired one reference. Ownership of that exact reference
      * now moves from the registry to the detach caller.
@@ -328,11 +343,110 @@ enum device_registry_unregister_result device_registry_unregister(
 }
 
 // Private functions and helpers implementations
+bool device_registry_iterator_initialize(
+    const struct device_registry *registry,
+    struct device_registry_iterator *iterator)
+{
+    if (
+        !device_registry_valid(
+            registry
+        ) ||
+        iterator == NULL
+    ) {
+        return false;
+    }
+
+    iterator->registry =
+        registry;
+
+    iterator->generation =
+        registry->generation;
+
+    iterator->index =
+        0;
+
+    return true;
+}
+
+enum device_registry_iteration_result device_registry_iterator_next(
+    struct device_registry_iterator *iterator,
+    struct device **result)
+{
+    if (
+        iterator == NULL ||
+        result == NULL ||
+        iterator->registry == NULL ||
+        !device_registry_valid(
+            iterator->registry
+        )
+    ) {
+        return
+            DEVICE_REGISTRY_ITERATION_RESULT_INVALID_ARGUMENT;
+    }
+
+    const struct device_registry *registry =
+        iterator->registry;
+
+    /*
+     * Test generation before inspecting count or table entries. A mutation may
+     * have compacted the table or appended a new device since the iterator
+     * captured its index.
+     */
+    if (
+        iterator->generation !=
+            registry->generation
+    ) {
+        return
+            DEVICE_REGISTRY_ITERATION_RESULT_INVALIDATED;
+    }
+
+    if (
+        iterator->index >=
+            registry->count
+    ) {
+        return
+            DEVICE_REGISTRY_ITERATION_RESULT_END;
+    }
+
+    struct device *device =
+        registry->devices[
+            iterator->index
+        ];
+
+    if (
+        device == NULL ||
+        !device_retain(
+            device
+        )
+    ) {
+        /*
+         * A published entry must remain ACTIVE and retainable throughout one
+         * unchanged registry generation. Failure means the publication
+         * invariant was violated outside the registry API.
+         */
+        return
+            DEVICE_REGISTRY_ITERATION_RESULT_INVALIDATED;
+    }
+
+    /*
+     * Advance only after ownership was successfully acquired. Failure paths
+     * therefore leave the cursor position unchanged.
+     */
+    ++iterator->index;
+
+    *result =
+        device;
+
+    return
+        DEVICE_REGISTRY_ITERATION_RESULT_DEVICE;
+}
+
 static bool device_registry_valid(
     const struct device_registry *registry)
 {
     if (
         registry == NULL ||
+        registry->generation == 0 ||
         registry->count >
             DEVICE_REGISTRY_CAPACITY
     ) {
@@ -516,4 +630,26 @@ static size_t device_registry_find_name(
     }
 
     return SIZE_MAX;
+}
+
+static void device_registry_generation_advance(
+    struct device_registry *registry)
+{
+    if (registry == NULL) {
+        return;
+    }
+
+    ++registry->generation;
+
+    /*
+     * Zero is reserved to distinguish initialized registry state.
+     *
+     * Wrapping requires 2^64 successful publication mutations within the
+     * lifetime of one registry object. If that theoretical boundary is ever
+     * reached, skip the reserved value and continue with generation 1.
+     */
+    if (registry->generation == 0) {
+        registry->generation =
+            1;
+    }
 }

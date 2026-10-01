@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-/**
+ /**
  * @file registry.h
  * @brief Generic kernel device publication registry.
  *
@@ -12,9 +12,13 @@
  * published.
  *
  * Registration requires an ACTIVE device. Unregistration begins logical
- * removal, withdraws the device from discovery, and releases the registry
- * reference. The caller remains responsible for completing device-specific
- * teardown and eventually calling device_finish_removal().
+ * removal, withdraws the device from discovery, and transfers the
+ * registry-owned reference to the detach caller. The caller then owns the
+ * REMOVING device while device-specific teardown completes.
+ *
+ * Enumeration is deterministic while the registry remains unchanged.
+ * Successful publication mutations invalidate existing iterators rather than
+ * allowing index compaction or insertion to cause silent skips or duplicates.
  */
 
 #ifndef MYOS_CORE_DEVICE_REGISTRY_H
@@ -22,6 +26,7 @@
 
 #include "device.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -49,12 +54,41 @@ enum device_registry_unregister_result {
     DEVICE_REGISTRY_UNREGISTER_RESULT_REMOVAL_BLOCKED,
 };
 
+enum device_registry_iteration_result {
+    DEVICE_REGISTRY_ITERATION_RESULT_DEVICE,
+    DEVICE_REGISTRY_ITERATION_RESULT_END,
+    DEVICE_REGISTRY_ITERATION_RESULT_INVALIDATED,
+    DEVICE_REGISTRY_ITERATION_RESULT_INVALID_ARGUMENT,
+};
+
 struct device_registry {
     struct device *devices[
         DEVICE_REGISTRY_CAPACITY
     ];
 
     size_t count;
+
+    /*
+     * Mutation generation used to invalidate deterministic iterators.
+     * Zero is reserved for uninitialized/invalid registry state.
+     */
+    uint64_t generation;
+};
+
+/**
+ * Cursor over one stable registry generation.
+ *
+ * iterator does not own registry. The registry object must therefore outlive
+ * the iterator.
+ *
+ * Each successful next operation returns a separate owned device reference.
+ */
+struct device_registry_iterator {
+    const struct device_registry *registry;
+
+    uint64_t generation;
+
+    size_t index;
 };
 
 /**
@@ -125,6 +159,38 @@ enum device_registry_unregister_result device_registry_unregister(
     struct device_registry *registry,
     struct device *device,
     struct device **detached
+);
+
+/**
+ * Initializes an iterator over the registry's current deterministic order.
+ *
+ * Devices are visited in registration order among the devices that remain
+ * registered. Unregistration preserves the relative order of survivors.
+ *
+ * Any successful register or unregister after initialization invalidates this
+ * iterator.
+ */
+bool device_registry_iterator_initialize(
+    const struct device_registry *registry,
+    struct device_registry_iterator *iterator
+);
+
+/**
+ * Acquires the next device from one registry iteration.
+ *
+ * On DEVICE, result receives one owned reference that the caller must release.
+ *
+ * END means the captured generation was consumed completely. result remains
+ * unchanged.
+ *
+ * INVALIDATED means the registry changed since iterator initialization.
+ * result and iterator index remain unchanged.
+ *
+ * INVALID_ARGUMENT also leaves result and iterator index unchanged.
+ */
+enum device_registry_iteration_result device_registry_iterator_next(
+    struct device_registry_iterator *iterator,
+    struct device **result
 );
 
 #endif

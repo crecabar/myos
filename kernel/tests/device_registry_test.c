@@ -27,6 +27,10 @@ static void device_registry_test_invalid_arguments(void);
 
 static void device_registry_test_parent_removal_blocked(void);
 
+static void device_registry_test_iteration_order(void);
+
+static void device_registry_test_iteration_invalidation(void);
+
 // Public functions implementations
 void device_registry_test_run(void)
 {
@@ -34,9 +38,11 @@ void device_registry_test_run(void)
     device_registry_test_duplicates();
     device_registry_test_parent_removal_blocked();
     device_registry_test_invalid_arguments();
+    device_registry_test_iteration_order();
+    device_registry_test_iteration_invalidation();
 
     diagnostics_write(
-        "[device] Device registry publication tests passed\n"
+        "[device] Device registry publication and iteration tests passed\n"
     );
 }
 
@@ -396,6 +402,17 @@ static void device_registry_test_invalid_arguments(void)
     struct device *result =
         sentinel;
 
+    struct device_registry_iterator iterator;
+
+    if (!device_registry_iterator_initialize(
+        &registry,
+        &iterator
+    )) {
+        kernel_panic(
+            "Device registry invalid-argument iterator initialization failed"
+        );
+    }
+
     if (
         device_registry_initialize(
             NULL
@@ -467,6 +484,24 @@ static void device_registry_test_invalid_arguments(void)
             NULL
         ) !=
             DEVICE_REGISTRY_UNREGISTER_RESULT_INVALID_ARGUMENT ||
+        device_registry_iterator_initialize(
+            NULL,
+            &iterator
+        ) ||
+        device_registry_iterator_initialize(
+            &registry,
+            NULL
+        ) ||
+        device_registry_iterator_next(
+            NULL,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_INVALID_ARGUMENT ||
+        device_registry_iterator_next(
+            &iterator,
+            NULL
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_INVALID_ARGUMENT ||
         result != sentinel
     ) {
         kernel_panic(
@@ -558,6 +593,20 @@ static void device_registry_test_parent_removal_blocked(void)
         );
     }
 
+    uint64_t stable_generation =
+        registry.generation;
+
+    struct device_registry_iterator iterator;
+
+    if (!device_registry_iterator_initialize(
+        &registry,
+        &iterator
+    )) {
+        kernel_panic(
+            "Device registry blocked-removal iterator initialization failed"
+        );
+    }
+
     /*
      * An ACTIVE child prevents device_begin_removal(parent), so unregister
      * must be completely non-destructive:
@@ -575,11 +624,14 @@ static void device_registry_test_parent_removal_blocked(void)
             &registry,
             &parent,
             &detached
-        ) != DEVICE_REGISTRY_UNREGISTER_RESULT_REMOVAL_BLOCKED ||
+        ) !=
+            DEVICE_REGISTRY_UNREGISTER_RESULT_REMOVAL_BLOCKED ||
         detached != NULL ||
         registry.count != 1 ||
         registry.devices[0] !=
             &parent ||
+        registry.generation !=
+            stable_generation ||
         parent.state !=
             DEVICE_STATE_ACTIVE ||
         parent.reference_count != 3 ||
@@ -588,6 +640,61 @@ static void device_registry_test_parent_removal_blocked(void)
     ) {
         kernel_panic(
             "Blocked device unregister mutated registry state"
+        );
+    }
+
+    /*
+     * A rejected detach is not a registry mutation. An iterator that existed
+     * before the failed operation must therefore remain valid.
+     */
+    struct device *iterated =
+        NULL;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &iterated
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+        iterated !=
+            &parent ||
+        iterator.index != 1 ||
+        parent.reference_count != 4
+    ) {
+        kernel_panic(
+            "Blocked unregister invalidated registry iterator"
+        );
+    }
+
+    if (
+        !device_release(
+            iterated
+        ) ||
+        parent.reference_count != 3
+    ) {
+        kernel_panic(
+            "Blocked-removal iterator reference release failed"
+        );
+    }
+
+    struct device *sentinel =
+        (struct device *)
+        (uintptr_t) 1U;
+
+    iterated =
+        sentinel;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &iterated
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_END ||
+        iterated != sentinel ||
+        iterator.index != 1
+    ) {
+        kernel_panic(
+            "Blocked unregister corrupted iterator completion"
         );
     }
 
@@ -688,6 +795,728 @@ static void device_registry_test_parent_removal_blocked(void)
     ) {
         kernel_panic(
             "Device registry blocked-removal fixture cleanup failed"
+        );
+    }
+}
+
+static void device_registry_test_iteration_order(void)
+{
+    struct device_registry registry;
+
+    struct device first;
+    struct device second;
+    struct device third;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        registry.generation == 0 ||
+        !device_initialize(
+            &first,
+            1300,
+            "first-enumerated",
+            sizeof("first-enumerated") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &second,
+            1301,
+            "second-enumerated",
+            sizeof("second-enumerated") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &third,
+            1302,
+            "third-enumerated",
+            sizeof("third-enumerated") - 1U,
+            DEVICE_KIND_PSEUDO,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Device registry iteration fixture initialization failed"
+        );
+    }
+
+    if (
+        device_registry_register(
+            &registry,
+            &first
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED ||
+        device_registry_register(
+            &registry,
+            &second
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED ||
+        device_registry_register(
+            &registry,
+            &third
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED ||
+        registry.count != 3
+    ) {
+        kernel_panic(
+            "Device registry iteration fixture registration failed"
+        );
+    }
+
+    struct device_registry_iterator iterator;
+
+    if (!device_registry_iterator_initialize(
+        &registry,
+        &iterator
+    )) {
+        kernel_panic(
+            "Device registry iterator initialization failed"
+        );
+    }
+
+    struct device *result =
+        NULL;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+        result !=
+            &first ||
+        first.reference_count != 3
+    ) {
+        kernel_panic(
+            "Device registry iterator first result mismatch"
+        );
+    }
+
+    if (!device_release(
+        result
+    )) {
+        kernel_panic(
+            "Device registry iterator first result release failed"
+        );
+    }
+
+    result =
+        NULL;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+        result !=
+            &second ||
+        second.reference_count != 3
+    ) {
+        kernel_panic(
+            "Device registry iterator second result mismatch"
+        );
+    }
+
+    if (!device_release(
+        result
+    )) {
+        kernel_panic(
+            "Device registry iterator second result release failed"
+        );
+    }
+
+    result =
+        NULL;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+        result !=
+            &third ||
+        third.reference_count != 3
+    ) {
+        kernel_panic(
+            "Device registry iterator third result mismatch"
+        );
+    }
+
+    if (!device_release(
+        result
+    )) {
+        kernel_panic(
+            "Device registry iterator third result release failed"
+        );
+    }
+
+    struct device *sentinel =
+        (struct device *)
+        (uintptr_t) 1U;
+
+    result =
+        sentinel;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_END ||
+        result != sentinel ||
+        iterator.index != 3
+    ) {
+        kernel_panic(
+            "Device registry iterator end contract failed"
+        );
+    }
+
+    /*
+     * END is stable while the captured generation remains unchanged.
+     */
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_END ||
+        result != sentinel ||
+        iterator.index != 3
+    ) {
+        kernel_panic(
+            "Device registry iterator repeated END changed state"
+        );
+    }
+
+    struct device *detached_first =
+        NULL;
+
+    struct device *detached_second =
+        NULL;
+
+    struct device *detached_third =
+        NULL;
+
+    if (
+        device_registry_unregister(
+            &registry,
+            &first,
+            &detached_first
+        ) !=
+            DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+        device_registry_unregister(
+            &registry,
+            &second,
+            &detached_second
+        ) !=
+            DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+        device_registry_unregister(
+            &registry,
+            &third,
+            &detached_third
+        ) !=
+            DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED
+    ) {
+        kernel_panic(
+            "Device registry iteration fixture detach failed"
+        );
+    }
+
+    struct device *objects[] = {
+        &first,
+        &second,
+        &third,
+    };
+
+    struct device *detached[] = {
+        detached_first,
+        detached_second,
+        detached_third,
+    };
+
+    for (
+        size_t index = 0;
+        index < 3;
+        ++index
+    ) {
+        if (
+            detached[index] !=
+                objects[index] ||
+            !device_finish_removal(
+                objects[index]
+            ) ||
+            !device_release(
+                detached[index]
+            ) ||
+            objects[index]->reference_count != 1 ||
+            !device_release(
+                objects[index]
+            )
+        ) {
+            kernel_panic(
+                "Device registry iteration fixture cleanup failed"
+            );
+        }
+    }
+}
+
+static void device_registry_test_iteration_invalidation(void)
+{
+    struct device_registry registry;
+
+    struct device first;
+    struct device second;
+    struct device third;
+    struct device fourth;
+    struct device duplicate;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !device_initialize(
+            &first,
+            1400,
+            "iter-a",
+            sizeof("iter-a") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &second,
+            1401,
+            "iter-b",
+            sizeof("iter-b") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &third,
+            1402,
+            "iter-c",
+            sizeof("iter-c") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &fourth,
+            1403,
+            "iter-d",
+            sizeof("iter-d") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &duplicate,
+            1400,
+            "duplicate-id",
+            sizeof("duplicate-id") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Device registry invalidation fixture initialization failed"
+        );
+    }
+
+    if (
+        device_registry_register(
+            &registry,
+            &first
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED ||
+        device_registry_register(
+            &registry,
+            &second
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED ||
+        device_registry_register(
+            &registry,
+            &third
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED
+    ) {
+        kernel_panic(
+            "Device registry invalidation fixture registration failed"
+        );
+    }
+
+    struct device_registry_iterator iterator;
+
+    if (!device_registry_iterator_initialize(
+        &registry,
+        &iterator
+    )) {
+        kernel_panic(
+            "Device registry invalidation iterator initialization failed"
+        );
+    }
+
+    struct device *result =
+        NULL;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+        result !=
+            &first ||
+        !device_release(
+            result
+        )
+    ) {
+        kernel_panic(
+            "Device registry invalidation initial iteration failed"
+        );
+    }
+
+    uint64_t stable_generation =
+        registry.generation;
+
+    /*
+     * A rejected publication attempt must not invalidate an iterator because
+     * registry contents did not change.
+     */
+    if (
+        device_registry_register(
+            &registry,
+            &duplicate
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_DUPLICATE_IDENTIFIER ||
+        registry.generation !=
+            stable_generation
+    ) {
+        kernel_panic(
+            "Rejected device registration changed generation"
+        );
+    }
+
+    result =
+        NULL;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+        result !=
+            &second ||
+        !device_release(
+            result
+        )
+    ) {
+        kernel_panic(
+            "Rejected mutation invalidated registry iterator"
+        );
+    }
+
+    /*
+     * A successful append changes publication and must invalidate the
+     * pre-existing cursor.
+     */
+    if (
+        device_registry_register(
+            &registry,
+            &fourth
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED ||
+        registry.generation ==
+            stable_generation
+    ) {
+        kernel_panic(
+            "Successful device registration did not change generation"
+        );
+    }
+
+    struct device *sentinel =
+        (struct device *)
+        (uintptr_t) 1U;
+
+    result =
+        sentinel;
+
+    size_t stale_index =
+        iterator.index;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_INVALIDATED ||
+        result != sentinel ||
+        iterator.index !=
+            stale_index
+    ) {
+        kernel_panic(
+            "Registry mutation did not invalidate iterator safely"
+        );
+    }
+
+    /*
+     * A fresh iterator sees the complete current registration order.
+     */
+    struct device_registry_iterator current;
+
+    if (!device_registry_iterator_initialize(
+        &registry,
+        &current
+    )) {
+        kernel_panic(
+            "Device registry fresh iterator initialization failed"
+        );
+    }
+
+    struct device *expected[] = {
+        &first,
+        &second,
+        &third,
+        &fourth,
+    };
+
+    for (
+        size_t index = 0;
+        index < 4;
+        ++index
+    ) {
+        result =
+            NULL;
+
+        if (
+            device_registry_iterator_next(
+                &current,
+                &result
+            ) !=
+                DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+            result !=
+                expected[index] ||
+            !device_release(
+                result
+            )
+        ) {
+            kernel_panic(
+                "Device registry fresh iteration order mismatch"
+            );
+        }
+    }
+
+    if (
+        device_registry_iterator_next(
+            &current,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_END
+    ) {
+        kernel_panic(
+            "Device registry fresh iteration failed to end"
+        );
+    }
+
+    /*
+     * Unregistering the middle element compacts the registry while preserving
+     * survivor order. Any iterator from before the compaction becomes stale.
+     */
+    struct device_registry_iterator before_detach;
+
+    if (!device_registry_iterator_initialize(
+        &registry,
+        &before_detach
+    )) {
+        kernel_panic(
+            "Device registry pre-detach iterator initialization failed"
+        );
+    }
+
+    struct device *detached_second =
+        NULL;
+
+    if (
+        device_registry_unregister(
+            &registry,
+            &second,
+            &detached_second
+        ) !=
+            DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+        detached_second !=
+            &second ||
+        registry.count != 3 ||
+        registry.devices[0] !=
+            &first ||
+        registry.devices[1] !=
+            &third ||
+        registry.devices[2] !=
+            &fourth
+    ) {
+        kernel_panic(
+            "Device registry deterministic compaction failed"
+        );
+    }
+
+    result =
+        sentinel;
+
+    if (
+        device_registry_iterator_next(
+            &before_detach,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_INVALIDATED ||
+        result != sentinel ||
+        before_detach.index != 0
+    ) {
+        kernel_panic(
+            "Device unregister failed to invalidate old iterator"
+        );
+    }
+
+    /*
+     * New iteration after compaction observes A, C, D exactly once and in
+     * preserved relative order.
+     */
+    struct device_registry_iterator compacted;
+
+    if (!device_registry_iterator_initialize(
+        &registry,
+        &compacted
+    )) {
+        kernel_panic(
+            "Device registry compacted iterator initialization failed"
+        );
+    }
+
+    struct device *compacted_expected[] = {
+        &first,
+        &third,
+        &fourth,
+    };
+
+    for (
+        size_t index = 0;
+        index < 3;
+        ++index
+    ) {
+        result =
+            NULL;
+
+        if (
+            device_registry_iterator_next(
+                &compacted,
+                &result
+            ) !=
+                DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+            result !=
+                compacted_expected[index] ||
+            !device_release(
+                result
+            )
+        ) {
+            kernel_panic(
+                "Device registry compacted iteration order mismatch"
+            );
+        }
+    }
+
+    if (
+        device_registry_iterator_next(
+            &compacted,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_END
+    ) {
+        kernel_panic(
+            "Device registry compacted iteration failed to end"
+        );
+    }
+
+    /*
+     * Finish and release B, which was already withdrawn.
+     */
+    if (
+        !device_finish_removal(
+            &second
+        ) ||
+        !device_release(
+            detached_second
+        ) ||
+        second.reference_count != 1 ||
+        !device_release(
+            &second
+        )
+    ) {
+        kernel_panic(
+            "Device registry detached iteration fixture cleanup failed"
+        );
+    }
+
+    struct device *remaining[] = {
+        &first,
+        &third,
+        &fourth,
+    };
+
+    for (
+        size_t index = 0;
+        index < 3;
+        ++index
+    ) {
+        struct device *detached =
+            NULL;
+
+        if (
+            device_registry_unregister(
+                &registry,
+                remaining[index],
+                &detached
+            ) !=
+                DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+            detached !=
+                remaining[index] ||
+            !device_finish_removal(
+                remaining[index]
+            ) ||
+            !device_release(
+                detached
+            ) ||
+            remaining[index]->reference_count != 1 ||
+            !device_release(
+                remaining[index]
+            )
+        ) {
+            kernel_panic(
+                "Device registry invalidation fixture cleanup failed"
+            );
+        }
+    }
+
+    if (
+        !device_begin_removal(
+            &duplicate
+        ) ||
+        !device_finish_removal(
+            &duplicate
+        ) ||
+        !device_release(
+            &duplicate
+        )
+    ) {
+        kernel_panic(
+            "Device registry duplicate invalidation fixture cleanup failed"
         );
     }
 }
