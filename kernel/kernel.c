@@ -41,6 +41,7 @@
 #include "tests/boot_config_test.h"
 #include "tests/boot_info_test.h"
 #include "tests/boot_module_test.h"
+#include "tests/device_test.h"
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
@@ -584,6 +585,8 @@ static _Noreturn void kernel_main_continue(void)
 
         boot_info_test_run();
         boot_config_test_run();
+
+        device_test_run();
 
         acpi_test_run(
             kernel_boot_info.rsdp_snapshot,
