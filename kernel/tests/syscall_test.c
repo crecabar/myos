@@ -250,6 +250,76 @@ void syscall_test_run(void)
         );
     }
 
+    /*
+     * FD_OPEN validates ABI-level arguments before consulting userspace or
+     * process namespace state.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_OPEN,
+            0,
+            0,
+            SYSCALL_OPEN_ACCESS_READ,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "FD_OPEN accepted empty pathname"
+        );
+    }
+
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_OPEN,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "FD_OPEN accepted empty access mode"
+        );
+    }
+
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_OPEN,
+            0,
+            1,
+            1ULL << 63,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "FD_OPEN accepted unknown access flags"
+        );
+    }
+
     diagnostics_write(
         "[syscall] ABI version and error contract tests passed\n"
     );

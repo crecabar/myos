@@ -8,11 +8,17 @@
 #include "../process/user_copy.h"
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
+#include "../vfs/path.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
 #define SYSCALL_WRITE_MAX_SIZE 256
+
+_Static_assert(
+    SYSCALL_PATH_MAX <= VFS_PATH_MAX,
+    "Syscall path limit exceeds VFS path capacity"
+);
 
 // Private functions and helpers declarations
 static syscall_result_t syscall_write(
@@ -31,6 +37,17 @@ static enum syscall_error syscall_file_map_error(
 
 static syscall_result_t syscall_fd_close(
     uint64_t descriptor
+);
+
+static syscall_result_t syscall_fd_open(
+    uint64_t user_path_address,
+    uint64_t path_length,
+    uint64_t access
+);
+
+static bool syscall_fd_open_access(
+    uint64_t syscall_access,
+    enum vfs_open_access *vfs_access
 );
 
 // Public functions implementations
@@ -212,7 +229,6 @@ syscall_result_t syscall_dispatch(
     uint64_t argument4,
     uint64_t argument5
 ) {
-    (void) argument2;
     (void) argument3;
     (void) argument4;
     (void) argument5;
@@ -232,6 +248,13 @@ syscall_result_t syscall_dispatch(
         case SYSCALL_FD_CLOSE:
             return syscall_fd_close(
                 argument0
+            );
+
+        case SYSCALL_FD_OPEN:
+            return syscall_fd_open(
+                argument0,
+                argument1,
+                argument2
             );
 
         default:
@@ -416,4 +439,125 @@ static syscall_result_t syscall_fd_close(
     }
 
     return 0;
+}
+
+static bool syscall_fd_open_access(
+    uint64_t syscall_access,
+    enum vfs_open_access *vfs_access)
+{
+    if (vfs_access == NULL) {
+        return false;
+    }
+
+    if (
+        syscall_access == 0 ||
+        (
+            syscall_access &
+            ~(
+                SYSCALL_OPEN_ACCESS_READ |
+                SYSCALL_OPEN_ACCESS_WRITE
+            )
+        ) != 0
+    ) {
+        return false;
+    }
+
+    enum vfs_open_access result = 0;
+
+    if (
+        (syscall_access &
+         SYSCALL_OPEN_ACCESS_READ) != 0
+    ) {
+        result |=
+            VFS_OPEN_ACCESS_READ;
+    }
+
+    if (
+        (syscall_access &
+         SYSCALL_OPEN_ACCESS_WRITE) != 0
+    ) {
+        result |=
+            VFS_OPEN_ACCESS_WRITE;
+    }
+
+    *vfs_access =
+        result;
+
+    return true;
+}
+
+static syscall_result_t syscall_fd_open(
+    uint64_t user_path_address,
+    uint64_t path_length,
+    uint64_t access)
+{
+    if (
+        path_length == 0 ||
+        path_length > VFS_PATH_MAX
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    enum vfs_open_access vfs_access;
+
+    if (!syscall_fd_open_access(
+        access,
+        &vfs_access
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    char path[VFS_PATH_MAX];
+
+    if (!copy_from_user(
+        instance->process.memory,
+        user_path_address,
+        path,
+        (size_t) path_length
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    size_t descriptor;
+
+    enum process_file_result result =
+        process_file_open(
+            instance,
+            path,
+            (size_t) path_length,
+            vfs_access,
+            &descriptor
+        );
+
+    if (
+        result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_file_map_error(
+                result
+            )
+        );
+    }
+
+    return
+        (syscall_result_t) descriptor;
 }

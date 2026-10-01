@@ -115,6 +115,8 @@ static inline bool syscall_result_is_error(
 #define SYSCALL_OPEN_ACCESS_READ  (1ULL << 0)
 #define SYSCALL_OPEN_ACCESS_WRITE (1ULL << 1)
 
+#define SYSCALL_PATH_MAX 4096U
+
 enum syscall_wait_termination_reason {
     SYSCALL_WAIT_TERMINATION_EXITED = 1,
     SYSCALL_WAIT_TERMINATION_SEGMENTATION_FAULT,
