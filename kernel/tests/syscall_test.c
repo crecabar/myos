@@ -225,6 +225,31 @@ void syscall_test_run(void)
         );
     }
 
+    /*
+     * Descriptor syscalls require a valid current process instance.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_CLOSE,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "FD_CLOSE accepted missing current process"
+        );
+    }
+
     diagnostics_write(
         "[syscall] ABI version and error contract tests passed\n"
     );

@@ -4,6 +4,7 @@
 
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../process/file.h"
 #include "../process/user_copy.h"
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
@@ -20,6 +21,16 @@ static syscall_result_t syscall_write(
 
 static uint64_t syscall_wait_termination_reason(
     enum process_termination_reason reason
+);
+
+static struct process_instance *syscall_current_instance(void);
+
+static enum syscall_error syscall_file_map_error(
+    enum process_file_result result
+);
+
+static syscall_result_t syscall_fd_close(
+    uint64_t descriptor
 );
 
 // Public functions implementations
@@ -218,6 +229,11 @@ syscall_result_t syscall_dispatch(
         case SYSCALL_WRITE:
             return syscall_write(argument0, argument1);
 
+        case SYSCALL_FD_CLOSE:
+            return syscall_fd_close(
+                argument0
+            );
+
         default:
             return syscall_result_error(
                 SYSCALL_ERROR_NOT_IMPLEMENTED
@@ -302,4 +318,102 @@ static uint64_t syscall_wait_termination_reason(
                 "waitpid observed invalid termination reason"
             );
     }
+}
+
+static struct process_instance *syscall_current_instance(void)
+{
+    struct process *process =
+        scheduler_current();
+
+    if (
+        process == NULL ||
+        process->instance == NULL ||
+        process->instance->process.instance !=
+            process->instance
+    ) {
+        return NULL;
+    }
+
+    return
+        process->instance;
+}
+
+static enum syscall_error syscall_file_map_error(
+    enum process_file_result result)
+{
+    switch (result) {
+        case PROCESS_FILE_RESULT_INVALID_ARGUMENT:
+            return
+                SYSCALL_ERROR_INVALID_ARGUMENT;
+
+        case PROCESS_FILE_RESULT_BAD_DESCRIPTOR:
+            return
+                SYSCALL_ERROR_BAD_DESCRIPTOR;
+
+        case PROCESS_FILE_RESULT_NOT_FOUND:
+            return
+                SYSCALL_ERROR_NOT_FOUND;
+
+        case PROCESS_FILE_RESULT_NO_NAMESPACE_ROOT:
+        case PROCESS_FILE_RESULT_NO_CURRENT_DIRECTORY:
+            return
+                SYSCALL_ERROR_INVALID_ARGUMENT;
+
+        case PROCESS_FILE_RESULT_NOT_DIRECTORY:
+            return
+                SYSCALL_ERROR_NOT_DIRECTORY;
+
+        case PROCESS_FILE_RESULT_NOT_SUPPORTED:
+            return
+                SYSCALL_ERROR_NOT_SUPPORTED;
+
+        case PROCESS_FILE_RESULT_ACCESS_DENIED:
+            return
+                SYSCALL_ERROR_ACCESS_DENIED;
+
+        case PROCESS_FILE_RESULT_RESOURCE_EXHAUSTED:
+            return
+                SYSCALL_ERROR_RESOURCE_EXHAUSTED;
+
+        case PROCESS_FILE_RESULT_SUCCESS:
+            kernel_panic(
+                "Successful process file result cannot map to syscall error"
+            );
+    }
+
+    kernel_panic(
+        "Unknown process file result"
+    );
+}
+
+static syscall_result_t syscall_fd_close(
+    uint64_t descriptor)
+{
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (instance == NULL) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    enum process_file_result result =
+        process_file_close(
+            instance,
+            (size_t) descriptor
+        );
+
+    if (
+        result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_file_map_error(
+                result
+            )
+        );
+    }
+
+    return 0;
 }
