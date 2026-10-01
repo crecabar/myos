@@ -50,6 +50,12 @@ static bool syscall_fd_open_access(
     enum vfs_open_access *vfs_access
 );
 
+static syscall_result_t syscall_fd_write(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length
+);
+
 // Public functions implementations
 enum syscall_waitpid_action syscall_waitpid_prepare(
     uint64_t child_pid,
@@ -252,6 +258,13 @@ syscall_result_t syscall_dispatch(
 
         case SYSCALL_FD_OPEN:
             return syscall_fd_open(
+                argument0,
+                argument1,
+                argument2
+            );
+
+        case SYSCALL_FD_WRITE:
+            return syscall_fd_write(
                 argument0,
                 argument1,
                 argument2
@@ -560,4 +573,162 @@ static syscall_result_t syscall_fd_open(
 
     return
         (syscall_result_t) descriptor;
+}
+
+static syscall_result_t syscall_fd_write(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length)
+{
+    /*
+     * Successful syscall results must be representable by syscall_result_t.
+     */
+    if (length > (uint64_t) INT64_MAX) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    /*
+     * A zero-length operation still validates the descriptor and access mode,
+     * but intentionally does not inspect the userspace address.
+     */
+    if (length == 0) {
+        size_t bytes_written;
+
+        enum process_file_result result =
+            process_file_write(
+                instance,
+                (size_t) descriptor,
+                NULL,
+                0,
+                &bytes_written
+            );
+
+        if (
+            result !=
+            PROCESS_FILE_RESULT_SUCCESS
+        ) {
+            return syscall_result_error(
+                syscall_file_map_error(
+                    result
+                )
+            );
+        }
+
+        return 0;
+    }
+
+    /*
+     * Validate the complete source before allowing any backend side effect.
+     */
+    if (!user_copy_range_readable(
+        instance->process.memory,
+        user_address,
+        (size_t) length
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    uint8_t buffer[SYSCALL_FD_IO_BUFFER_SIZE];
+
+    size_t total_written =
+        0;
+
+    while (
+        total_written <
+        (size_t) length
+    ) {
+        size_t remaining =
+            (size_t) length -
+            total_written;
+
+        size_t chunk_size =
+            remaining <
+                sizeof(buffer)
+                ? remaining
+                : sizeof(buffer);
+
+        if (!copy_from_user(
+            instance->process.memory,
+            user_address +
+                (uint64_t) total_written,
+            buffer,
+            chunk_size
+        )) {
+            /*
+             * Full-range validation already succeeded. If mappings become
+             * mutable concurrently in the future, preserve any completed
+             * progress instead of reporting an error after side effects.
+             */
+            if (total_written != 0) {
+                return
+                    (syscall_result_t)
+                        total_written;
+            }
+
+            return syscall_result_error(
+                SYSCALL_ERROR_BAD_ADDRESS
+            );
+        }
+
+        size_t chunk_written =
+            0;
+
+        enum process_file_result result =
+            process_file_write(
+                instance,
+                (size_t) descriptor,
+                buffer,
+                chunk_size,
+                &chunk_written
+            );
+
+        if (
+            result !=
+            PROCESS_FILE_RESULT_SUCCESS
+        ) {
+            if (total_written != 0) {
+                return
+                    (syscall_result_t)
+                        total_written;
+            }
+
+            return syscall_result_error(
+                syscall_file_map_error(
+                    result
+                )
+            );
+        }
+
+        total_written +=
+            chunk_written;
+
+        /*
+         * A short successful write is visible to userspace immediately.
+         * Do not repeatedly call a backend that chose not to consume the
+         * complete requested chunk.
+         */
+        if (chunk_written < chunk_size) {
+            break;
+        }
+    }
+
+    return
+        (syscall_result_t)
+            total_written;
 }
