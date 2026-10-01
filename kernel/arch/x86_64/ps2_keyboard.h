@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #ifndef MYOS_ARCH_X86_64_PS2_KEYBOARD_H
 #define MYOS_ARCH_X86_64_PS2_KEYBOARD_H

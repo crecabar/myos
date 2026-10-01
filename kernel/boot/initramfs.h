@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #ifndef MYOS_BOOT_INITRAMFS_H
 #define MYOS_BOOT_INITRAMFS_H
