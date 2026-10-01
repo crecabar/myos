@@ -30,6 +30,11 @@
  *   invalid seek origin
  *   seek on a closed descriptor
  *
+ *   invalid pathname and fstat userspace pointers
+ *   invalid descriptors for read/write/fstat
+ *   read-only and write-only access enforcement
+ *   zero-length I/O pointer and access semantics
+ *
  * The hostile I/O ranges begin in valid stack memory but extend into the
  * unmapped page above the initial userspace stack. BAD_ADDRESS must therefore
  * be detected before any backend-visible I/O occurs.
@@ -68,6 +73,7 @@
 .set ERROR_BAD_ADDRESS,       -2
 .set ERROR_BAD_DESCRIPTOR,    -6
 .set ERROR_NOT_FOUND,         -7
+.set ERROR_ACCESS_DENIED,    -10
 .set ERROR_OVERFLOW,         -11
 
 /*
@@ -636,6 +642,209 @@ _start:
     int $0x80
 
     cmpq $ERROR_BAD_DESCRIPTOR, %rax
+    jne .Lfail
+
+    /*
+     * ----------------------------------------------------------------------
+     * Syscall error-boundary regressions
+     * ----------------------------------------------------------------------
+     *
+     * R12 still contains the descriptor number that was just closed.
+     * R13 points to a live writable userspace buffer.
+     *
+     * These checks deliberately cross int 0x80 so the test covers syscall
+     * validation and process/VFS error mapping rather than only lower-layer
+     * contracts.
+     */
+
+    /*
+     * READ with a valid destination but a closed descriptor must reach the
+     * descriptor layer and report BAD_DESCRIPTOR.
+     */
+    movq $SYSCALL_FD_READ, %rax
+    movq %r12, %rdi
+    movq %r13, %rsi
+    movq $1, %rdx
+    int $0x80
+
+    cmpq $ERROR_BAD_DESCRIPTOR, %rax
+    jne .Lfail
+
+    /*
+     * WRITE with a valid source and the same closed descriptor must report
+     * BAD_DESCRIPTOR.
+     */
+    movq $SYSCALL_FD_WRITE, %rax
+    movq %r12, %rdi
+    movq %r13, %rsi
+    movq $1, %rdx
+    int $0x80
+
+    cmpq $ERROR_BAD_DESCRIPTOR, %rax
+    jne .Lfail
+
+    /*
+     * FSTAT validates the userspace destination first. R13 is writable, so
+     * this request reaches descriptor lookup and must report BAD_DESCRIPTOR.
+     */
+    movq $SYSCALL_FD_FSTAT, %rax
+    movq %r12, %rdi
+    movq %r13, %rsi
+    int $0x80
+
+    cmpq $ERROR_BAD_DESCRIPTOR, %rax
+    jne .Lfail
+
+    /*
+     * OPEN with a valid length and access mode but a NULL pathname must fail
+     * at the userspace copy boundary rather than faulting the kernel.
+     */
+    movq $SYSCALL_FD_OPEN, %rax
+    xorq %rdi, %rdi
+    movq $1, %rsi
+    movq $OPEN_ACCESS_READ, %rdx
+    int $0x80
+
+    cmpq $ERROR_BAD_ADDRESS, %rax
+    jne .Lfail
+
+    /*
+     * ----------------------------------------------------------------------
+     * Read-only descriptor semantics
+     * ----------------------------------------------------------------------
+     */
+
+    movq $SYSCALL_FD_OPEN, %rax
+    leaq .Lfile_path(%rip), %rdi
+    movq $(.Lfile_path_end - .Lfile_path), %rsi
+    movq $OPEN_ACCESS_READ, %rdx
+    int $0x80
+
+    testq %rax, %rax
+    js .Lfail
+
+    movq %rax, %r12
+
+    /*
+     * A non-zero WRITE has a valid source but the OFD lacks write access.
+     */
+    movq $SYSCALL_FD_WRITE, %rax
+    movq %r12, %rdi
+    movq %r13, %rsi
+    movq $1, %rdx
+    int $0x80
+
+    cmpq $ERROR_ACCESS_DENIED, %rax
+    jne .Lfail
+
+    /*
+     * Zero-length READ intentionally ignores the userspace pointer after
+     * validating descriptor and access mode.
+     *
+     * UINT64_MAX is deliberately not a valid userspace address. Receiving
+     * success proves that the pointer was not inspected.
+     */
+    movq $SYSCALL_FD_READ, %rax
+    movq %r12, %rdi
+    movq $-1, %rsi
+    xorq %rdx, %rdx
+    int $0x80
+
+    testq %rax, %rax
+    jne .Lfail
+
+    /*
+     * Zero-length WRITE also ignores the address, but access validation still
+     * occurs first and therefore returns ACCESS_DENIED.
+     */
+    movq $SYSCALL_FD_WRITE, %rax
+    movq %r12, %rdi
+    movq $-1, %rsi
+    xorq %rdx, %rdx
+    int $0x80
+
+    cmpq $ERROR_ACCESS_DENIED, %rax
+    jne .Lfail
+
+    /*
+     * FSTAT requires a writable userspace destination regardless of the
+     * descriptor's read/write access mode.
+     */
+    movq $SYSCALL_FD_FSTAT, %rax
+    movq %r12, %rdi
+    xorq %rsi, %rsi
+    int $0x80
+
+    cmpq $ERROR_BAD_ADDRESS, %rax
+    jne .Lfail
+
+    movq $SYSCALL_FD_CLOSE, %rax
+    movq %r12, %rdi
+    int $0x80
+
+    testq %rax, %rax
+    jne .Lfail
+
+    /*
+     * ----------------------------------------------------------------------
+     * Write-only descriptor semantics
+     * ----------------------------------------------------------------------
+     */
+
+    movq $SYSCALL_FD_OPEN, %rax
+    leaq .Lfile_path(%rip), %rdi
+    movq $(.Lfile_path_end - .Lfile_path), %rsi
+    movq $OPEN_ACCESS_WRITE, %rdx
+    int $0x80
+
+    testq %rax, %rax
+    js .Lfail
+
+    movq %rax, %r12
+
+    /*
+     * A non-zero READ has a valid writable destination but the OFD lacks read
+     * access.
+     */
+    movq $SYSCALL_FD_READ, %rax
+    movq %r12, %rdi
+    movq %r13, %rsi
+    movq $1, %rdx
+    int $0x80
+
+    cmpq $ERROR_ACCESS_DENIED, %rax
+    jne .Lfail
+
+    /*
+     * Zero-length WRITE is permitted and ignores the deliberately-invalid
+     * userspace pointer because write access is present.
+     */
+    movq $SYSCALL_FD_WRITE, %rax
+    movq %r12, %rdi
+    movq $-1, %rsi
+    xorq %rdx, %rdx
+    int $0x80
+
+    testq %rax, %rax
+    jne .Lfail
+
+    /*
+     * The symmetric zero-length READ must still validate read permission.
+     */
+    movq $SYSCALL_FD_READ, %rax
+    movq %r12, %rdi
+    movq $-1, %rsi
+    xorq %rdx, %rdx
+    int $0x80
+
+    cmpq $ERROR_ACCESS_DENIED, %rax
+    jne .Lfail
+
+    movq $SYSCALL_FD_CLOSE, %rax
+    movq %r12, %rdi
+    int $0x80
+
+    testq %rax, %rax
     jne .Lfail
 
     addq $STACK_BUFFER_SIZE, %rsp
