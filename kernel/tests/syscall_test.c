@@ -364,6 +364,50 @@ void syscall_test_run(void)
         );
     }
 
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_READ,
+            0,
+            0,
+            (uint64_t) INT64_MAX + 1ULL,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        )
+    ) {
+        kernel_panic(
+            "FD_READ accepted unrepresentable length"
+        );
+    }
+
+    result =
+        syscall_dispatch(
+            SYSCALL_FD_READ,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "FD_READ accepted missing current process"
+        );
+    }
+
     diagnostics_write(
         "[syscall] ABI version and error contract tests passed\n"
     );
