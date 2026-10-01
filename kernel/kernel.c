@@ -48,6 +48,7 @@
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
 #include "tests/input_test.h"
+#include "tests/initramfs_format_test.h"
 #include "tests/kernel_heap_test.h"
 #include "tests/process_cwd_test.h"
 #include "tests/process_elf_lifecycle_test.h"
@@ -604,6 +605,7 @@ static _Noreturn void kernel_main_continue(void)
         ps2_scancode_set1_test_run();
         ps2_mouse_packet_test_run();
         input_test_run();
+        initramfs_format_test_run();
         kernel_heap_test_run();
         vfs_node_test_run();
         vfs_node_operations_test_run();
