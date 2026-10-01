@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #define SYSCALL_WRITE_MAX_SIZE 256
+#define SYSCALL_FD_IO_BUFFER_SIZE 256
 
 _Static_assert(
     SYSCALL_PATH_MAX <= VFS_PATH_MAX,
