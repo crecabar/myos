@@ -342,7 +342,6 @@ enum device_registry_unregister_result device_registry_unregister(
         DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED;
 }
 
-// Private functions and helpers implementations
 bool device_registry_iterator_initialize(
     const struct device_registry *registry,
     struct device_registry_iterator *iterator)
@@ -441,6 +440,7 @@ enum device_registry_iteration_result device_registry_iterator_next(
         DEVICE_REGISTRY_ITERATION_RESULT_DEVICE;
 }
 
+// Private functions and helpers implementations
 static bool device_registry_valid(
     const struct device_registry *registry)
 {

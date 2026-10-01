@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
- /**
+/**
  * @file registry.h
  * @brief Generic kernel device publication registry.
  *

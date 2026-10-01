@@ -3,9 +3,9 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-/**
+ /**
  * @file device_registry_test.c
- * @brief Device registry publication and lookup regressions.
+ * @brief Device registry publication, iteration, and lifetime regressions.
  */
 
 #include "device_registry_test.h"
@@ -17,6 +17,18 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
+#define DEVICE_REGISTRY_TEST_REATTACH_CYCLES 8U
+
+#define DEVICE_REGISTRY_TEST_CAPACITY_NAME_LENGTH 7U
+#define DEVICE_REGISTRY_TEST_CAPACITY_NAME_SIZE 8U
+
+_Static_assert(
+    DEVICE_REGISTRY_CAPACITY <= 1000U,
+    "Capacity test names support at most 1000 registry entries"
+);
+
+static size_t device_registry_test_destroy_count;
 
 // Private functions and helpers declarations
 static void device_registry_test_register_lookup_unregister(void);
@@ -31,6 +43,23 @@ static void device_registry_test_iteration_order(void);
 
 static void device_registry_test_iteration_invalidation(void);
 
+static void device_registry_test_destroy(
+    struct device *device
+);
+
+static void device_registry_test_capacity_name(
+    size_t index,
+    char name[
+        DEVICE_REGISTRY_TEST_CAPACITY_NAME_SIZE
+    ]
+);
+
+static void device_registry_test_capacity(void);
+
+static void device_registry_test_invalid_structure(void);
+
+static void device_registry_test_repeated_attach_detach(void);
+
 // Public functions implementations
 void device_registry_test_run(void)
 {
@@ -40,13 +69,77 @@ void device_registry_test_run(void)
     device_registry_test_invalid_arguments();
     device_registry_test_iteration_order();
     device_registry_test_iteration_invalidation();
+    device_registry_test_capacity();
+    device_registry_test_invalid_structure();
+    device_registry_test_repeated_attach_detach();
 
     diagnostics_write(
-        "[device] Device registry publication and iteration tests passed\n"
+        "[device] Device registry publication, iteration and lifecycle "
+        "tests passed\n"
     );
 }
 
 // Private functions and helpers implementations
+static void device_registry_test_destroy(
+    struct device *device)
+{
+    if (
+        device == NULL ||
+        device->reference_count != 0 ||
+        device->state !=
+            DEVICE_STATE_GONE
+    ) {
+        kernel_panic(
+            "Device registry destroy callback observed invalid lifetime"
+        );
+    }
+
+    ++device_registry_test_destroy_count;
+}
+
+static void device_registry_test_capacity_name(
+    size_t index,
+    char name[
+        DEVICE_REGISTRY_TEST_CAPACITY_NAME_SIZE
+    ])
+{
+    if (
+        name == NULL ||
+        index >=
+            DEVICE_REGISTRY_CAPACITY
+    ) {
+        kernel_panic(
+            "Device registry capacity-name arguments invalid"
+        );
+    }
+
+    name[0] = 'c';
+    name[1] = 'a';
+    name[2] = 'p';
+    name[3] = '-';
+
+    name[4] =
+        (char) (
+            '0' +
+            ((index / 100U) % 10U)
+        );
+
+    name[5] =
+        (char) (
+            '0' +
+            ((index / 10U) % 10U)
+        );
+
+    name[6] =
+        (char) (
+            '0' +
+            (index % 10U)
+        );
+
+    name[7] =
+        '\0';
+}
+
 static void device_registry_test_register_lookup_unregister(void)
 {
     struct device_registry registry;
@@ -1517,6 +1610,679 @@ static void device_registry_test_iteration_invalidation(void)
     ) {
         kernel_panic(
             "Device registry duplicate invalidation fixture cleanup failed"
+        );
+    }
+}
+
+static void device_registry_test_capacity(void)
+{
+    struct device_registry registry;
+
+    /*
+     * Intentionally local. Keeping this fixture off static storage avoids
+     * permanently enlarging the normal kernel image for a test-only array.
+     *
+     * The current kernel runtime stack is sufficient for this bounded
+     * DEVICE_REGISTRY_CAPACITY fixture.
+     */
+    struct device devices[
+        DEVICE_REGISTRY_CAPACITY
+    ];
+
+    if (!device_registry_initialize(
+        &registry
+    )) {
+        kernel_panic(
+            "Device registry capacity fixture initialization failed"
+        );
+    }
+
+    uint64_t initial_generation =
+        registry.generation;
+
+    for (
+        size_t index = 0;
+        index < DEVICE_REGISTRY_CAPACITY;
+        ++index
+    ) {
+        char name[
+            DEVICE_REGISTRY_TEST_CAPACITY_NAME_SIZE
+        ];
+
+        device_registry_test_capacity_name(
+            index,
+            name
+        );
+
+        if (
+            !device_initialize(
+                &devices[index],
+                2000ULL +
+                    (uint64_t) index,
+                name,
+                DEVICE_REGISTRY_TEST_CAPACITY_NAME_LENGTH,
+                DEVICE_KIND_VIRTUAL,
+                NULL,
+                NULL
+            ) ||
+            device_registry_register(
+                &registry,
+                &devices[index]
+            ) !=
+                DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED ||
+            registry.count !=
+                index + 1U ||
+            devices[index].reference_count != 2 ||
+            registry.generation !=
+                initial_generation +
+                    (uint64_t) index +
+                    1ULL
+        ) {
+            kernel_panic(
+                "Device registry capacity fill failed"
+            );
+        }
+    }
+
+    if (
+        registry.count !=
+            DEVICE_REGISTRY_CAPACITY
+    ) {
+        kernel_panic(
+            "Device registry did not reach declared capacity"
+        );
+    }
+
+    /*
+     * Capture an iterator before the rejected registration. RESOURCE_EXHAUSTED
+     * is not a mutation and therefore must not invalidate it.
+     */
+    struct device_registry_iterator iterator;
+
+    if (!device_registry_iterator_initialize(
+        &registry,
+        &iterator
+    )) {
+        kernel_panic(
+            "Device registry full-capacity iterator initialization failed"
+        );
+    }
+
+    uint64_t full_generation =
+        registry.generation;
+
+    struct device overflow;
+
+    if (!device_initialize(
+        &overflow,
+        9999,
+        "overflow",
+        sizeof("overflow") - 1U,
+        DEVICE_KIND_VIRTUAL,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Device registry overflow fixture initialization failed"
+        );
+    }
+
+    if (
+        device_registry_register(
+            &registry,
+            &overflow
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_RESOURCE_EXHAUSTED ||
+        registry.count !=
+            DEVICE_REGISTRY_CAPACITY ||
+        registry.generation !=
+            full_generation ||
+        overflow.reference_count != 1
+    ) {
+        kernel_panic(
+            "Full device registry mutation contract failed"
+        );
+    }
+
+    /*
+     * The iterator captured before the failed registration must still observe
+     * every published object exactly once and in registration order.
+     */
+    for (
+        size_t index = 0;
+        index < DEVICE_REGISTRY_CAPACITY;
+        ++index
+    ) {
+        struct device *result =
+            NULL;
+
+        if (
+            device_registry_iterator_next(
+                &iterator,
+                &result
+            ) !=
+                DEVICE_REGISTRY_ITERATION_RESULT_DEVICE ||
+            result !=
+                &devices[index] ||
+            !device_release(
+                result
+            )
+        ) {
+            kernel_panic(
+                "Full device registry deterministic iteration failed"
+            );
+        }
+    }
+
+    struct device *sentinel =
+        (struct device *)
+        (uintptr_t) 1U;
+
+    struct device *result =
+        sentinel;
+
+    if (
+        device_registry_iterator_next(
+            &iterator,
+            &result
+        ) !=
+            DEVICE_REGISTRY_ITERATION_RESULT_END ||
+        result != sentinel ||
+        iterator.index !=
+            DEVICE_REGISTRY_CAPACITY
+    ) {
+        kernel_panic(
+            "Full device registry iterator completion failed"
+        );
+    }
+
+    /*
+     * Remove from the end so capacity cleanup does not spend time repeatedly
+     * compacting the whole table. Each detach transfers registry ownership.
+     */
+    for (
+        size_t remaining =
+            DEVICE_REGISTRY_CAPACITY;
+        remaining != 0;
+        --remaining
+    ) {
+        size_t index =
+            remaining - 1U;
+
+        struct device *detached =
+            NULL;
+
+        if (
+            device_registry_unregister(
+                &registry,
+                &devices[index],
+                &detached
+            ) !=
+                DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+            detached !=
+                &devices[index] ||
+            registry.count !=
+                index ||
+            !device_finish_removal(
+                &devices[index]
+            ) ||
+            !device_release(
+                detached
+            ) ||
+            devices[index].reference_count != 1 ||
+            !device_release(
+                &devices[index]
+            )
+        ) {
+            kernel_panic(
+                "Device registry capacity fixture cleanup failed"
+            );
+        }
+    }
+
+    if (
+        registry.count != 0 ||
+        !device_begin_removal(
+            &overflow
+        ) ||
+        !device_finish_removal(
+            &overflow
+        ) ||
+        !device_release(
+            &overflow
+        )
+    ) {
+        kernel_panic(
+            "Device registry overflow fixture cleanup failed"
+        );
+    }
+}
+
+static void device_registry_test_invalid_structure(void)
+{
+    struct device_registry registry;
+
+    struct device object;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !device_initialize(
+            &object,
+            3000,
+            "structure",
+            sizeof("structure") - 1U,
+            DEVICE_KIND_PSEUDO,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Device registry structural fixture initialization failed"
+        );
+    }
+
+    struct device *sentinel =
+        (struct device *)
+        (uintptr_t) 1U;
+
+    struct device *result =
+        sentinel;
+
+    struct device_registry_iterator iterator;
+
+    /*
+     * generation zero identifies an uninitialized/invalid registry.
+     */
+    registry.generation =
+        0;
+
+    if (
+        device_registry_register(
+            &registry,
+            &object
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_INVALID_ARGUMENT ||
+        device_registry_lookup_identifier(
+            &registry,
+            3000,
+            &result
+        ) !=
+            DEVICE_REGISTRY_LOOKUP_RESULT_INVALID_ARGUMENT ||
+        device_registry_iterator_initialize(
+            &registry,
+            &iterator
+        ) ||
+        result != sentinel ||
+        object.reference_count != 1
+    ) {
+        kernel_panic(
+            "Device registry accepted zero generation"
+        );
+    }
+
+    /*
+     * An impossible count must be rejected before table traversal.
+     */
+    if (!device_registry_initialize(
+        &registry
+    )) {
+        kernel_panic(
+            "Device registry structural fixture reset failed"
+        );
+    }
+
+    registry.count =
+        DEVICE_REGISTRY_CAPACITY + 1U;
+
+    if (
+        device_registry_register(
+            &registry,
+            &object
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_INVALID_ARGUMENT ||
+        device_registry_lookup_name(
+            &registry,
+            "structure",
+            sizeof("structure") - 1U,
+            &result
+        ) !=
+            DEVICE_REGISTRY_LOOKUP_RESULT_INVALID_ARGUMENT ||
+        result != sentinel ||
+        object.reference_count != 1
+    ) {
+        kernel_panic(
+            "Device registry accepted impossible count"
+        );
+    }
+
+    /*
+     * A hole inside the live prefix is invalid.
+     */
+    if (!device_registry_initialize(
+        &registry
+    )) {
+        kernel_panic(
+            "Device registry structural fixture second reset failed"
+        );
+    }
+
+    registry.count =
+        1;
+
+    registry.devices[0] =
+        NULL;
+
+    if (
+        device_registry_lookup_identifier(
+            &registry,
+            3000,
+            &result
+        ) !=
+            DEVICE_REGISTRY_LOOKUP_RESULT_INVALID_ARGUMENT ||
+        device_registry_iterator_initialize(
+            &registry,
+            &iterator
+        ) ||
+        result != sentinel
+    ) {
+        kernel_panic(
+            "Device registry accepted live-prefix hole"
+        );
+    }
+
+    /*
+     * Entries beyond count must remain empty.
+     */
+    if (!device_registry_initialize(
+        &registry
+    )) {
+        kernel_panic(
+            "Device registry structural fixture third reset failed"
+        );
+    }
+
+    registry.devices[0] =
+        &object;
+
+    if (
+        device_registry_register(
+            &registry,
+            &object
+        ) !=
+            DEVICE_REGISTRY_REGISTER_RESULT_INVALID_ARGUMENT ||
+        device_registry_iterator_initialize(
+            &registry,
+            &iterator
+        ) ||
+        object.reference_count != 1
+    ) {
+        kernel_panic(
+            "Device registry accepted hidden tail entry"
+        );
+    }
+
+    /*
+     * Restore ordinary state before disposing of the independent fixture
+     * object. No synthetic malformed registry state owns a device reference.
+     */
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !device_begin_removal(
+            &object
+        ) ||
+        !device_finish_removal(
+            &object
+        ) ||
+        !device_release(
+            &object
+        )
+    ) {
+        kernel_panic(
+            "Device registry structural fixture cleanup failed"
+        );
+    }
+}
+
+static void device_registry_test_repeated_attach_detach(void)
+{
+    struct device_registry registry;
+
+    struct device objects[
+        DEVICE_REGISTRY_TEST_REATTACH_CYCLES
+    ];
+
+    struct device_operations operations = {
+        .destroy =
+            device_registry_test_destroy,
+    };
+
+    if (!device_registry_initialize(
+        &registry
+    )) {
+        kernel_panic(
+            "Device registry repeated-lifetime initialization failed"
+        );
+    }
+
+    device_registry_test_destroy_count =
+        0;
+
+    struct device *previous_outstanding =
+        NULL;
+
+    for (
+        size_t cycle = 0;
+        cycle <
+            DEVICE_REGISTRY_TEST_REATTACH_CYCLES;
+        ++cycle
+    ) {
+        struct device *current =
+            &objects[cycle];
+
+        /*
+         * Every cycle represents a new object lifetime with the same logical
+         * identity and name.
+         */
+        if (!device_initialize(
+            current,
+            4000,
+            "repeat-device",
+            sizeof("repeat-device") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            &operations,
+            NULL
+        )) {
+            kernel_panic(
+                "Repeated device lifetime initialization failed"
+            );
+        }
+
+        /*
+         * From cycle 1 onward, the previous GONE object is still physically
+         * alive through one outstanding lookup reference. Publishing this new
+         * lifetime must nevertheless succeed because the old object has
+         * already left the discovery namespace.
+         */
+        if (
+            device_registry_register(
+                &registry,
+                current
+            ) !=
+                DEVICE_REGISTRY_REGISTER_RESULT_REGISTERED ||
+            registry.count != 1 ||
+            registry.devices[0] !=
+                current ||
+            current->reference_count != 2
+        ) {
+            kernel_panic(
+                "Repeated device lifetime registration failed"
+            );
+        }
+
+        if (
+            previous_outstanding != NULL
+        ) {
+            if (
+                previous_outstanding->state !=
+                    DEVICE_STATE_GONE ||
+                previous_outstanding->reference_count != 1 ||
+                device_registry_test_destroy_count !=
+                    cycle - 1U
+            ) {
+                kernel_panic(
+                    "Previous detached device lifetime corrupted"
+                );
+            }
+
+            /*
+             * Release the old lifetime only after the replacement has become
+             * visible. This proves namespace reuse is independent of physical
+             * lifetime.
+             */
+            if (
+                !device_release(
+                    previous_outstanding
+                ) ||
+                device_registry_test_destroy_count !=
+                    cycle
+            ) {
+                kernel_panic(
+                    "Outstanding detached device destruction failed"
+                );
+            }
+
+            previous_outstanding =
+                NULL;
+        }
+
+        struct device *outstanding =
+            NULL;
+
+        if (
+            device_registry_lookup_identifier(
+                &registry,
+                4000,
+                &outstanding
+            ) !=
+                DEVICE_REGISTRY_LOOKUP_RESULT_FOUND ||
+            outstanding !=
+                current ||
+            current->reference_count != 3
+        ) {
+            kernel_panic(
+                "Repeated device lifetime lookup failed"
+            );
+        }
+
+        struct device *detached =
+            NULL;
+
+        if (
+            device_registry_unregister(
+                &registry,
+                current,
+                &detached
+            ) !=
+                DEVICE_REGISTRY_UNREGISTER_RESULT_UNREGISTERED ||
+            detached !=
+                current ||
+            registry.count != 0 ||
+            current->state !=
+                DEVICE_STATE_REMOVING ||
+            current->reference_count != 3
+        ) {
+            kernel_panic(
+                "Repeated device lifetime detach failed"
+            );
+        }
+
+        /*
+         * Discovery must end immediately at detach even though three owned
+         * references still keep the object alive.
+         */
+        struct device *sentinel =
+            (struct device *)
+            (uintptr_t) 1U;
+
+        struct device *missing =
+            sentinel;
+
+        if (
+            device_registry_lookup_identifier(
+                &registry,
+                4000,
+                &missing
+            ) !=
+                DEVICE_REGISTRY_LOOKUP_RESULT_NOT_FOUND ||
+            missing != sentinel ||
+            device_registry_lookup_name(
+                &registry,
+                "repeat-device",
+                sizeof("repeat-device") - 1U,
+                &missing
+            ) !=
+                DEVICE_REGISTRY_LOOKUP_RESULT_NOT_FOUND ||
+            missing != sentinel
+        ) {
+            kernel_panic(
+                "Detached device lifetime remained discoverable"
+            );
+        }
+
+        if (
+            !device_finish_removal(
+                current
+            ) ||
+            current->state !=
+                DEVICE_STATE_GONE ||
+            !device_release(
+                detached
+            ) ||
+            current->reference_count != 2 ||
+            !device_release(
+                current
+            ) ||
+            current->reference_count != 1 ||
+            device_registry_test_destroy_count !=
+                cycle
+        ) {
+            kernel_panic(
+                "Repeated detached device lifetime teardown failed"
+            );
+        }
+
+        /*
+         * The lookup reference is now the sole remaining owner. Keep it until
+         * the next lifetime has successfully been registered.
+         */
+        previous_outstanding =
+            outstanding;
+    }
+
+    if (
+        previous_outstanding == NULL ||
+        device_registry_test_destroy_count !=
+            DEVICE_REGISTRY_TEST_REATTACH_CYCLES - 1U
+    ) {
+        kernel_panic(
+            "Final outstanding device lifetime missing"
+        );
+    }
+
+    if (
+        !device_release(
+            previous_outstanding
+        ) ||
+        device_registry_test_destroy_count !=
+            DEVICE_REGISTRY_TEST_REATTACH_CYCLES ||
+        registry.count != 0
+    ) {
+        kernel_panic(
+            "Repeated device lifetime final destruction failed"
         );
     }
 }
