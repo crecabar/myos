@@ -7,13 +7,23 @@
  * This fixture intentionally consumes the published MyOS syscall ABI
  * independently of kernel headers.
  *
- * The initial regression covers:
+ * The regression covers:
  *
  *   open("/file", READ | WRITE)
  *   fstat(fd)
  *   close(fd)
  *   close(fd) -> BAD_DESCRIPTOR
  *   open("/missing", READ) -> NOT_FOUND
+ *
+ *   read(fd, partially-unmapped-range, size) -> BAD_ADDRESS
+ *   write(fd, partially-unmapped-range, size) -> BAD_ADDRESS
+ *   successful multi-chunk read
+ *   successful multi-chunk write
+ *   read-back verification of written data
+ *
+ * The hostile I/O ranges begin in valid stack memory but extend into the
+ * unmapped page above the initial userspace stack. BAD_ADDRESS must therefore
+ * be detected before any backend-visible I/O occurs.
  */
 
 .section .text
@@ -26,6 +36,8 @@
 .set SYSCALL_EXIT,       2
 .set SYSCALL_FD_OPEN,    7
 .set SYSCALL_FD_CLOSE,   8
+.set SYSCALL_FD_READ,    9
+.set SYSCALL_FD_WRITE,  10
 .set SYSCALL_FD_FSTAT,  12
 
 /*
@@ -42,23 +54,77 @@
 /*
  * Published syscall errors are returned negated.
  */
+.set ERROR_BAD_ADDRESS,     -2
 .set ERROR_BAD_DESCRIPTOR,  -6
 .set ERROR_NOT_FOUND,       -7
 
 /*
- * The kernel fixture exposes /file with this initial size.
+ * Test-file and buffer geometry.
+ *
+ * 600 bytes deliberately exceeds the kernel's current 256-byte descriptor
+ * I/O staging buffer, exercising more than one staging iteration.
+ *
+ * The stack allocation is rounded to a 16-byte multiple.
  */
-.set EXPECTED_FILE_SIZE,    16
+.set TEST_FILE_SIZE,             600
+.set STACK_BUFFER_SIZE,          608
+
+/*
+ * The hostile pointer starts 300 bytes below the top of the mapped stack
+ * page and requests 600 bytes. Therefore its first 300 bytes are mapped while
+ * the remaining 300 bytes extend into the unmapped page above the stack.
+ *
+ * This specifically tests full-range prevalidation rather than merely a NULL
+ * or immediately-invalid pointer.
+ */
+.set HOSTILE_VALID_PREFIX_SIZE,  300
+.set HOSTILE_RANGE_SIZE,         600
 
 _start:
+    cld
+
+    /*
+     * Capture the exclusive top of the current mapped stack page before
+     * changing RSP.
+     *
+     * Existing MyOS Ring-3 pointer regressions establish that the initial
+     * userspace RSP resides in the highest mapped stack page.
+     */
+    movq %rsp, %r15
+    addq $0xfff, %r15
+    andq $-4096, %r15
+
+    /*
+     * R15 now points 300 bytes below the mapped stack boundary.
+     *
+     * [R15, R15 + 300) is valid.
+     * [R15 + 300, R15 + 600) is unmapped.
+     */
+    subq $HOSTILE_VALID_PREFIX_SIZE, %r15
+
+    /*
+     * Populate the valid prefix. This is particularly important for the
+     * hostile WRITE test: an implementation that validates one chunk at a
+     * time could otherwise write the first valid portion before discovering
+     * the invalid remainder.
+     */
+    movq %r15, %rdi
+    movq $HOSTILE_VALID_PREFIX_SIZE, %rcx
+    movb $0x33, %al
+    rep stosb
+
+    /*
+     * ----------------------------------------------------------------------
+     * Basic OPEN / FSTAT / CLOSE regressions
+     * ----------------------------------------------------------------------
+     */
+
     /*
      * Open /file read/write.
      *
      * RDI = pathname address
      * RSI = pathname length
      * RDX = access flags
-     *
-     * The pathname deliberately has no trailing NUL in its ABI length.
      */
     movq $SYSCALL_FD_OPEN, %rax
     leaq .Lfile_path(%rip), %rdi
@@ -73,9 +139,7 @@ _start:
     js .Lfail
 
     /*
-     * Keep the descriptor in a preserved general-purpose register.
-     * The syscall ABI promises every GPR except RAX survives returning
-     * syscalls.
+     * Preserve the descriptor across returning syscalls.
      */
     movq %rax, %r12
 
@@ -98,7 +162,7 @@ _start:
     cmpq $FILE_TYPE_REGULAR_FILE, 0(%rsp)
     jne .Lfstat_fail
 
-    cmpq $EXPECTED_FILE_SIZE, 8(%rsp)
+    cmpq $TEST_FILE_SIZE, 8(%rsp)
     jne .Lfstat_fail
 
     addq $16, %rsp
@@ -136,6 +200,217 @@ _start:
     jne .Lfail
 
     /*
+     * ----------------------------------------------------------------------
+     * Hostile READ / WRITE range regressions
+     * ----------------------------------------------------------------------
+     */
+
+    /*
+     * Reserve one ordinary userspace I/O buffer.
+     */
+    subq $STACK_BUFFER_SIZE, %rsp
+    movq %rsp, %r13
+
+    /*
+     * Open /file read/write at offset zero.
+     */
+    movq $SYSCALL_FD_OPEN, %rax
+    leaq .Lfile_path(%rip), %rdi
+    movq $(.Lfile_path_end - .Lfile_path), %rsi
+    movq $(OPEN_ACCESS_READ | OPEN_ACCESS_WRITE), %rdx
+    int $0x80
+
+    testq %rax, %rax
+    js .Lfail
+
+    movq %rax, %r12
+
+    /*
+     * The READ destination begins in writable userspace but extends into an
+     * unmapped page.
+     *
+     * The syscall must reject the complete range before the VFS backend sees
+     * any read operation or advances the open-file offset.
+     */
+    movq $SYSCALL_FD_READ, %rax
+    movq %r12, %rdi
+    movq %r15, %rsi
+    movq $HOSTILE_RANGE_SIZE, %rdx
+    int $0x80
+
+    cmpq $ERROR_BAD_ADDRESS, %rax
+    jne .Lfail
+
+    /*
+     * Perform the analogous hostile WRITE.
+     *
+     * Its first 300 source bytes are valid, which catches implementations
+     * that copy/write one chunk before discovering that the full request is
+     * invalid.
+     */
+    movq $SYSCALL_FD_WRITE, %rax
+    movq %r12, %rdi
+    movq %r15, %rsi
+    movq $HOSTILE_RANGE_SIZE, %rdx
+    int $0x80
+
+    cmpq $ERROR_BAD_ADDRESS, %rax
+    jne .Lfail
+
+    /*
+     * A complete 600-byte read must still begin at offset zero.
+     *
+     * Therefore either hostile syscall having advanced the OFD offset will
+     * make this transfer short and fail the test.
+     */
+    movq $SYSCALL_FD_READ, %rax
+    movq %r12, %rdi
+    movq %r13, %rsi
+    movq $TEST_FILE_SIZE, %rdx
+    int $0x80
+
+    cmpq $TEST_FILE_SIZE, %rax
+    jne .Lfail
+
+    /*
+     * The original file is initialized entirely to 0xa5.
+     *
+     * This also detects a hostile WRITE that modified the backing store before
+     * discovering the invalid tail of the userspace range.
+     */
+    movq %r13, %rdi
+    movq $TEST_FILE_SIZE, %rcx
+
+.Lverify_initial_data:
+    cmpb $0xa5, (%rdi)
+    jne .Lfail
+
+    incq %rdi
+    decq %rcx
+    jne .Lverify_initial_data
+
+    /*
+     * Close the read/write OFD. Reopening /file creates a new OFD whose offset
+     * begins at zero while the filesystem backing data persists.
+     */
+    movq $SYSCALL_FD_CLOSE, %rax
+    movq %r12, %rdi
+    int $0x80
+
+    testq %rax, %rax
+    jne .Lfail
+
+    /*
+     * ----------------------------------------------------------------------
+     * Successful multi-chunk WRITE
+     * ----------------------------------------------------------------------
+     */
+
+    /*
+     * Fill the userspace source buffer with a new recognizable value.
+     */
+    movq %r13, %rdi
+    movq $TEST_FILE_SIZE, %rcx
+    movb $0x5a, %al
+    rep stosb
+
+    /*
+     * Reopen at offset zero.
+     */
+    movq $SYSCALL_FD_OPEN, %rax
+    leaq .Lfile_path(%rip), %rdi
+    movq $(.Lfile_path_end - .Lfile_path), %rsi
+    movq $(OPEN_ACCESS_READ | OPEN_ACCESS_WRITE), %rdx
+    int $0x80
+
+    testq %rax, %rax
+    js .Lfail
+
+    movq %rax, %r12
+
+    /*
+     * 600 bytes exceeds the current kernel staging buffer and therefore
+     * exercises multiple internal descriptor-write iterations.
+     */
+    movq $SYSCALL_FD_WRITE, %rax
+    movq %r12, %rdi
+    movq %r13, %rsi
+    movq $TEST_FILE_SIZE, %rdx
+    int $0x80
+
+    cmpq $TEST_FILE_SIZE, %rax
+    jne .Lfail
+
+    movq $SYSCALL_FD_CLOSE, %rax
+    movq %r12, %rdi
+    int $0x80
+
+    testq %rax, %rax
+    jne .Lfail
+
+    /*
+     * ----------------------------------------------------------------------
+     * Successful multi-chunk READ-back
+     * ----------------------------------------------------------------------
+     */
+
+    /*
+     * Clear the destination first so stale source data cannot make a broken
+     * read appear successful.
+     */
+    movq %r13, %rdi
+    movq $TEST_FILE_SIZE, %rcx
+    xorl %eax, %eax
+    rep stosb
+
+    /*
+     * Reopen read-only at offset zero.
+     */
+    movq $SYSCALL_FD_OPEN, %rax
+    leaq .Lfile_path(%rip), %rdi
+    movq $(.Lfile_path_end - .Lfile_path), %rsi
+    movq $OPEN_ACCESS_READ, %rdx
+    int $0x80
+
+    testq %rax, %rax
+    js .Lfail
+
+    movq %rax, %r12
+
+    movq $SYSCALL_FD_READ, %rax
+    movq %r12, %rdi
+    movq %r13, %rsi
+    movq $TEST_FILE_SIZE, %rdx
+    int $0x80
+
+    cmpq $TEST_FILE_SIZE, %rax
+    jne .Lfail
+
+    /*
+     * Verify every byte written previously survived the complete
+     * syscall -> VFS -> backing-store -> syscall round trip.
+     */
+    movq %r13, %rdi
+    movq $TEST_FILE_SIZE, %rcx
+
+.Lverify_written_data:
+    cmpb $0x5a, (%rdi)
+    jne .Lfail
+
+    incq %rdi
+    decq %rcx
+    jne .Lverify_written_data
+
+    movq $SYSCALL_FD_CLOSE, %rax
+    movq %r12, %rdi
+    int $0x80
+
+    testq %rax, %rax
+    jne .Lfail
+
+    addq $STACK_BUFFER_SIZE, %rsp
+
+    /*
      * Every descriptor syscall behaved according to the published ABI.
      */
     movq $SYSCALL_EXIT, %rax
@@ -143,9 +418,6 @@ _start:
     int $0x80
 
 .Lfstat_fail:
-    /*
-     * Restore the stack before reporting failure.
-     */
     addq $16, %rsp
 
 .Lfail:

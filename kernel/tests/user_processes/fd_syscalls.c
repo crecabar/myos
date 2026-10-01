@@ -27,7 +27,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define FD_SYSCALLS_TEST_FILE_SIZE 16U
+#define FD_SYSCALLS_TEST_FILE_SIZE 600U
+
+#define FD_SYSCALLS_TEST_INITIAL_BYTE 0xa5U
+#define FD_SYSCALLS_TEST_WRITTEN_BYTE 0x5aU
 
 struct fd_syscalls_test_directory {
     struct vfs_node *file;
@@ -39,6 +42,8 @@ struct fd_syscalls_test_fixture {
     struct vfs_file file_storage;
 
     struct fd_syscalls_test_directory root_directory;
+
+    uint8_t file_data[FD_SYSCALLS_TEST_FILE_SIZE];
 };
 
 extern const uint8_t process_fd_syscalls_fixture_start[];
@@ -71,6 +76,22 @@ static enum vfs_stat_result fd_syscalls_test_stat(
     struct vfs_stat *result
 );
 
+static enum vfs_io_result fd_syscalls_test_read(
+    struct vfs_file *file,
+    uint64_t offset,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read
+);
+
+static enum vfs_io_result fd_syscalls_test_write(
+    struct vfs_file *file,
+    uint64_t offset,
+    const void *buffer,
+    size_t size,
+    size_t *bytes_written
+);
+
 static void fd_syscalls_test_fixture_initialize(void);
 
 static void fd_syscalls_test_fixture_release(void);
@@ -87,6 +108,14 @@ static const struct vfs_node_operations
             fd_syscalls_test_open,
         .stat =
             fd_syscalls_test_stat,
+    };
+
+static const struct vfs_file_operations
+    fd_syscalls_test_io_operations = {
+        .read =
+            fd_syscalls_test_read,
+        .write =
+            fd_syscalls_test_write,
     };
 
 // Public functions implementations
@@ -188,8 +217,8 @@ void user_process_fd_syscalls_test_terminated(
     }
 
     /*
-     * The Ring-3 program exits zero only after every syscall result and fstat
-     * payload has matched the published ABI.
+     * The Ring-3 program exits zero only after every syscall result and
+     * userspace data verification has matched the published ABI.
      */
     if (
         process->state !=
@@ -229,6 +258,25 @@ void user_process_fd_syscalls_test_terminated(
         );
     }
 
+    /*
+     * Ring 3 already read the data back through FD_READ. Verify the final
+     * backing store independently from the kernel side as well.
+     */
+    for (
+        size_t index = 0;
+        index < FD_SYSCALLS_TEST_FILE_SIZE;
+        ++index
+    ) {
+        if (
+            fd_syscalls_fixture.file_data[index] !=
+            FD_SYSCALLS_TEST_WRITTEN_BYTE
+        ) {
+            kernel_panic(
+                "FD syscall test backing data mismatch"
+            );
+        }
+    }
+
     fd_syscalls_test_fixture_release();
 
     if (
@@ -241,7 +289,7 @@ void user_process_fd_syscalls_test_terminated(
     }
 
     diagnostics_write(
-        "[syscall] Ring-3 descriptor open/close/stat test passed\n"
+        "[syscall] Ring-3 descriptor open/close/stat/read/write test passed\n"
     );
 }
 
@@ -292,9 +340,8 @@ static enum vfs_open_result fd_syscalls_test_open(
     }
 
     /*
-     * This initial fixture intentionally supplies one reusable open-file
-     * storage object. The Ring-3 regression never keeps two simultaneous
-     * opens of /file.
+     * The regression never keeps two simultaneous opens of /file, so one
+     * reusable open-file-description storage object is sufficient.
      */
     if (
         fd_syscalls_fixture
@@ -309,8 +356,8 @@ static enum vfs_open_result fd_syscalls_test_open(
         &fd_syscalls_fixture.file_storage,
         node,
         access,
-        NULL,
-        NULL
+        &fd_syscalls_test_io_operations,
+        &fd_syscalls_fixture
     )) {
         return
             VFS_OPEN_RESULT_RESOURCE_EXHAUSTED;
@@ -346,6 +393,139 @@ static enum vfs_stat_result fd_syscalls_test_stat(
         VFS_STAT_RESULT_SUCCESS;
 }
 
+static enum vfs_io_result fd_syscalls_test_read(
+    struct vfs_file *file,
+    uint64_t offset,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read)
+{
+    if (
+        file !=
+            &fd_syscalls_fixture.file_storage ||
+        file->private_data !=
+            &fd_syscalls_fixture ||
+        buffer == NULL ||
+        size == 0 ||
+        bytes_read == NULL
+    ) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * Reading at or beyond EOF is a successful zero-byte transfer.
+     */
+    if (
+        offset >=
+        FD_SYSCALLS_TEST_FILE_SIZE
+    ) {
+        *bytes_read =
+            0;
+
+        return
+            VFS_IO_RESULT_SUCCESS;
+    }
+
+    size_t start =
+        (size_t) offset;
+
+    size_t available =
+        FD_SYSCALLS_TEST_FILE_SIZE -
+        start;
+
+    size_t transfer_size =
+        size < available
+            ? size
+            : available;
+
+    uint8_t *destination =
+        buffer;
+
+    for (
+        size_t index = 0;
+        index < transfer_size;
+        ++index
+    ) {
+        destination[index] =
+            fd_syscalls_fixture
+                .file_data[start + index];
+    }
+
+    *bytes_read =
+        transfer_size;
+
+    return
+        VFS_IO_RESULT_SUCCESS;
+}
+
+static enum vfs_io_result fd_syscalls_test_write(
+    struct vfs_file *file,
+    uint64_t offset,
+    const void *buffer,
+    size_t size,
+    size_t *bytes_written)
+{
+    if (
+        file !=
+            &fd_syscalls_fixture.file_storage ||
+        file->private_data !=
+            &fd_syscalls_fixture ||
+        buffer == NULL ||
+        size == 0 ||
+        bytes_written == NULL
+    ) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * This fixture models a fixed-size regular file. A write beginning at or
+     * beyond its end succeeds with zero transferred bytes.
+     */
+    if (
+        offset >=
+        FD_SYSCALLS_TEST_FILE_SIZE
+    ) {
+        *bytes_written =
+            0;
+
+        return
+            VFS_IO_RESULT_SUCCESS;
+    }
+
+    size_t start =
+        (size_t) offset;
+
+    size_t available =
+        FD_SYSCALLS_TEST_FILE_SIZE -
+        start;
+
+    size_t transfer_size =
+        size < available
+            ? size
+            : available;
+
+    const uint8_t *source =
+        buffer;
+
+    for (
+        size_t index = 0;
+        index < transfer_size;
+        ++index
+    ) {
+        fd_syscalls_fixture
+            .file_data[start + index] =
+                source[index];
+    }
+
+    *bytes_written =
+        transfer_size;
+
+    return
+        VFS_IO_RESULT_SUCCESS;
+}
+
 static void fd_syscalls_test_fixture_initialize(void)
 {
     fd_syscalls_fixture =
@@ -355,6 +535,15 @@ static void fd_syscalls_test_fixture_initialize(void)
         .root_directory
         .file =
             &fd_syscalls_fixture.file_node;
+
+    for (
+        size_t index = 0;
+        index < FD_SYSCALLS_TEST_FILE_SIZE;
+        ++index
+    ) {
+        fd_syscalls_fixture.file_data[index] =
+            FD_SYSCALLS_TEST_INITIAL_BYTE;
+    }
 
     if (
         !vfs_node_initialize(
