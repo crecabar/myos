@@ -9,6 +9,7 @@
 #define MYOS_SYSCALL_SYSCALL_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #if MYOS_KERNEL_TESTS
@@ -188,6 +189,21 @@ struct syscall_file_stat {
 _Static_assert(
     sizeof(struct syscall_file_stat) == 16,
     "syscall file stat ABI must occupy 16 bytes"
+);
+
+_Static_assert(
+    _Alignof(struct syscall_file_stat) == 8,
+    "syscall file stat ABI must be 8-byte aligned"
+);
+
+_Static_assert(
+    offsetof(struct syscall_file_stat, type) == 0,
+    "syscall file stat type offset changed"
+);
+
+_Static_assert(
+    offsetof(struct syscall_file_stat, size) == 8,
+    "syscall file stat size offset changed"
 );
 
 /**
