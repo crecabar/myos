@@ -14,6 +14,7 @@
 
 #include "../core/panic.h"
 #include "../memory/heap.h"
+#include "../runtime/memory.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -37,6 +38,10 @@ struct initramfs_node {
 
     const uint8_t *data;
     size_t size;
+};
+
+struct initramfs_file {
+    struct vfs_file vfs;
 };
 
 struct initramfs {
@@ -104,6 +109,24 @@ static struct initramfs_node *initramfs_node_from_vfs(
     struct vfs_node *node
 );
 
+static enum vfs_open_result initramfs_node_open(
+    struct vfs_node *node,
+    enum vfs_open_access access,
+    struct vfs_file **result
+);
+
+static enum vfs_io_result initramfs_file_read(
+    struct vfs_file *file,
+    uint64_t offset,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read
+);
+
+static void initramfs_file_destroy(
+    struct vfs_file *file
+);
+
 static enum vfs_stat_result initramfs_node_stat(
     struct vfs_node *node,
     struct vfs_stat *result
@@ -120,9 +143,18 @@ static struct vfs_node *initramfs_node_parent(
 );
 
 // Static local variables
+static const struct vfs_file_operations initramfs_file_operations = {
+    .read =
+        initramfs_file_read,
+    .write =
+        NULL,
+    .destroy =
+        initramfs_file_destroy,
+};
+
 static const struct vfs_node_operations initramfs_node_operations = {
     .open =
-        NULL,
+        initramfs_node_open,
     .stat =
         initramfs_node_stat,
     .lookup =
@@ -800,6 +832,216 @@ static struct initramfs_node *initramfs_node_from_vfs(
 
     return
         candidate;
+}
+
+static enum vfs_open_result initramfs_node_open(
+    struct vfs_node *node,
+    enum vfs_open_access access,
+    struct vfs_file **result)
+{
+    if (
+        node == NULL ||
+        result == NULL
+    ) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct initramfs_node *entry =
+        initramfs_node_from_vfs(
+            node
+        );
+
+    if (entry == NULL) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        node->type !=
+        VFS_NODE_TYPE_REGULAR_FILE
+    ) {
+        return
+            VFS_OPEN_RESULT_NOT_SUPPORTED;
+    }
+
+    /*
+     * Initramfs is immutable. Any request carrying write permission is
+     * rejected at open time rather than creating an OFD that can never honor
+     * its advertised access mode.
+     */
+    if (
+        (access &
+            VFS_OPEN_ACCESS_WRITE) != 0
+    ) {
+        return
+            VFS_OPEN_RESULT_ACCESS_DENIED;
+    }
+
+    if (
+        access !=
+        VFS_OPEN_ACCESS_READ
+    ) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct initramfs_file *open_file =
+        kmalloc(sizeof(*open_file));
+
+    if (open_file == NULL) {
+        return
+            VFS_OPEN_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    if (!vfs_file_initialize(
+        &open_file->vfs,
+        node,
+        access,
+        &initramfs_file_operations,
+        open_file
+    )) {
+        kfree(
+            open_file
+        );
+
+        return
+            VFS_OPEN_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    *result =
+        &open_file->vfs;
+
+    return
+        VFS_OPEN_RESULT_OPENED;
+}
+
+static enum vfs_io_result initramfs_file_read(
+    struct vfs_file *file,
+    uint64_t offset,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read)
+{
+    if (
+        file == NULL ||
+        buffer == NULL ||
+        bytes_read == NULL ||
+        file->node == NULL
+    ) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        file->reference_count == 0 ||
+        file->node->reference_count == 0 ||
+        file->node->type !=
+            VFS_NODE_TYPE_REGULAR_FILE
+    ) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct initramfs_node *entry =
+        initramfs_node_from_vfs(
+            file->node
+        );
+
+    if (entry == NULL) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * The generic VFS does not call read callbacks for zero-length requests,
+     * but keep the filesystem callback internally well-defined as well.
+     */
+    if (size == 0) {
+        *bytes_read =
+            0;
+
+        return
+            VFS_IO_RESULT_SUCCESS;
+    }
+
+    /*
+     * All archive-backed file sizes originate in a size_t field. Therefore an
+     * offset greater than SIZE_MAX is necessarily beyond EOF.
+     */
+    if (
+        offset > SIZE_MAX ||
+        (size_t) offset >=
+            entry->size
+    ) {
+        *bytes_read =
+            0;
+
+        return
+            VFS_IO_RESULT_SUCCESS;
+    }
+
+    size_t start =
+        (size_t) offset;
+
+    size_t available =
+        entry->size -
+        start;
+
+    size_t transfer =
+        size < available
+            ? size
+            : available;
+
+    if (
+        transfer != 0 &&
+        entry->data == NULL
+    ) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    memcpy(
+        buffer,
+        entry->data + start,
+        transfer
+    );
+
+    *bytes_read =
+        transfer;
+
+    return
+        VFS_IO_RESULT_SUCCESS;
+}
+
+static void initramfs_file_destroy(
+    struct vfs_file *file)
+{
+    if (file == NULL) {
+        kernel_panic(
+            "Initramfs file destroy received null file"
+        );
+    }
+
+    struct initramfs_file *open_file =
+        file->private_data;
+
+    if (
+        open_file == NULL ||
+        &open_file->vfs != file
+    ) {
+        kernel_panic(
+            "Initramfs open-file ownership corrupted"
+        );
+    }
+
+    /*
+     * vfs_file_release() owns and releases file->node after this callback.
+     * Only the OFD storage belongs to the filesystem here.
+     */
+    kfree(
+        open_file
+    );
 }
 
 static enum vfs_stat_result initramfs_node_stat(

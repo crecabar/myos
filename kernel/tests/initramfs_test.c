@@ -64,6 +64,8 @@ static bool initramfs_test_heap_equal(
 
 static void initramfs_test_valid_tree(void);
 
+static void initramfs_test_file_io(void);
+
 static void initramfs_test_topology_errors(void);
 
 static void initramfs_test_unsupported_archive(void);
@@ -76,13 +78,14 @@ static void initramfs_test_invalid_arguments(void);
 void initramfs_test_run(void)
 {
     initramfs_test_valid_tree();
+    initramfs_test_file_io();
     initramfs_test_topology_errors();
     initramfs_test_unsupported_archive();
     initramfs_test_reference_lifetime();
     initramfs_test_invalid_arguments();
 
     diagnostics_write(
-        "[fs] Initramfs VFS tree tests passed\n"
+        "[fs] Initramfs VFS and file I/O tests passed\n"
     );
 }
 
@@ -602,6 +605,466 @@ static void initramfs_test_valid_tree(void)
     ) {
         kernel_panic(
             "Initramfs tree mount/unmount leaked heap ownership"
+        );
+    }
+}
+
+static void initramfs_test_file_io(void)
+{
+    uint8_t archive[
+        INITRAMFS_TEST_ARCHIVE_CAPACITY
+    ];
+
+    memset(
+        archive,
+        0,
+        sizeof(archive)
+    );
+
+    static const uint8_t payload[] = {
+        'a', 'b', 'c', 'd',
+        'e', 'f', 'g', 'h',
+        'i', 'j',
+    };
+
+    size_t size =
+        0;
+
+    size =
+        initramfs_test_append_entry(
+            archive,
+            sizeof(archive),
+            size,
+            "etc",
+            sizeof("etc") - 1U,
+            INITRAMFS_TEST_MODE_DIRECTORY,
+            NULL,
+            0
+        );
+
+    size =
+        initramfs_test_append_entry(
+            archive,
+            sizeof(archive),
+            size,
+            "etc/data",
+            sizeof("etc/data") - 1U,
+            INITRAMFS_TEST_MODE_REGULAR,
+            payload,
+            sizeof(payload)
+        );
+
+    size =
+        initramfs_test_append_trailer(
+            archive,
+            sizeof(archive),
+            size
+        );
+
+    struct kernel_heap_stats before;
+
+    if (!kernel_heap_stats_get(
+        &before
+    )) {
+        kernel_panic(
+            "Unable to collect initramfs I/O heap baseline"
+        );
+    }
+
+    struct initramfs *filesystem =
+        NULL;
+
+    if (
+        initramfs_mount(
+            archive,
+            size,
+            &filesystem
+        ) != INITRAMFS_MOUNT_RESULT_MOUNTED ||
+        filesystem == NULL
+    ) {
+        kernel_panic(
+            "Unable to mount initramfs I/O fixture"
+        );
+    }
+
+    struct vfs_node *root =
+        initramfs_root(
+            filesystem
+        );
+
+    if (root == NULL) {
+        kernel_panic(
+            "Initramfs I/O fixture has no root"
+        );
+    }
+
+    struct vfs_node *file_node =
+        NULL;
+
+    static const char path[] =
+        "/etc/data";
+
+    if (
+        vfs_path_resolve(
+            root,
+            root,
+            path,
+            sizeof(path) - 1U,
+            &file_node
+        ) != VFS_PATH_RESULT_FOUND ||
+        file_node == NULL ||
+        file_node->type !=
+            VFS_NODE_TYPE_REGULAR_FILE
+    ) {
+        kernel_panic(
+            "Unable to resolve initramfs I/O file"
+        );
+    }
+
+    /*
+     * An immutable initramfs accepts only read-only opens.
+     */
+    struct vfs_file *rejected =
+        NULL;
+
+    if (
+        vfs_node_open(
+            file_node,
+            VFS_OPEN_ACCESS_WRITE,
+            &rejected
+        ) != VFS_OPEN_RESULT_ACCESS_DENIED ||
+        rejected != NULL ||
+        vfs_node_open(
+            file_node,
+            VFS_OPEN_ACCESS_READ |
+                VFS_OPEN_ACCESS_WRITE,
+            &rejected
+        ) != VFS_OPEN_RESULT_ACCESS_DENIED ||
+        rejected != NULL
+    ) {
+        kernel_panic(
+            "Initramfs accepted writable regular-file open"
+        );
+    }
+
+    /*
+     * Directories are namespace objects only in this first implementation.
+     * Directory stream semantics will be introduced separately when userspace
+     * requires them.
+     */
+    struct vfs_file *directory_file =
+        NULL;
+
+    if (
+        vfs_node_open(
+            root,
+            VFS_OPEN_ACCESS_READ,
+            &directory_file
+        ) != VFS_OPEN_RESULT_NOT_SUPPORTED ||
+        directory_file != NULL
+    ) {
+        kernel_panic(
+            "Initramfs accepted directory open"
+        );
+    }
+
+    /*
+     * Two independent opens of the same node must create independent OFDs and
+     * therefore independent current offsets.
+     */
+    struct vfs_file *first =
+        NULL;
+
+    struct vfs_file *second =
+        NULL;
+
+    if (
+        vfs_node_open(
+            file_node,
+            VFS_OPEN_ACCESS_READ,
+            &first
+        ) != VFS_OPEN_RESULT_OPENED ||
+        first == NULL ||
+        vfs_node_open(
+            file_node,
+            VFS_OPEN_ACCESS_READ,
+            &second
+        ) != VFS_OPEN_RESULT_OPENED ||
+        second == NULL ||
+        first == second ||
+        first->offset != 0 ||
+        second->offset != 0
+    ) {
+        kernel_panic(
+            "Initramfs failed to create independent open files"
+        );
+    }
+
+    /*
+     * The resolver owns one reference and each OFD owns one more.
+     */
+    if (
+        file_node->reference_count !=
+        4
+    ) {
+        kernel_panic(
+            "Initramfs open-file node ownership mismatch"
+        );
+    }
+
+    uint8_t buffer[16];
+
+    memset(
+        buffer,
+        0,
+        sizeof(buffer)
+    );
+
+    size_t bytes_read =
+        SIZE_MAX;
+
+    if (
+        vfs_file_read(
+            first,
+            buffer,
+            4,
+            &bytes_read
+        ) != VFS_IO_RESULT_SUCCESS ||
+        bytes_read != 4 ||
+        first->offset != 4 ||
+        second->offset != 0 ||
+        buffer[0] != 'a' ||
+        buffer[1] != 'b' ||
+        buffer[2] != 'c' ||
+        buffer[3] != 'd'
+    ) {
+        kernel_panic(
+            "Initramfs first partial read mismatch"
+        );
+    }
+
+    memset(
+        buffer,
+        0,
+        sizeof(buffer)
+    );
+
+    bytes_read =
+        SIZE_MAX;
+
+    if (
+        vfs_file_read(
+            first,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_SUCCESS ||
+        bytes_read != 6 ||
+        first->offset != sizeof(payload) ||
+        buffer[0] != 'e' ||
+        buffer[1] != 'f' ||
+        buffer[2] != 'g' ||
+        buffer[3] != 'h' ||
+        buffer[4] != 'i' ||
+        buffer[5] != 'j'
+    ) {
+        kernel_panic(
+            "Initramfs read-to-EOF mismatch"
+        );
+    }
+
+    /*
+     * EOF is a successful zero-byte transfer and does not advance the offset.
+     */
+    bytes_read =
+        SIZE_MAX;
+
+    if (
+        vfs_file_read(
+            first,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_SUCCESS ||
+        bytes_read != 0 ||
+        first->offset != sizeof(payload)
+    ) {
+        kernel_panic(
+            "Initramfs EOF semantics mismatch"
+        );
+    }
+
+    /*
+     * Seeking is generic VFS behavior. The filesystem only provides stat and
+     * read callbacks.
+     */
+    uint64_t seek_result =
+        UINT64_MAX;
+
+    if (
+        vfs_file_seek(
+            first,
+            -3,
+            VFS_SEEK_ORIGIN_END,
+            &seek_result
+        ) != VFS_SEEK_RESULT_SUCCESS ||
+        seek_result != 7 ||
+        first->offset != 7
+    ) {
+        kernel_panic(
+            "Initramfs seek-from-end mismatch"
+        );
+    }
+
+    memset(
+        buffer,
+        0,
+        sizeof(buffer)
+    );
+
+    bytes_read =
+        SIZE_MAX;
+
+    if (
+        vfs_file_read(
+            first,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_SUCCESS ||
+        bytes_read != 3 ||
+        first->offset != sizeof(payload) ||
+        buffer[0] != 'h' ||
+        buffer[1] != 'i' ||
+        buffer[2] != 'j'
+    ) {
+        kernel_panic(
+            "Initramfs read after seek mismatch"
+        );
+    }
+
+    /*
+     * The second OFD remained untouched throughout the first one's reads and
+     * seeks.
+     */
+    memset(
+        buffer,
+        0,
+        sizeof(buffer)
+    );
+
+    bytes_read =
+        SIZE_MAX;
+
+    if (
+        vfs_file_read(
+            second,
+            buffer,
+            2,
+            &bytes_read
+        ) != VFS_IO_RESULT_SUCCESS ||
+        bytes_read != 2 ||
+        second->offset != 2 ||
+        buffer[0] != 'a' ||
+        buffer[1] != 'b'
+    ) {
+        kernel_panic(
+            "Initramfs independent OFD offset mismatch"
+        );
+    }
+
+    /*
+     * A read-only OFD rejects writes before consulting filesystem callbacks.
+     */
+    size_t bytes_written =
+        SIZE_MAX;
+
+    if (
+        vfs_file_write(
+            first,
+            buffer,
+            1,
+            &bytes_written
+        ) != VFS_IO_RESULT_ACCESS_DENIED ||
+        bytes_written != SIZE_MAX
+    ) {
+        kernel_panic(
+            "Initramfs read-only OFD accepted write"
+        );
+    }
+
+    /*
+     * Release the temporary pathname-resolution reference. The two OFDs still
+     * retain the node and therefore keep the filesystem busy.
+     */
+    if (!vfs_node_release(
+        file_node
+    )) {
+        kernel_panic(
+            "Unable to release initramfs I/O path reference"
+        );
+    }
+
+    if (
+        file_node->reference_count !=
+        3 ||
+        initramfs_unmount(
+            filesystem
+        )
+    ) {
+        kernel_panic(
+            "Initramfs unmounted while files remained open"
+        );
+    }
+
+    if (
+        !vfs_file_release(
+            first
+        ) ||
+        file_node->reference_count !=
+            2 ||
+        initramfs_unmount(
+            filesystem
+        )
+    ) {
+        kernel_panic(
+            "Initramfs first OFD lifetime mismatch"
+        );
+    }
+
+    if (
+        !vfs_file_release(
+            second
+        ) ||
+        file_node->reference_count !=
+            1
+    ) {
+        kernel_panic(
+            "Initramfs second OFD lifetime mismatch"
+        );
+    }
+
+    if (!initramfs_unmount(
+        filesystem
+    )) {
+        kernel_panic(
+            "Initramfs remained busy after closing files"
+        );
+    }
+
+    struct kernel_heap_stats after;
+
+    if (
+        !kernel_heap_stats_get(
+            &after
+        ) ||
+        !initramfs_test_heap_equal(
+            &before,
+            &after
+        )
+    ) {
+        kernel_panic(
+            "Initramfs file I/O leaked heap ownership"
         );
     }
 }
