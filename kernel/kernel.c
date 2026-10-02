@@ -397,7 +397,7 @@ static void kernel_mount_root_filesystem(void)
         );
     }
 
-        struct vfs_node *root =
+    struct vfs_node *root =
         initramfs_root(
             filesystem
         );
