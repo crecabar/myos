@@ -19,6 +19,7 @@
 #include "boot/physical_range_audit.h"
 #include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
+#include "console/console_device.h"
 #include "core/panic.h"
 #include "core/device/registry.h"
 #include "diagnostics/diagnostics.h"
@@ -49,6 +50,7 @@
 #include "tests/boot_module_test.h"
 #include "tests/bus_test.h"
 #include "tests/character_device_test.h"
+#include "tests/console_device_test.h"
 #include "tests/device_registry_test.h"
 #include "tests/device_test.h"
 #include "tests/elf64_test.h"
@@ -95,6 +97,7 @@ static struct device_registry kernel_device_registry;
 static struct pseudo_devices kernel_pseudo_devices;
 static struct vfs_character_device_node kernel_null_vfs_node;
 static struct vfs_character_device_node kernel_zero_vfs_node;
+static struct console_device kernel_console_device;
 
 static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
@@ -197,8 +200,24 @@ static void kernel_initialize_core_devices(void)
         );
     }
 
+    enum console_device_initialize_result console_result =
+        console_device_initialize(
+            &kernel_console_device,
+            &kernel_display.console,
+            &kernel_device_registry
+        );
+
+    if (
+        console_result !=
+            CONSOLE_DEVICE_INITIALIZE_RESULT_INITIALIZED
+    ) {
+        kernel_panic(
+            "Unable to initialize system console device"
+        );
+    }
+
     diagnostics_write(
-        "[device] Core null/zero pseudo devices registered\n"
+        "[device] Core null/zero/console devices registered\n"
     );
 }
 
@@ -924,6 +943,7 @@ static _Noreturn void kernel_main_continue(void)
         character_device_test_run();
         device_registry_test_run();
         pseudo_device_test_run();
+        console_device_test_run();
         bus_test_run();
 
         acpi_test_run(
