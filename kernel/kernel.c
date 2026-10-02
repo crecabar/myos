@@ -397,19 +397,60 @@ static void kernel_mount_root_filesystem(void)
         );
     }
 
-    struct vfs_node *root =
+        struct vfs_node *root =
         initramfs_root(
             filesystem
         );
 
+    if (root == NULL) {
+        if (!initramfs_unmount(
+            filesystem
+        )) {
+            kernel_panic(
+                "Unable to roll back invalid root filesystem"
+            );
+        }
+
+        kernel_panic(
+            "Mounted initramfs has no root"
+        );
+    }
+
+    /*
+     * Build the complete bootstrap namespace before publishing the system
+     * root. Until vfs_root_install() succeeds, the filesystem remains private
+     * to this initialization transaction and can be rolled back completely.
+     */
+    if (!kernel_populate_bootstrap_device_namespace(
+        filesystem
+    )) {
+        /*
+         * Unmount first so every namespace-owned attachment reference is
+         * released. The adapter objects then retain only their original
+         * kernel ownership where initialization reached that point.
+         */
+        if (!initramfs_unmount(
+            filesystem
+        )) {
+            kernel_panic(
+                "Unable to roll back bootstrap device namespace"
+            );
+        }
+
+        kernel_release_bootstrap_device_nodes();
+
+        kernel_panic(
+            "Unable to populate bootstrap device namespace"
+        );
+    }
+
+    /*
+     * Root publication is the commit point: after this succeeds the complete
+     * bootstrap namespace becomes globally visible.
+     */
     if (!vfs_root_install(
         root
     )) {
-        /*
-         * Publication failed before the filesystem became globally visible.
-         * Drop namespace ownership first, then the kernel's initial adapter
-         * references.
-         */
         if (!initramfs_unmount(
             filesystem
         )) {
@@ -422,34 +463,6 @@ static void kernel_mount_root_filesystem(void)
 
         kernel_panic(
             "Unable to install system VFS root"
-        );
-    }
-
-    if (!kernel_populate_bootstrap_device_namespace(
-        filesystem
-    )) {
-        /*
-         * The root has not been globally published yet. Unmounting the
-         * temporary filesystem therefore removes any directory/attachment
-         * state created during a partial bootstrap namespace construction.
-         */
-        if (!initramfs_unmount(
-            filesystem
-        )) {
-            kernel_panic(
-                "Unable to roll back bootstrap device namespace"
-            );
-        }
-
-        /*
-         * External attachments owned one VFS reference each. unmount() has
-         * already released those; now release any initial adapter ownership
-         * that was successfully created before the failure.
-         */
-        kernel_release_bootstrap_device_nodes();
-
-        kernel_panic(
-            "Unable to populate bootstrap device namespace"
         );
     }
 
