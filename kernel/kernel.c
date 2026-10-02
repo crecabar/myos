@@ -14,12 +14,17 @@
 #include "arch/x86_64/stack.h"
 #include "boot/active_paging_audit.h"
 #include "boot/boot.h"
+#include "boot/initramfs.h"
 #include "boot/memory_reclaim.h"
 #include "boot/physical_range_audit.h"
 #include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
+#include "console/console_device.h"
 #include "core/panic.h"
+#include "core/device/registry.h"
 #include "diagnostics/diagnostics.h"
+#include "drivers/pseudo.h"
+#include "fs/initramfs.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
 #include "input/input.h"
@@ -30,6 +35,8 @@
 #include "memory/kernel_mapping.h"
 #include "memory/memory.h"
 #include "scheduler/scheduler.h"
+#include "vfs/character_device.h"
+#include "vfs/root.h"
 
 #if MYOS_RUNTIME_DIAGNOSTICS
 #include "tests/runtime_diagnostics.h"
@@ -42,12 +49,18 @@
 #include "tests/boot_info_test.h"
 #include "tests/boot_module_test.h"
 #include "tests/bus_test.h"
+#include "tests/character_device_test.h"
+#include "tests/console_device_test.h"
+#include "tests/core_device_fd_test.h"
 #include "tests/device_registry_test.h"
 #include "tests/device_test.h"
 #include "tests/elf64_test.h"
 #include "tests/elf64_loader_test.h"
 #include "tests/framebuffer_test.h"
 #include "tests/input_test.h"
+#include "tests/initramfs_boot_test.h"
+#include "tests/initramfs_format_test.h"
+#include "tests/initramfs_test.h"
 #include "tests/kernel_heap_test.h"
 #include "tests/process_cwd_test.h"
 #include "tests/process_elf_lifecycle_test.h"
@@ -57,6 +70,7 @@
 #include "tests/process_memory_test.h"
 #include "tests/process_namespace_test.h"
 #include "tests/process_path_test.h"
+#include "tests/pseudo_device_test.h"
 #include "tests/ps2_scancode_set1_test.h"
 #include "tests/ps2_mouse_packet_test.h"
 #include "tests/runtime_memory_test.h"
@@ -64,6 +78,7 @@
 #include "tests/syscall_test.h"
 #include "tests/user_copy_test.h"
 #include "tests/user_processes.h"
+#include "tests/vfs_character_device_test.h"
 #include "tests/vfs_file_io_test.h"
 #include "tests/vfs_file_test.h"
 #include "tests/vfs_lookup_test.h"
@@ -78,6 +93,13 @@
 static struct boot_info kernel_boot_info;
 static struct kernel_boot_config kernel_boot_config;
 static struct kernel_display kernel_display;
+static struct initramfs *kernel_root_filesystem;
+static struct device_registry kernel_device_registry;
+static struct pseudo_devices kernel_pseudo_devices;
+static struct vfs_character_device_node kernel_null_vfs_node;
+static struct vfs_character_device_node kernel_zero_vfs_node;
+static struct vfs_character_device_node kernel_console_vfs_node;
+static struct console_device kernel_console_device;
 
 static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
@@ -86,6 +108,16 @@ static uint8_t kernel_runtime_stack[
 static void kernel_input_system_action(
     enum input_system_action action
 );
+
+static void kernel_mount_root_filesystem(void);
+
+static void kernel_initialize_core_devices(void);
+
+static bool kernel_populate_bootstrap_device_namespace(
+    struct initramfs *filesystem
+);
+
+static void kernel_release_bootstrap_device_nodes(void);
 
 static _Noreturn void kernel_main_continue(void);
 
@@ -145,6 +177,52 @@ _Noreturn void kernel_main(void)
     );
 }
 
+static void kernel_initialize_core_devices(void)
+{
+    if (!device_registry_initialize(
+        &kernel_device_registry
+    )) {
+        kernel_panic(
+            "Unable to initialize kernel device registry"
+        );
+    }
+
+    enum pseudo_devices_initialize_result result =
+        pseudo_devices_initialize(
+            &kernel_pseudo_devices,
+            &kernel_device_registry
+        );
+
+    if (
+        result !=
+            PSEUDO_DEVICES_INITIALIZE_RESULT_INITIALIZED
+    ) {
+        kernel_panic(
+            "Unable to initialize core pseudo devices"
+        );
+    }
+
+    enum console_device_initialize_result console_result =
+        console_device_initialize(
+            &kernel_console_device,
+            &kernel_display.console,
+            &kernel_device_registry
+        );
+
+    if (
+        console_result !=
+            CONSOLE_DEVICE_INITIALIZE_RESULT_INITIALIZED
+    ) {
+        kernel_panic(
+            "Unable to initialize system console device"
+        );
+    }
+
+    diagnostics_write(
+        "[device] Core null/zero/console devices registered\n"
+    );
+}
+
 static void kernel_input_system_action(
     enum input_system_action action)
 {
@@ -161,6 +239,296 @@ static void kernel_input_system_action(
                 "Unknown kernel input system action"
             );
     }
+}
+
+static bool kernel_populate_bootstrap_device_namespace(
+    struct initramfs *filesystem)
+{
+    if (
+        filesystem == NULL ||
+        kernel_null_vfs_node.vfs.reference_count != 0 ||
+        kernel_zero_vfs_node.vfs.reference_count != 0 ||
+        kernel_console_vfs_node.vfs.reference_count != 0
+    ) {
+        return false;
+    }
+
+    struct vfs_node *root =
+        initramfs_root(
+            filesystem
+        );
+
+    if (
+        root == NULL ||
+        root->type !=
+            VFS_NODE_TYPE_DIRECTORY
+    ) {
+        return false;
+    }
+
+    /*
+     * /dev belongs to the bootstrap root namespace itself. Only its leaves are
+     * external objects. This preserves ordinary parent traversal within the
+     * initramfs while avoiding premature mountpoint semantics.
+     */
+    struct vfs_node *dev =
+        NULL;
+
+    if (
+        initramfs_create_directory(
+            filesystem,
+            root,
+            "dev",
+            sizeof("dev") - 1U,
+            &dev
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS ||
+        dev == NULL ||
+        dev->type !=
+            VFS_NODE_TYPE_DIRECTORY
+    ) {
+        return false;
+    }
+
+    if (!vfs_character_device_node_initialize(
+        &kernel_null_vfs_node,
+        &kernel_pseudo_devices.null_device.character
+    )) {
+        return false;
+    }
+
+    if (
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "null",
+            sizeof("null") - 1U,
+            &kernel_null_vfs_node.vfs
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS
+    ) {
+        return false;
+    }
+
+    if (!vfs_character_device_node_initialize(
+        &kernel_zero_vfs_node,
+        &kernel_pseudo_devices.zero_device.character
+    )) {
+        return false;
+    }
+
+    if (
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "zero",
+            sizeof("zero") - 1U,
+            &kernel_zero_vfs_node.vfs
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS
+    ) {
+        return false;
+    }
+
+    if (!vfs_character_device_node_initialize(
+        &kernel_console_vfs_node,
+        &kernel_console_device.character
+    )) {
+        return false;
+    }
+
+    if (
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "console",
+            sizeof("console") - 1U,
+            &kernel_console_vfs_node.vfs
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+static void kernel_release_bootstrap_device_nodes(void)
+{
+    /*
+     * This helper is used only after an unpublished initramfs has been
+     * unmounted. Any namespace-owned attachment reference has therefore
+     * already been released, leaving only the kernel's initial adapter
+     * ownership where initialization reached that point.
+     */
+    if (
+        kernel_console_vfs_node.vfs.reference_count != 0 &&
+        !vfs_node_release(
+            &kernel_console_vfs_node.vfs
+        )
+    ) {
+        kernel_panic(
+            "Unable to release bootstrap console VFS node"
+        );
+    }
+
+    if (
+        kernel_zero_vfs_node.vfs.reference_count != 0 &&
+        !vfs_node_release(
+            &kernel_zero_vfs_node.vfs
+        )
+    ) {
+        kernel_panic(
+            "Unable to release bootstrap zero VFS node"
+        );
+    }
+
+    if (
+        kernel_null_vfs_node.vfs.reference_count != 0 &&
+        !vfs_node_release(
+            &kernel_null_vfs_node.vfs
+        )
+    ) {
+        kernel_panic(
+            "Unable to release bootstrap null VFS node"
+        );
+    }
+}
+
+static void kernel_mount_root_filesystem(void)
+{
+    if (
+        kernel_root_filesystem != NULL ||
+        vfs_root_get() != NULL
+    ) {
+        kernel_panic(
+            "System root filesystem already installed"
+        );
+    }
+
+    const struct boot_module *module =
+        NULL;
+
+    if (!boot_initramfs_find(
+        &kernel_boot_info,
+        &module
+    )) {
+        kernel_panic(
+            "Unable to locate boot initramfs"
+        );
+    }
+
+    if (
+        module == NULL ||
+        module->size == 0 ||
+        module->size > SIZE_MAX
+    ) {
+        kernel_panic(
+            "Boot initramfs has invalid range"
+        );
+    }
+
+    struct initramfs *filesystem =
+        NULL;
+
+    enum initramfs_mount_result mount_result =
+        initramfs_mount(
+            (const void *)
+                (uintptr_t)
+                module->virtual_base,
+            (size_t) module->size,
+            &filesystem
+        );
+
+    if (
+        mount_result !=
+            INITRAMFS_MOUNT_RESULT_MOUNTED ||
+        filesystem == NULL
+    ) {
+        kernel_panic(
+            "Unable to mount boot initramfs"
+        );
+    }
+
+    struct vfs_node *root =
+        initramfs_root(
+            filesystem
+        );
+
+    if (root == NULL) {
+        if (!initramfs_unmount(
+            filesystem
+        )) {
+            kernel_panic(
+                "Unable to roll back invalid root filesystem"
+            );
+        }
+
+        kernel_panic(
+            "Mounted initramfs has no root"
+        );
+    }
+
+    /*
+     * Build the complete bootstrap namespace before publishing the system
+     * root. Until vfs_root_install() succeeds, the filesystem remains private
+     * to this initialization transaction and can be rolled back completely.
+     */
+    if (!kernel_populate_bootstrap_device_namespace(
+        filesystem
+    )) {
+        /*
+         * Unmount first so every namespace-owned attachment reference is
+         * released. The adapter objects then retain only their original
+         * kernel ownership where initialization reached that point.
+         */
+        if (!initramfs_unmount(
+            filesystem
+        )) {
+            kernel_panic(
+                "Unable to roll back bootstrap device namespace"
+            );
+        }
+
+        kernel_release_bootstrap_device_nodes();
+
+        kernel_panic(
+            "Unable to populate bootstrap device namespace"
+        );
+    }
+
+    /*
+     * Root publication is the commit point: after this succeeds the complete
+     * bootstrap namespace becomes globally visible.
+     */
+    if (!vfs_root_install(
+        root
+    )) {
+        if (!initramfs_unmount(
+            filesystem
+        )) {
+            kernel_panic(
+                "Unable to roll back failed root installation"
+            );
+        }
+
+        kernel_release_bootstrap_device_nodes();
+
+        kernel_panic(
+            "Unable to install system VFS root"
+        );
+    }
+
+    diagnostics_write(
+        "[fs] Bootstrap /dev populated with null/zero/console\n"
+    );
+
+    kernel_root_filesystem =
+        filesystem;
+
+    diagnostics_write(
+        "[fs] Initramfs mounted as system root\n"
+    );
 }
 
 static _Noreturn void kernel_main_continue(void)
@@ -241,6 +609,21 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 #endif
+
+    /*
+     * Establish the production device registry and bootstrap pseudo devices
+     * after the boot banner is visible. Device publication is independent of
+     * the bootloader-backed initramfs namespace and precedes later userspace
+     * exposure through /dev.
+     */
+    kernel_initialize_core_devices();
+
+    /*
+     * Consume the preserved boot initramfs while its normalized descriptor and
+     * module mapping are known-good. The mounted filesystem borrows immutable
+     * archive bytes that remain reserved for the lifetime of the system.
+     */
+    kernel_mount_root_filesystem();
 
     /*
      * Install kernel-owned GDT, TSS and IDT before returning any
@@ -585,11 +968,16 @@ static _Noreturn void kernel_main_continue(void)
             &kernel_boot_info
         );
 
+        initramfs_boot_test_run();
+
         boot_info_test_run();
         boot_config_test_run();
 
         device_test_run();
+        character_device_test_run();
         device_registry_test_run();
+        pseudo_device_test_run();
+        console_device_test_run();
         bus_test_run();
 
         acpi_test_run(
@@ -604,11 +992,14 @@ static _Noreturn void kernel_main_continue(void)
         ps2_scancode_set1_test_run();
         ps2_mouse_packet_test_run();
         input_test_run();
+        initramfs_format_test_run();
+        initramfs_test_run();
         kernel_heap_test_run();
         vfs_node_test_run();
         vfs_node_operations_test_run();
         vfs_file_test_run();
         vfs_file_io_test_run();
+        vfs_character_device_test_run();
         vfs_lookup_test_run();
         vfs_parent_test_run();
         vfs_path_test_run();
@@ -617,6 +1008,7 @@ static _Noreturn void kernel_main_continue(void)
         process_cwd_test_run();
         process_path_test_run();
         process_file_test_run();
+        core_device_fd_test_run();
         runtime_memory_test_run();
         syscall_test_run();
         process_memory_test_run();
