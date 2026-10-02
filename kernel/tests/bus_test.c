@@ -21,6 +21,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define BUS_TEST_REBIND_CYCLES 8U
+
+#define BUS_TEST_DRIVER_CAPACITY_NAME_LENGTH 9U
+#define BUS_TEST_DRIVER_CAPACITY_NAME_SIZE 10U
+
 struct bus_test_driver_state {
     uint64_t match_identifier;
 
@@ -48,6 +53,14 @@ struct bus_test_enumeration_state {
      */
     bool continue_after_rejection;
 };
+
+static struct driver bus_test_capacity_drivers[
+    BUS_DRIVER_CAPACITY + 1U
+];
+
+static struct bus_test_driver_state bus_test_capacity_driver_states[
+    BUS_DRIVER_CAPACITY + 1U
+];
 
 // Private functions and helpers declarations
 static bool bus_test_driver_match(
@@ -89,6 +102,23 @@ static void bus_test_enumeration_attach_failure(void);
 
 static void bus_test_enumeration_rejection_latches_failure(void);
 
+static void bus_test_driver_capacity_name(
+    size_t index,
+    char name[
+        BUS_TEST_DRIVER_CAPACITY_NAME_SIZE
+    ]
+);
+
+static void bus_test_duplicate_driver_name(void);
+
+static void bus_test_driver_capacity(void);
+
+static void bus_test_repeated_binding(void);
+
+static void bus_test_parent_child_enumeration_rollback(void);
+
+static void bus_test_invalid_structure(void);
+
 // Public functions implementations
 void bus_test_run(void)
 {
@@ -101,6 +131,11 @@ void bus_test_run(void)
     bus_test_enumeration_discovery_failure();
     bus_test_enumeration_attach_failure();
     bus_test_enumeration_rejection_latches_failure();
+    bus_test_duplicate_driver_name();
+    bus_test_driver_capacity();
+    bus_test_repeated_binding();
+    bus_test_parent_child_enumeration_rollback();
+    bus_test_invalid_structure();
 
     diagnostics_write(
         "[device] Bus discovery, membership and driver binding tests passed\n"
@@ -1817,6 +1852,721 @@ static void bus_test_enumeration_rejection_latches_failure(void)
     ) {
         kernel_panic(
             "Rejected trailing discovery mutated registry state"
+        );
+    }
+}
+
+static void bus_test_driver_capacity_name(
+    size_t index,
+    char name[
+        BUS_TEST_DRIVER_CAPACITY_NAME_SIZE
+    ])
+{
+    if (
+        name == NULL ||
+        index >
+            BUS_DRIVER_CAPACITY
+    ) {
+        kernel_panic(
+            "Bus driver capacity-name arguments invalid"
+        );
+    }
+
+    name[0] = 'c';
+    name[1] = 'a';
+    name[2] = 'p';
+    name[3] = 'd';
+    name[4] = 'r';
+    name[5] = 'v';
+    name[6] = '-';
+
+    name[7] =
+        (char) (
+            '0' +
+            ((index / 10U) % 10U)
+        );
+
+    name[8] =
+        (char) (
+            '0' +
+            (index % 10U)
+        );
+
+    name[9] =
+        '\0';
+}
+
+static void bus_test_duplicate_driver_name(void)
+{
+    struct device_registry registry;
+
+    struct bus bus;
+
+    struct bus_test_driver_state first_state = {
+        .match_identifier = 6000,
+        .match_count = 0,
+        .probe_count = 0,
+        .remove_count = 0,
+        .probe_success = true,
+    };
+
+    struct bus_test_driver_state second_state = {
+        .match_identifier = 6001,
+        .match_count = 0,
+        .probe_count = 0,
+        .remove_count = 0,
+        .probe_success = true,
+    };
+
+    struct driver first;
+    struct driver second;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "duplicate-driver-bus",
+            sizeof("duplicate-driver-bus") - 1U,
+            &registry,
+            NULL,
+            NULL
+        ) ||
+        !driver_initialize(
+            &first,
+            "duplicate-driver",
+            sizeof("duplicate-driver") - 1U,
+            &bus_test_driver_operations,
+            &first_state
+        ) ||
+        !driver_initialize(
+            &second,
+            "duplicate-driver",
+            sizeof("duplicate-driver") - 1U,
+            &bus_test_driver_operations,
+            &second_state
+        )
+    ) {
+        kernel_panic(
+            "Duplicate-driver fixture initialization failed"
+        );
+    }
+
+    if (
+        bus_register_driver(
+            &bus,
+            &first
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_REGISTERED ||
+        bus_register_driver(
+            &bus,
+            &second
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_DUPLICATE_NAME ||
+        bus.driver_count != 1 ||
+        bus.drivers[0] !=
+            &first ||
+        first.bus !=
+            &bus ||
+        second.bus !=
+            NULL
+    ) {
+        kernel_panic(
+            "Duplicate driver name rejection failed"
+        );
+    }
+
+    if (
+        bus_unregister_driver(
+            &bus,
+            &first
+        ) !=
+            BUS_DRIVER_UNREGISTER_RESULT_UNREGISTERED
+    ) {
+        kernel_panic(
+            "Duplicate-driver fixture cleanup failed"
+        );
+    }
+}
+
+static void bus_test_driver_capacity(void)
+{
+    struct device_registry registry;
+
+    struct bus bus;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "driver-capacity-bus",
+            sizeof("driver-capacity-bus") - 1U,
+            &registry,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Driver-capacity fixture initialization failed"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < BUS_DRIVER_CAPACITY + 1U;
+        ++index
+    ) {
+        char name[
+            BUS_TEST_DRIVER_CAPACITY_NAME_SIZE
+        ];
+
+        bus_test_driver_capacity_name(
+            index,
+            name
+        );
+
+        bus_test_capacity_driver_states[index].match_identifier =
+            DEVICE_IDENTIFIER_INVALID;
+
+        bus_test_capacity_driver_states[index].match_count =
+            0;
+
+        bus_test_capacity_driver_states[index].probe_count =
+            0;
+
+        bus_test_capacity_driver_states[index].remove_count =
+            0;
+
+        bus_test_capacity_driver_states[index].probe_success =
+            true;
+
+        if (!driver_initialize(
+            &bus_test_capacity_drivers[index],
+            name,
+            BUS_TEST_DRIVER_CAPACITY_NAME_LENGTH,
+            &bus_test_driver_operations,
+            &bus_test_capacity_driver_states[index]
+        )) {
+            kernel_panic(
+                "Driver-capacity driver initialization failed"
+            );
+        }
+    }
+
+    for (
+        size_t index = 0;
+        index < BUS_DRIVER_CAPACITY;
+        ++index
+    ) {
+        if (
+            bus_register_driver(
+                &bus,
+                &bus_test_capacity_drivers[index]
+            ) !=
+                BUS_DRIVER_REGISTER_RESULT_REGISTERED ||
+            bus.driver_count !=
+                index + 1U
+        ) {
+            kernel_panic(
+                "Bus driver capacity fill failed"
+            );
+        }
+    }
+
+    if (
+        bus_register_driver(
+            &bus,
+            &bus_test_capacity_drivers[
+                BUS_DRIVER_CAPACITY
+            ]
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_RESOURCE_EXHAUSTED ||
+        bus.driver_count !=
+            BUS_DRIVER_CAPACITY ||
+        bus_test_capacity_drivers[
+            BUS_DRIVER_CAPACITY
+        ].bus !=
+            NULL
+    ) {
+        kernel_panic(
+            "Bus driver capacity exhaustion contract failed"
+        );
+    }
+
+    for (
+        size_t remaining =
+            BUS_DRIVER_CAPACITY;
+        remaining != 0;
+        --remaining
+    ) {
+        size_t index =
+            remaining - 1U;
+
+        if (
+            bus_unregister_driver(
+                &bus,
+                &bus_test_capacity_drivers[index]
+            ) !=
+                BUS_DRIVER_UNREGISTER_RESULT_UNREGISTERED
+        ) {
+            kernel_panic(
+                "Driver-capacity fixture cleanup failed"
+            );
+        }
+    }
+
+    if (
+        bus.driver_count != 0
+    ) {
+        kernel_panic(
+            "Driver-capacity bus did not return to empty state"
+        );
+    }
+}
+
+static void bus_test_repeated_binding(void)
+{
+    struct device_registry registry;
+
+    struct bus bus;
+
+    struct device device;
+
+    struct bus_test_driver_state state = {
+        .match_identifier = 6100,
+        .match_count = 0,
+        .probe_count = 0,
+        .remove_count = 0,
+        .probe_success = true,
+    };
+
+    struct driver driver;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "rebind-bus",
+            sizeof("rebind-bus") - 1U,
+            &registry,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &device,
+            6100,
+            "rebind-device",
+            sizeof("rebind-device") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        bus_attach_device(
+            &bus,
+            &device
+        ) !=
+            BUS_DEVICE_ATTACH_RESULT_ATTACHED ||
+        !driver_initialize(
+            &driver,
+            "rebind-driver",
+            sizeof("rebind-driver") - 1U,
+            &bus_test_driver_operations,
+            &state
+        )
+    ) {
+        kernel_panic(
+            "Repeated-binding fixture initialization failed"
+        );
+    }
+
+    for (
+        size_t cycle = 0;
+        cycle <
+            BUS_TEST_REBIND_CYCLES;
+        ++cycle
+    ) {
+        if (
+            bus_register_driver(
+                &bus,
+                &driver
+            ) !=
+                BUS_DRIVER_REGISTER_RESULT_REGISTERED ||
+            driver.bus !=
+                &bus ||
+            bus.devices[0].driver !=
+                &driver ||
+            bus.devices[0].binding_state !=
+                BUS_BINDING_STATE_BOUND ||
+            device.private_data !=
+                &driver ||
+            state.match_count !=
+                cycle + 1U ||
+            state.probe_count !=
+                cycle + 1U ||
+            state.remove_count !=
+                cycle
+        ) {
+            kernel_panic(
+                "Repeated driver bind failed"
+            );
+        }
+
+        if (
+            bus_unregister_driver(
+                &bus,
+                &driver
+            ) !=
+                BUS_DRIVER_UNREGISTER_RESULT_UNREGISTERED ||
+            driver.bus !=
+                NULL ||
+            bus.devices[0].driver !=
+                NULL ||
+            bus.devices[0].binding_state !=
+                BUS_BINDING_STATE_UNBOUND ||
+            device.private_data !=
+                NULL ||
+            device.state !=
+                DEVICE_STATE_ACTIVE ||
+            registry.count != 1 ||
+            state.remove_count !=
+                cycle + 1U
+        ) {
+            kernel_panic(
+                "Repeated driver unbind failed"
+            );
+        }
+    }
+
+    if (
+        bus_detach_device(
+            &bus,
+            &device
+        ) !=
+            BUS_DEVICE_DETACH_RESULT_DETACHED ||
+        device.state !=
+            DEVICE_STATE_GONE ||
+        device.reference_count != 1 ||
+        !device_release(
+            &device
+        )
+    ) {
+        kernel_panic(
+            "Repeated-binding fixture cleanup failed"
+        );
+    }
+}
+
+static void bus_test_parent_child_enumeration_rollback(void)
+{
+    struct device_registry registry;
+
+    struct device parent;
+    struct device child;
+
+    if (
+        !device_initialize(
+            &parent,
+            6200,
+            "enumerated-parent",
+            sizeof("enumerated-parent") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize_child(
+            &child,
+            &parent,
+            6201,
+            "enumerated-child",
+            sizeof("enumerated-child") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Parent-child enumeration fixture initialization failed"
+        );
+    }
+
+    struct device *devices[] = {
+        &parent,
+        &child,
+    };
+
+    struct bus_test_enumeration_state enumeration = {
+        .devices =
+            devices,
+        .device_count =
+            2,
+        .callback_count =
+            0,
+        .fail_after_enabled =
+            true,
+        .fail_after =
+            2,
+        .continue_after_rejection =
+            false,
+    };
+
+    struct bus bus;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "topology-enumeration-bus",
+            sizeof("topology-enumeration-bus") - 1U,
+            &registry,
+            &bus_test_operations,
+            &enumeration
+        )
+    ) {
+        kernel_panic(
+            "Parent-child enumeration bus initialization failed"
+        );
+    }
+
+    /*
+     * Both devices are accepted before the synthetic discovery failure.
+     *
+     * Rollback must detach the child first. Doing parent first would be
+     * rejected by device_begin_removal() because the ACTIVE child still owns
+     * a topology relationship to it.
+     */
+    if (
+        bus_enumerate(
+            &bus
+        ) !=
+            BUS_ENUMERATION_RESULT_DISCOVERY_FAILED ||
+        enumeration.callback_count != 2 ||
+        bus.device_count != 0 ||
+        registry.count != 0 ||
+        child.state !=
+            DEVICE_STATE_GONE ||
+        child.reference_count != 0 ||
+        parent.state !=
+            DEVICE_STATE_GONE ||
+        parent.reference_count != 0 ||
+        parent.first_child !=
+            NULL
+    ) {
+        kernel_panic(
+            "Parent-child enumeration rollback ordering failed"
+        );
+    }
+}
+
+static void bus_test_invalid_structure(void)
+{
+    struct device_registry registry;
+
+    struct bus bus;
+
+    struct bus_test_driver_state state = {
+        .match_identifier = 6300,
+        .match_count = 0,
+        .probe_count = 0,
+        .remove_count = 0,
+        .probe_success = true,
+    };
+
+    struct driver driver;
+
+    struct device device;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "invalid-structure-bus",
+            sizeof("invalid-structure-bus") - 1U,
+            &registry,
+            NULL,
+            NULL
+        ) ||
+        !driver_initialize(
+            &driver,
+            "invalid-structure-driver",
+            sizeof("invalid-structure-driver") - 1U,
+            &bus_test_driver_operations,
+            &state
+        ) ||
+        !device_initialize(
+            &device,
+            6300,
+            "invalid-structure-device",
+            sizeof("invalid-structure-device") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Invalid bus structure fixture initialization failed"
+        );
+    }
+
+    if (
+        bus_enumerate(
+            NULL
+        ) !=
+            BUS_ENUMERATION_RESULT_INVALID_ARGUMENT ||
+        bus_enumerate(
+            &bus
+        ) !=
+            BUS_ENUMERATION_RESULT_NOT_SUPPORTED ||
+        bus_register_driver(
+            NULL,
+            &driver
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_INVALID_ARGUMENT ||
+        bus_register_driver(
+            &bus,
+            NULL
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_INVALID_ARGUMENT ||
+        bus_unregister_driver(
+            NULL,
+            &driver
+        ) !=
+            BUS_DRIVER_UNREGISTER_RESULT_INVALID_ARGUMENT ||
+        bus_attach_device(
+            NULL,
+            &device
+        ) !=
+            BUS_DEVICE_ATTACH_RESULT_INVALID_ARGUMENT ||
+        bus_attach_device(
+            &bus,
+            NULL
+        ) !=
+            BUS_DEVICE_ATTACH_RESULT_INVALID_ARGUMENT ||
+        bus_detach_device(
+            NULL,
+            &device
+        ) !=
+            BUS_DEVICE_DETACH_RESULT_INVALID_ARGUMENT ||
+        bus_detach_device(
+            &bus,
+            NULL
+        ) !=
+            BUS_DEVICE_DETACH_RESULT_INVALID_ARGUMENT
+    ) {
+        kernel_panic(
+            "Bus core accepted invalid arguments"
+        );
+    }
+
+    /*
+     * Impossible counts must be rejected before any table traversal.
+     */
+    bus.driver_count =
+        BUS_DRIVER_CAPACITY + 1U;
+
+    if (
+        bus_register_driver(
+            &bus,
+            &driver
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_INVALID_ARGUMENT
+    ) {
+        kernel_panic(
+            "Bus core accepted impossible driver count"
+        );
+    }
+
+    bus.driver_count =
+        0;
+
+    bus.device_count =
+        BUS_DEVICE_CAPACITY + 1U;
+
+    if (
+        bus_attach_device(
+            &bus,
+            &device
+        ) !=
+            BUS_DEVICE_ATTACH_RESULT_INVALID_ARGUMENT
+    ) {
+        kernel_panic(
+            "Bus core accepted impossible device count"
+        );
+    }
+
+    bus.device_count =
+        0;
+
+    /*
+     * Hidden entries beyond the declared compact prefix are also corruption.
+     */
+    bus.drivers[0] =
+        &driver;
+
+    if (
+        bus_register_driver(
+            &bus,
+            &driver
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_INVALID_ARGUMENT
+    ) {
+        kernel_panic(
+            "Bus core accepted hidden driver entry"
+        );
+    }
+
+    bus.drivers[0] =
+        NULL;
+
+    bus.devices[0].device =
+        &device;
+
+    if (
+        bus_attach_device(
+            &bus,
+            &device
+        ) !=
+            BUS_DEVICE_ATTACH_RESULT_INVALID_ARGUMENT
+    ) {
+        kernel_panic(
+            "Bus core accepted hidden device entry"
+        );
+    }
+
+    bus.devices[0].device =
+        NULL;
+
+    /*
+     * Restore the canonical empty-slot representation before disposing of the
+     * independent fixture objects.
+     */
+    bus.devices[0].driver =
+        NULL;
+
+    bus.devices[0].binding_state =
+        BUS_BINDING_STATE_UNBOUND;
+
+    if (
+        !device_begin_removal(
+            &device
+        ) ||
+        !device_finish_removal(
+            &device
+        ) ||
+        !device_release(
+            &device
+        )
+    ) {
+        kernel_panic(
+            "Invalid bus structure fixture cleanup failed"
         );
     }
 }

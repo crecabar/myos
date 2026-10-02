@@ -46,8 +46,8 @@ enum bus_binding_state {
 };
 
 /*
- * Prepared here for #235.2. A bus-specific enumerator will use this callback
- * boundary to hand discovered devices to the generic bus core.
+ * Bus-specific enumerators use this callback boundary to hand discovered
+ * caller-owned devices to the generic bus core.
  */
 typedef bool (*bus_device_discovered_callback)(
     struct device *device,
@@ -218,6 +218,9 @@ enum bus_driver_register_result bus_register_driver(
  *
  * Every device currently bound to driver is synchronously remove()d and left
  * ACTIVE, published, and UNBOUND.
+ *
+ * Other drivers that were already registered are not automatically reprobed.
+ * A later driver-registration lifetime may bind the resulting unbound device.
  */
 enum bus_driver_unregister_result bus_unregister_driver(
     struct bus *bus,

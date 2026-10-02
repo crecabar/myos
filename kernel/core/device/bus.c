@@ -74,6 +74,14 @@ static bool bus_enumeration_discovered(
     void *context
 );
 
+static bool bus_binding_state_valid(
+    enum bus_binding_state state
+);
+
+static bool bus_structure_valid(
+    const struct bus *bus
+);
+
 static bool bus_enumeration_rollback(
     struct bus *bus,
     size_t initial_device_count
@@ -177,12 +185,9 @@ enum bus_enumeration_result bus_enumerate(
     struct bus *bus)
 {
     if (
-        bus == NULL ||
-        bus->registry == NULL ||
-        bus->device_count >
-            BUS_DEVICE_CAPACITY ||
-        bus->driver_count >
-            BUS_DRIVER_CAPACITY ||
+        !bus_structure_valid(
+            bus
+        ) ||
         bus->enumeration_active
     ) {
         return
@@ -265,8 +270,9 @@ enum bus_driver_register_result bus_register_driver(
     struct driver *driver)
 {
     if (
-        bus == NULL ||
-        bus->registry == NULL ||
+        !bus_structure_valid(
+            bus
+        ) ||
         !bus_driver_valid(
             driver
         )
@@ -362,7 +368,9 @@ enum bus_driver_unregister_result bus_unregister_driver(
     struct driver *driver)
 {
     if (
-        bus == NULL ||
+        !bus_structure_valid(
+            bus
+        ) ||
         driver == NULL
     ) {
         return
@@ -436,8 +444,9 @@ enum bus_device_attach_result bus_attach_device(
     struct device *device)
 {
     if (
-        bus == NULL ||
-        bus->registry == NULL ||
+        !bus_structure_valid(
+            bus
+        ) ||
         device == NULL ||
         device->reference_count == 0 ||
         device->state !=
@@ -528,8 +537,9 @@ enum bus_device_detach_result bus_detach_device(
     struct device *device)
 {
     if (
-        bus == NULL ||
-        bus->registry == NULL ||
+        !bus_structure_valid(
+            bus
+        ) ||
         device == NULL
     ) {
         return
@@ -732,15 +742,260 @@ static bool bus_names_equal(
 static bool bus_driver_valid(
     const struct driver *driver)
 {
-    return
-        driver != NULL &&
-        driver->name_length != 0 &&
-        driver->name_length <=
-            DRIVER_NAME_MAX &&
-        driver->operations != NULL &&
-        driver->operations->match != NULL &&
-        driver->operations->probe != NULL &&
-        driver->operations->remove != NULL;
+    if (
+        driver == NULL ||
+        driver->name_length == 0 ||
+        driver->name_length >
+            DRIVER_NAME_MAX ||
+        driver->operations == NULL ||
+        driver->operations->match == NULL ||
+        driver->operations->probe == NULL ||
+        driver->operations->remove == NULL
+    ) {
+        return false;
+    }
+
+    if (
+        driver->name[
+            driver->name_length
+        ] != '\0'
+    ) {
+        return false;
+    }
+
+    for (
+        size_t index = 0;
+        index < driver->name_length;
+        ++index
+    ) {
+        if (
+            driver->name[index] == '\0' ||
+            driver->name[index] == '/'
+        ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool bus_binding_state_valid(
+    enum bus_binding_state state)
+{
+    switch (state) {
+        case BUS_BINDING_STATE_UNBOUND:
+        case BUS_BINDING_STATE_PROBING:
+        case BUS_BINDING_STATE_BOUND:
+        case BUS_BINDING_STATE_UNBINDING:
+            return true;
+    }
+
+    return false;
+}
+
+static bool bus_structure_valid(
+    const struct bus *bus)
+{
+    if (
+        bus == NULL ||
+        bus->registry == NULL ||
+        !bus_name_valid(
+            bus->name,
+            bus->name_length
+        ) ||
+        bus->name[
+            bus->name_length
+        ] != '\0' ||
+        bus->device_count >
+            BUS_DEVICE_CAPACITY ||
+        bus->driver_count >
+            BUS_DRIVER_CAPACITY
+    ) {
+        return false;
+    }
+
+    /*
+     * The registry is borrowed by the bus and must remain structurally valid
+     * for the complete bus lifetime.
+     */
+    struct device_registry_iterator registry_iterator;
+
+    if (!device_registry_iterator_initialize(
+        bus->registry,
+        &registry_iterator
+    )) {
+        return false;
+    }
+
+    /*
+     * Driver registrations occupy one compact prefix. Drivers are
+     * caller-owned but must still identify this bus as their current
+     * registration lifetime.
+     */
+    for (
+        size_t index = 0;
+        index < bus->driver_count;
+        ++index
+    ) {
+        struct driver *driver =
+            bus->drivers[index];
+
+        if (
+            !bus_driver_valid(
+                driver
+            ) ||
+            driver->bus !=
+                bus
+        ) {
+            return false;
+        }
+
+        for (
+            size_t previous = 0;
+            previous < index;
+            ++previous
+        ) {
+            struct driver *other =
+                bus->drivers[previous];
+
+            if (
+                other == driver ||
+                bus_names_equal(
+                    other->name,
+                    other->name_length,
+                    driver->name,
+                    driver->name_length
+                )
+            ) {
+                return false;
+            }
+        }
+    }
+
+    for (
+        size_t index = bus->driver_count;
+        index < BUS_DRIVER_CAPACITY;
+        ++index
+    ) {
+        if (
+            bus->drivers[index] !=
+                NULL
+        ) {
+            return false;
+        }
+    }
+
+    /*
+     * Device membership also occupies one compact prefix.
+     *
+     * A device kept by the bus is normally ACTIVE at public API boundaries.
+     * REMOVING exists only transiently inside bus_detach_device() after
+     * registry withdrawal has succeeded.
+     */
+    for (
+        size_t index = 0;
+        index < bus->device_count;
+        ++index
+    ) {
+        const struct bus_device_entry *entry =
+            &bus->devices[index];
+
+        if (
+            entry->device == NULL ||
+            entry->device->reference_count == 0 ||
+            entry->device->state !=
+                DEVICE_STATE_ACTIVE ||
+            !bus_binding_state_valid(
+                entry->binding_state
+            )
+        ) {
+            return false;
+        }
+
+        for (
+            size_t previous = 0;
+            previous < index;
+            ++previous
+        ) {
+            if (
+                bus->devices[
+                    previous
+                ].device ==
+                    entry->device
+            ) {
+                return false;
+            }
+        }
+
+        switch (entry->binding_state) {
+            case BUS_BINDING_STATE_UNBOUND:
+            case BUS_BINDING_STATE_PROBING:
+                if (
+                    entry->driver !=
+                        NULL
+                ) {
+                    return false;
+                }
+
+                break;
+
+            case BUS_BINDING_STATE_BOUND:
+            case BUS_BINDING_STATE_UNBINDING: {
+                if (
+                    entry->driver ==
+                        NULL
+                ) {
+                    return false;
+                }
+
+                bool registered =
+                    false;
+
+                for (
+                    size_t driver_index = 0;
+                    driver_index <
+                        bus->driver_count;
+                    ++driver_index
+                ) {
+                    if (
+                        bus->drivers[
+                            driver_index
+                        ] ==
+                            entry->driver
+                    ) {
+                        registered =
+                            true;
+                        break;
+                    }
+                }
+
+                if (!registered) {
+                    return false;
+                }
+
+                break;
+            }
+        }
+    }
+
+    for (
+        size_t index = bus->device_count;
+        index < BUS_DEVICE_CAPACITY;
+        ++index
+    ) {
+        if (
+            bus->devices[index].device !=
+                NULL ||
+            bus->devices[index].driver !=
+                NULL ||
+            bus->devices[index].binding_state !=
+                BUS_BINDING_STATE_UNBOUND
+        ) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 static size_t bus_find_device(
