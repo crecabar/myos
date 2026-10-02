@@ -531,6 +531,172 @@ static void initramfs_boot_test_core_devices(
             "Boot /dev/zero ownership cleanup failed"
         );
     }
+
+    /*
+     * /dev/console exposes the visible kernel console as a write-only
+     * character device. Input is deliberately unsupported until console input
+     * receives blocking and terminal semantics of its own.
+     */
+    static const char console_path[] =
+        "/dev/console";
+
+    struct vfs_node *console_node =
+        NULL;
+
+    if (
+        vfs_path_resolve(
+            root,
+            root,
+            console_path,
+            sizeof(console_path) - 1U,
+            &console_node
+        ) !=
+            VFS_PATH_RESULT_FOUND ||
+        console_node == NULL ||
+        console_node->type !=
+            VFS_NODE_TYPE_CHARACTER_DEVICE
+    ) {
+        kernel_panic(
+            "Boot /dev/console resolution failed"
+        );
+    }
+
+    metadata.type =
+        VFS_NODE_TYPE_REGULAR_FILE;
+
+    metadata.size =
+        UINT64_MAX;
+
+    if (
+        vfs_node_stat(
+            console_node,
+            &metadata
+        ) !=
+            VFS_STAT_RESULT_SUCCESS ||
+        metadata.type !=
+            VFS_NODE_TYPE_CHARACTER_DEVICE ||
+        metadata.size != 0
+    ) {
+        kernel_panic(
+            "Boot /dev/console metadata mismatch"
+        );
+    }
+
+    struct vfs_file *rejected_file =
+        NULL;
+
+    if (
+        vfs_node_open(
+            console_node,
+            VFS_OPEN_ACCESS_READ,
+            &rejected_file
+        ) !=
+            VFS_OPEN_RESULT_NOT_SUPPORTED ||
+        rejected_file != NULL
+    ) {
+        kernel_panic(
+            "Boot /dev/console unexpectedly supported read open"
+        );
+    }
+
+    rejected_file =
+        NULL;
+
+    if (
+        vfs_node_open(
+            console_node,
+            VFS_OPEN_ACCESS_READ |
+                VFS_OPEN_ACCESS_WRITE,
+            &rejected_file
+        ) !=
+            VFS_OPEN_RESULT_NOT_SUPPORTED ||
+        rejected_file != NULL
+    ) {
+        kernel_panic(
+            "Boot /dev/console unexpectedly supported read-write open"
+        );
+    }
+
+    struct vfs_file *console_file =
+        NULL;
+
+    if (
+        vfs_node_open(
+            console_node,
+            VFS_OPEN_ACCESS_WRITE,
+            &console_file
+        ) !=
+            VFS_OPEN_RESULT_OPENED ||
+        console_file == NULL
+    ) {
+        kernel_panic(
+            "Boot /dev/console write open failed"
+        );
+    }
+
+    /*
+     * Use one embedded NUL byte so the complete VFS -> character-device ->
+     * console backend path is exercised without printing diagnostic-looking
+     * text into the visible test console.
+     *
+     * The console device is length-delimited; NUL is therefore a real byte,
+     * not a string terminator.
+     */
+    const uint8_t console_byte =
+        0;
+
+    transferred =
+        SIZE_MAX;
+
+    if (
+        vfs_file_write(
+            console_file,
+            &console_byte,
+            sizeof(console_byte),
+            &transferred
+        ) !=
+            VFS_IO_RESULT_SUCCESS ||
+        transferred !=
+            sizeof(console_byte) ||
+        console_file->offset !=
+            sizeof(console_byte)
+    ) {
+        kernel_panic(
+            "Boot /dev/console write semantics failed"
+        );
+    }
+
+    seek_result =
+        UINT64_MAX;
+
+    if (
+        vfs_file_seek(
+            console_file,
+            0,
+            VFS_SEEK_ORIGIN_START,
+            &seek_result
+        ) !=
+            VFS_SEEK_RESULT_NOT_SUPPORTED ||
+        seek_result !=
+            UINT64_MAX
+    ) {
+        kernel_panic(
+            "Boot /dev/console unexpectedly supported seek"
+        );
+    }
+
+    if (
+        !vfs_file_release(
+            console_file
+        ) ||
+        !vfs_node_release(
+            console_node
+        )
+    ) {
+        kernel_panic(
+            "Boot /dev/console ownership cleanup failed"
+        );
+    }
 }
 
 static bool initramfs_boot_test_bytes_equal(

@@ -97,6 +97,7 @@ static struct device_registry kernel_device_registry;
 static struct pseudo_devices kernel_pseudo_devices;
 static struct vfs_character_device_node kernel_null_vfs_node;
 static struct vfs_character_device_node kernel_zero_vfs_node;
+static struct vfs_character_device_node kernel_console_vfs_node;
 static struct console_device kernel_console_device;
 
 static uint8_t kernel_runtime_stack[
@@ -245,7 +246,8 @@ static bool kernel_populate_bootstrap_device_namespace(
     if (
         filesystem == NULL ||
         kernel_null_vfs_node.vfs.reference_count != 0 ||
-        kernel_zero_vfs_node.vfs.reference_count != 0
+        kernel_zero_vfs_node.vfs.reference_count != 0 ||
+        kernel_console_vfs_node.vfs.reference_count != 0
     ) {
         return false;
     }
@@ -327,6 +329,26 @@ static bool kernel_populate_bootstrap_device_namespace(
         return false;
     }
 
+    if (!vfs_character_device_node_initialize(
+        &kernel_console_vfs_node,
+        &kernel_console_device.character
+    )) {
+        return false;
+    }
+
+    if (
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "console",
+            sizeof("console") - 1U,
+            &kernel_console_vfs_node.vfs
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS
+    ) {
+        return false;
+    }
+
     return true;
 }
 
@@ -338,6 +360,17 @@ static void kernel_release_bootstrap_device_nodes(void)
      * already been released, leaving only the kernel's initial adapter
      * ownership where initialization reached that point.
      */
+    if (
+        kernel_console_vfs_node.vfs.reference_count != 0 &&
+        !vfs_node_release(
+            &kernel_console_vfs_node.vfs
+        )
+    ) {
+        kernel_panic(
+            "Unable to release bootstrap console VFS node"
+        );
+    }
+
     if (
         kernel_zero_vfs_node.vfs.reference_count != 0 &&
         !vfs_node_release(
@@ -486,7 +519,7 @@ static void kernel_mount_root_filesystem(void)
     }
 
     diagnostics_write(
-        "[fs] Bootstrap /dev populated with null/zero\n"
+        "[fs] Bootstrap /dev populated with null/zero/console\n"
     );
 
     kernel_root_filesystem =
