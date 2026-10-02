@@ -35,6 +35,10 @@ bool character_device_initialize(
         device->reference_count == 0 ||
         device->state !=
             DEVICE_STATE_ACTIVE ||
+        device->device_class !=
+            DEVICE_CLASS_NONE ||
+        device->class_interface !=
+            NULL ||
         operations == NULL ||
         (
             operations->read == NULL &&
@@ -44,6 +48,11 @@ bool character_device_initialize(
         return false;
     }
 
+    /*
+     * Prepare the class object before making it discoverable. If generic class
+     * binding fails, clear the candidate capability so no apparently valid
+     * unbound character interface remains.
+     */
     character->device =
         device;
 
@@ -53,7 +62,53 @@ bool character_device_initialize(
     character->private_data =
         private_data;
 
+    if (!device_class_bind(
+        device,
+        DEVICE_CLASS_CHARACTER,
+        character
+    )) {
+        character->device =
+            NULL;
+
+        character->operations =
+            NULL;
+
+        character->private_data =
+            NULL;
+
+        return false;
+    }
+
     return true;
+}
+
+struct character_device *character_device_from_device(
+    struct device *device)
+{
+    struct character_device *character =
+        device_class_interface(
+            device,
+            DEVICE_CLASS_CHARACTER
+        );
+
+    if (
+        character == NULL ||
+        character->device !=
+            device ||
+        character->operations ==
+            NULL ||
+        (
+            character->operations->read ==
+                NULL &&
+            character->operations->write ==
+                NULL
+        )
+    ) {
+        return NULL;
+    }
+
+    return
+        character;
 }
 
 bool character_device_can_read(
@@ -243,16 +298,21 @@ static bool character_device_valid(
         character->operations == NULL ||
         character->device->reference_count == 0 ||
         character->device->state !=
-            DEVICE_STATE_ACTIVE
+            DEVICE_STATE_ACTIVE ||
+        (
+            character->operations->read ==
+                NULL &&
+            character->operations->write ==
+                NULL
+        )
     ) {
         return false;
     }
 
     return
-        character->operations->read !=
-            NULL ||
-        character->operations->write !=
-            NULL;
+        character_device_from_device(
+            character->device
+        ) == character;
 }
 
 static bool character_device_io_result_valid(

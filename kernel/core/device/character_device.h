@@ -92,12 +92,27 @@ struct character_device {
  *
  * No generic-device reference is acquired. Initialization therefore does not
  * alter the generic object's ownership count.
+ *
+ * A device with an already-bound primary class is rejected before the
+ * candidate character capability is modified.
  */
 bool character_device_initialize(
     struct character_device *character,
     struct device *device,
     const struct character_device_operations *operations,
     void *private_data
+);
+
+/**
+ * Discovers the character-device capability bound to one generic device.
+ *
+ * The returned pointer is borrowed. The device must be ACTIVE and its primary
+ * class must be DEVICE_CLASS_CHARACTER.
+ *
+ * @return Borrowed character-device interface, or NULL when unavailable.
+ */
+struct character_device *character_device_from_device(
+    struct device *device
 );
 
 /**

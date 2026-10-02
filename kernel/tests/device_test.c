@@ -76,10 +76,13 @@ static void device_test_corrupt_topology_rejection(void);
 
 static void device_test_destroy_parent_lifetime(void);
 
+static void device_test_class_binding(void);
+
 // Public functions implementations
 void device_test_run(void)
 {
     device_test_initialization();
+    device_test_class_binding();
     device_test_invalid_initialization();
     device_test_reference_lifetime();
     device_test_state_transitions();
@@ -259,6 +262,10 @@ static void device_test_initialization(void)
         ) ||
         object.kind !=
             DEVICE_KIND_PSEUDO ||
+        object.device_class !=
+            DEVICE_CLASS_NONE ||
+        object.class_interface !=
+            NULL ||
         object.state !=
             DEVICE_STATE_ACTIVE ||
         object.reference_count != 1 ||
@@ -311,6 +318,179 @@ static void device_test_initialization(void)
     ) {
         kernel_panic(
             "Device initialization fixture cleanup failed"
+        );
+    }
+}
+
+static void device_test_class_binding(void)
+{
+    struct device object;
+
+    if (!device_initialize(
+        &object,
+        43,
+        "class-test",
+        sizeof("class-test") - 1U,
+        DEVICE_KIND_VIRTUAL,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Device class fixture initialization failed"
+        );
+    }
+
+    uint64_t character_interface =
+        0x1122334455667788ULL;
+
+    uint64_t block_interface =
+        0x8877665544332211ULL;
+
+    if (
+        object.device_class !=
+            DEVICE_CLASS_NONE ||
+        object.class_interface !=
+            NULL ||
+        device_class_interface(
+            &object,
+            DEVICE_CLASS_CHARACTER
+        ) != NULL ||
+        device_class_interface(
+            &object,
+            DEVICE_CLASS_BLOCK
+        ) != NULL ||
+        device_class_interface(
+            &object,
+            DEVICE_CLASS_NONE
+        ) != NULL
+    ) {
+        kernel_panic(
+            "Unbound device exposed a class interface"
+        );
+    }
+
+    if (
+        device_class_bind(
+            NULL,
+            DEVICE_CLASS_CHARACTER,
+            &character_interface
+        ) ||
+        device_class_bind(
+            &object,
+            DEVICE_CLASS_NONE,
+            &character_interface
+        ) ||
+        device_class_bind(
+            &object,
+            (enum device_class) 99,
+            &character_interface
+        ) ||
+        device_class_bind(
+            &object,
+            DEVICE_CLASS_CHARACTER,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Device class binding accepted invalid input"
+        );
+    }
+
+    if (
+        object.device_class !=
+            DEVICE_CLASS_NONE ||
+        object.class_interface !=
+            NULL
+    ) {
+        kernel_panic(
+            "Rejected device class binding mutated object"
+        );
+    }
+
+    if (!device_class_bind(
+        &object,
+        DEVICE_CLASS_CHARACTER,
+        &character_interface
+    )) {
+        kernel_panic(
+            "Device rejected valid class binding"
+        );
+    }
+
+    if (
+        object.device_class !=
+            DEVICE_CLASS_CHARACTER ||
+        object.class_interface !=
+            &character_interface ||
+        device_class_interface(
+            &object,
+            DEVICE_CLASS_CHARACTER
+        ) !=
+            &character_interface ||
+        device_class_interface(
+            &object,
+            DEVICE_CLASS_BLOCK
+        ) != NULL
+    ) {
+        kernel_panic(
+            "Device class discovery contract failed"
+        );
+    }
+
+    /*
+     * The initial device model exposes one primary I/O class. Binding is
+     * therefore one-shot for one initialized device lifetime.
+     */
+    if (
+        device_class_bind(
+            &object,
+            DEVICE_CLASS_BLOCK,
+            &block_interface
+        ) ||
+        object.device_class !=
+            DEVICE_CLASS_CHARACTER ||
+        object.class_interface !=
+            &character_interface
+    ) {
+        kernel_panic(
+            "Device accepted a second primary class"
+        );
+    }
+
+    if (!device_begin_removal(
+        &object
+    )) {
+        kernel_panic(
+            "Device class fixture failed to begin removal"
+        );
+    }
+
+    if (
+        device_class_interface(
+            &object,
+            DEVICE_CLASS_CHARACTER
+        ) != NULL ||
+        device_class_bind(
+            &object,
+            DEVICE_CLASS_BLOCK,
+            &block_interface
+        )
+    ) {
+        kernel_panic(
+            "Inactive device exposed or accepted a class"
+        );
+    }
+
+    if (
+        !device_finish_removal(
+            &object
+        ) ||
+        !device_release(
+            &object
+        )
+    ) {
+        kernel_panic(
+            "Device class fixture cleanup failed"
         );
     }
 }

@@ -47,6 +47,12 @@ enum device_kind {
     DEVICE_KIND_PSEUDO,
 };
 
+enum device_class {
+    DEVICE_CLASS_NONE,
+    DEVICE_CLASS_CHARACTER,
+    DEVICE_CLASS_BLOCK,
+};
+
 enum device_state {
     DEVICE_STATE_ACTIVE,
     DEVICE_STATE_REMOVING,
@@ -84,6 +90,10 @@ struct device_operations {
  * name is a stable internal name copied into device storage. It is not a VFS
  * pathname and must not contain '/'.
  *
+ * device_class and class_interface provide explicit discovery of the primary
+ * class-specific I/O contract layered over this object. They do not alter
+ * generic device ownership and do not imply any userspace pathname.
+ *
  * parent is an owning relationship: every attached child owns one reference
  * to its parent. first_child and sibling links are non-owning topology links.
  *
@@ -100,6 +110,21 @@ struct device {
     size_t name_length;
 
     enum device_kind kind;
+
+    /*
+     * Primary I/O class exposed by this device.
+     *
+     * class_interface is an opaque borrowed pointer owned by the concrete
+     * class implementation. The generic device core does not know its layout.
+     *
+     * The initial model permits one primary class per device. Device identity,
+     * lifetime, topology, and registry publication remain independent from
+     * this binding.
+     */
+    enum device_class device_class;
+
+    void *class_interface;
+
     enum device_state state;
 
     size_t reference_count;
@@ -157,6 +182,38 @@ bool device_initialize_child(
     enum device_kind kind,
     const struct device_operations *operations,
     void *private_data
+);
+
+/**
+ * Binds one primary I/O class to an ACTIVE device.
+ *
+ * Binding is one-shot for the lifetime of the initialized device. class must
+ * not be DEVICE_CLASS_NONE and interface must be non-NULL.
+ *
+ * The interface pointer is borrowed. The class implementation must remain
+ * alive for as long as the generic device can be reached.
+ *
+ * No device reference is acquired.
+ */
+bool device_class_bind(
+    struct device *device,
+    enum device_class device_class,
+    void *interface
+);
+
+/**
+ * Discovers one class interface exposed by an ACTIVE device.
+ *
+ * The requested class must match the device's bound class exactly.
+ *
+ * The returned interface is borrowed and does not acquire device ownership.
+ * REMOVING and GONE devices are deliberately no longer discoverable.
+ *
+ * @return Borrowed class interface, or NULL when unavailable.
+ */
+void *device_class_interface(
+    struct device *device,
+    enum device_class device_class
 );
 
 bool device_retain(
