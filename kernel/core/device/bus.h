@@ -57,6 +57,24 @@ typedef bool (*bus_device_discovered_callback)(
 struct bus;
 
 struct bus_operations {
+    /**
+     * Enumerates devices currently discoverable through this bus.
+     *
+     * For each newly discovered caller-owned ACTIVE device, invoke discovered.
+     *
+     * discovered() returning true means generic bus attachment and registry
+     * publication succeeded. The enumerator still owns its original discovery
+     * reference and may release that reference after the callback returns.
+     *
+     * discovered() returning false means the device was not accepted by the
+     * generic bus core. The enumerator remains responsible for unwinding and
+     * releasing that device.
+     *
+     * The enumerator must stop and return false when discovered() rejects a
+     * device. Returning false for an independent bus-specific discovery error
+     * also causes generic rollback of devices accepted earlier in this
+     * enumeration call.
+     */
     bool (*enumerate)(
         struct bus *bus,
         bus_device_discovered_callback discovered,
@@ -87,6 +105,14 @@ struct bus {
     const struct bus_operations *operations;
 
     void *private_data;
+
+    /*
+     * Prevents recursive enumeration through probe/remove callbacks.
+     *
+     * The initial implementation is synchronous and single-CPU. A future SMP
+     * implementation will require synchronization around bus mutation.
+     */
+    bool enumeration_active;
 
     struct bus_device_entry devices[
         BUS_DEVICE_CAPACITY
@@ -139,6 +165,15 @@ enum bus_device_detach_result {
     BUS_DEVICE_DETACH_RESULT_LIFETIME_ERROR,
 };
 
+enum bus_enumeration_result {
+    BUS_ENUMERATION_RESULT_COMPLETED,
+    BUS_ENUMERATION_RESULT_INVALID_ARGUMENT,
+    BUS_ENUMERATION_RESULT_NOT_SUPPORTED,
+    BUS_ENUMERATION_RESULT_DISCOVERY_FAILED,
+    BUS_ENUMERATION_RESULT_ATTACH_FAILED,
+    BUS_ENUMERATION_RESULT_ROLLBACK_FAILED,
+};
+
 bool bus_initialize(
     struct bus *bus,
     const char *name,
@@ -146,6 +181,25 @@ bool bus_initialize(
     struct device_registry *registry,
     const struct bus_operations *operations,
     void *private_data
+);
+
+/**
+ * Runs one synchronous bus discovery pass.
+ *
+ * Devices accepted during this invocation are attached, published, and
+ * offered to registered drivers through the ordinary bus_attach_device()
+ * path.
+ *
+ * If either the bus-specific enumerator or one discovered-device attachment
+ * fails, every device successfully added by this invocation is detached in
+ * reverse order. Devices that existed before the enumeration began are never
+ * part of that rollback.
+ *
+ * The bus-specific enumerator owns each device's original discovery reference.
+ * The generic callback never consumes that reference.
+ */
+enum bus_enumeration_result bus_enumerate(
+    struct bus *bus
 );
 
 /**

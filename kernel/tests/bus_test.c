@@ -31,6 +31,24 @@ struct bus_test_driver_state {
     bool probe_success;
 };
 
+struct bus_test_enumeration_state {
+    struct device **devices;
+
+    size_t device_count;
+
+    size_t callback_count;
+
+    bool fail_after_enabled;
+
+    size_t fail_after;
+
+    /*
+     * Test-only behavior for a deliberately broken enumerator that keeps
+     * discovering devices after the generic callback rejects one.
+     */
+    bool continue_after_rejection;
+};
+
 // Private functions and helpers declarations
 static bool bus_test_driver_match(
     const struct driver *driver,
@@ -57,6 +75,20 @@ static void bus_test_blocked_detach_preserves_binding(void);
 
 static void bus_test_driver_single_bus_membership(void);
 
+static bool bus_test_enumerate(
+    struct bus *bus,
+    bus_device_discovered_callback discovered,
+    void *context
+);
+
+static void bus_test_enumeration_success(void);
+
+static void bus_test_enumeration_discovery_failure(void);
+
+static void bus_test_enumeration_attach_failure(void);
+
+static void bus_test_enumeration_rejection_latches_failure(void);
+
 // Public functions implementations
 void bus_test_run(void)
 {
@@ -65,9 +97,13 @@ void bus_test_run(void)
     bus_test_probe_fallback();
     bus_test_blocked_detach_preserves_binding();
     bus_test_driver_single_bus_membership();
+    bus_test_enumeration_success();
+    bus_test_enumeration_discovery_failure();
+    bus_test_enumeration_attach_failure();
+    bus_test_enumeration_rejection_latches_failure();
 
     diagnostics_write(
-        "[device] Bus membership and driver binding tests passed\n"
+        "[device] Bus discovery, membership and driver binding tests passed\n"
     );
 }
 
@@ -1023,6 +1059,764 @@ static void bus_test_driver_single_bus_membership(void)
     ) {
         kernel_panic(
             "Driver could not begin a later bus registration lifetime"
+        );
+    }
+}
+
+static bool bus_test_enumerate(
+    struct bus *bus,
+    bus_device_discovered_callback discovered,
+    void *context)
+{
+    if (
+        bus == NULL ||
+        discovered == NULL ||
+        context == NULL ||
+        bus->private_data == NULL
+    ) {
+        kernel_panic(
+            "Mock bus enumerator received invalid state"
+        );
+    }
+
+    struct bus_test_enumeration_state *state =
+        bus->private_data;
+
+    for (
+        size_t index = 0;
+        index < state->device_count;
+        ++index
+    ) {
+        struct device *device =
+            state->devices[index];
+
+        if (device == NULL) {
+            kernel_panic(
+                "Mock bus enumerator contains NULL device"
+            );
+        }
+
+        ++state->callback_count;
+
+        if (!discovered(
+            device,
+            context
+        )) {
+            /*
+             * The generic bus core rejected this device and therefore owns no
+             * persistent reference to it. Dispose of the discovery-owned
+             * lifetime before either stopping or deliberately continuing this
+             * test enumerator.
+             */
+            if (
+                device->state ==
+                    DEVICE_STATE_ACTIVE &&
+                device->reference_count ==
+                    1
+            ) {
+                if (
+                    !device_begin_removal(
+                        device
+                    ) ||
+                    !device_finish_removal(
+                        device
+                    ) ||
+                    !device_release(
+                        device
+                    )
+                ) {
+                    kernel_panic(
+                        "Mock enumerator rejected-device cleanup failed"
+                    );
+                }
+            }
+
+            if (!state->continue_after_rejection) {
+                return false;
+            }
+
+            /*
+             * Deliberately violate the enumeration contract for regression
+             * coverage. The generic bus core must reject every later callback
+             * after the first attach failure.
+             */
+            continue;
+        }
+
+        /*
+         * bus_attach_device() established independent bus and registry
+         * ownership. The mock enumerator no longer needs its discovery
+         * reference.
+         */
+        if (!device_release(
+            device
+        )) {
+            kernel_panic(
+                "Mock enumerator discovery-reference release failed"
+            );
+        }
+
+        if (
+            state->fail_after_enabled &&
+            state->callback_count ==
+                state->fail_after
+        ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static const struct bus_operations bus_test_operations = {
+    .enumerate =
+        bus_test_enumerate,
+};
+
+static void bus_test_enumeration_success(void)
+{
+    struct device_registry registry;
+
+    struct device first;
+    struct device second;
+    struct device third;
+
+    if (
+        !device_initialize(
+            &first,
+            5500,
+            "enum-first",
+            sizeof("enum-first") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &second,
+            5501,
+            "enum-second",
+            sizeof("enum-second") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &third,
+            5502,
+            "enum-third",
+            sizeof("enum-third") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Successful enumeration device initialization failed"
+        );
+    }
+
+    struct device *devices[] = {
+        &first,
+        &second,
+        &third,
+    };
+
+    struct bus_test_enumeration_state enumeration = {
+        .devices =
+            devices,
+        .device_count =
+            3,
+        .callback_count =
+            0,
+        .fail_after_enabled =
+            false,
+        .fail_after =
+            0,
+    };
+
+    struct bus bus;
+
+    struct bus_test_driver_state driver_state = {
+        .match_identifier = 5501,
+        .match_count = 0,
+        .probe_count = 0,
+        .remove_count = 0,
+        .probe_success = true,
+    };
+
+    struct driver driver;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "enumeration-bus",
+            sizeof("enumeration-bus") - 1U,
+            &registry,
+            &bus_test_operations,
+            &enumeration
+        ) ||
+        !driver_initialize(
+            &driver,
+            "enumeration-driver",
+            sizeof("enumeration-driver") - 1U,
+            &bus_test_driver_operations,
+            &driver_state
+        ) ||
+        bus_register_driver(
+            &bus,
+            &driver
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_REGISTERED
+    ) {
+        kernel_panic(
+            "Successful enumeration fixture initialization failed"
+        );
+    }
+
+    if (
+        bus_enumerate(
+            &bus
+        ) !=
+            BUS_ENUMERATION_RESULT_COMPLETED ||
+        enumeration.callback_count != 3 ||
+        bus.enumeration_active ||
+        bus.device_count != 3 ||
+        registry.count != 3 ||
+        first.reference_count != 2 ||
+        second.reference_count != 2 ||
+        third.reference_count != 2 ||
+        bus.devices[0].device !=
+            &first ||
+        bus.devices[1].device !=
+            &second ||
+        bus.devices[2].device !=
+            &third ||
+        bus.devices[0].binding_state !=
+            BUS_BINDING_STATE_UNBOUND ||
+        bus.devices[1].binding_state !=
+            BUS_BINDING_STATE_BOUND ||
+        bus.devices[1].driver !=
+            &driver ||
+        bus.devices[2].binding_state !=
+            BUS_BINDING_STATE_UNBOUND ||
+        driver_state.match_count != 3 ||
+        driver_state.probe_count != 1 ||
+        driver_state.remove_count != 0
+    ) {
+        kernel_panic(
+            "Successful bus enumeration contract failed"
+        );
+    }
+
+    /*
+     * The discovery references were released by the enumerator. Bus and
+     * registry are now the only owners of each device.
+     */
+    for (
+        size_t remaining = 3;
+        remaining != 0;
+        --remaining
+    ) {
+        struct device *device =
+            devices[
+                remaining - 1U
+            ];
+
+        if (
+            bus_detach_device(
+                &bus,
+                device
+            ) !=
+                BUS_DEVICE_DETACH_RESULT_DETACHED ||
+            device->state !=
+                DEVICE_STATE_GONE ||
+            device->reference_count != 0
+        ) {
+            kernel_panic(
+                "Successful enumeration cleanup failed"
+            );
+        }
+    }
+
+    if (
+        registry.count != 0 ||
+        bus.device_count != 0 ||
+        driver_state.remove_count != 1 ||
+        bus_unregister_driver(
+            &bus,
+            &driver
+        ) !=
+            BUS_DRIVER_UNREGISTER_RESULT_UNREGISTERED
+    ) {
+        kernel_panic(
+            "Successful enumeration final cleanup failed"
+        );
+    }
+}
+
+static void bus_test_enumeration_discovery_failure(void)
+{
+    struct device_registry registry;
+
+    struct device first;
+    struct device second;
+
+    if (
+        !device_initialize(
+            &first,
+            5600,
+            "partial-first",
+            sizeof("partial-first") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &second,
+            5601,
+            "partial-second",
+            sizeof("partial-second") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Partial enumeration device initialization failed"
+        );
+    }
+
+    struct device *devices[] = {
+        &first,
+        &second,
+    };
+
+    struct bus_test_enumeration_state enumeration = {
+        .devices =
+            devices,
+        .device_count =
+            2,
+        .callback_count =
+            0,
+        .fail_after_enabled =
+            true,
+        .fail_after =
+            2,
+    };
+
+    struct bus bus;
+
+    struct bus_test_driver_state driver_state = {
+        .match_identifier = 5600,
+        .match_count = 0,
+        .probe_count = 0,
+        .remove_count = 0,
+        .probe_success = true,
+    };
+
+    struct driver driver;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "partial-bus",
+            sizeof("partial-bus") - 1U,
+            &registry,
+            &bus_test_operations,
+            &enumeration
+        ) ||
+        !driver_initialize(
+            &driver,
+            "partial-driver",
+            sizeof("partial-driver") - 1U,
+            &bus_test_driver_operations,
+            &driver_state
+        ) ||
+        bus_register_driver(
+            &bus,
+            &driver
+        ) !=
+            BUS_DRIVER_REGISTER_RESULT_REGISTERED
+    ) {
+        kernel_panic(
+            "Partial enumeration fixture initialization failed"
+        );
+    }
+
+    struct device preexisting;
+
+    if (
+        !device_initialize(
+            &preexisting,
+            5599,
+            "preexisting",
+            sizeof("preexisting") - 1U,
+            DEVICE_KIND_VIRTUAL,
+            NULL,
+            NULL
+        ) ||
+        bus_attach_device(
+            &bus,
+            &preexisting
+        ) !=
+            BUS_DEVICE_ATTACH_RESULT_ATTACHED
+    ) {
+        kernel_panic(
+            "Partial enumeration preexisting device setup failed"
+        );
+    }
+
+    /*
+     * preexisting was legitimately offered to the already-registered driver.
+     * It does not match, so no probe occurred. Reset the match counter here so
+     * the assertions below describe only the enumeration transaction under
+     * test.
+     */
+    if (
+        driver_state.match_count != 1 ||
+        driver_state.probe_count != 0 ||
+        driver_state.remove_count != 0
+    ) {
+        kernel_panic(
+            "Preexisting device unexpectedly changed driver state"
+        );
+    }
+
+    driver_state.match_count =
+        0;
+
+    /*
+     * The enumerator returns failure only after both devices were accepted.
+     * Generic bus rollback must therefore remove both in reverse order.
+     */
+    if (
+        bus_enumerate(
+            &bus
+        ) !=
+            BUS_ENUMERATION_RESULT_DISCOVERY_FAILED ||
+        enumeration.callback_count != 2 ||
+        bus.enumeration_active ||
+        bus.device_count != 1 ||
+        registry.count != 1 ||
+        bus.devices[0].device !=
+            &preexisting ||
+        preexisting.state !=
+            DEVICE_STATE_ACTIVE ||
+        first.state !=
+            DEVICE_STATE_GONE ||
+        second.state !=
+            DEVICE_STATE_GONE ||
+        first.reference_count != 0 ||
+        second.reference_count != 0 ||
+        driver_state.match_count != 2 ||
+        driver_state.probe_count != 1 ||
+        driver_state.remove_count != 1
+    ) {
+        kernel_panic(
+            "Partial discovery failure did not roll back cleanly"
+        );
+    }
+
+    if (
+        bus_detach_device(
+            &bus,
+            &preexisting
+        ) !=
+            BUS_DEVICE_DETACH_RESULT_DETACHED ||
+        preexisting.reference_count != 1 ||
+        !device_release(
+            &preexisting
+        )
+    ) {
+        kernel_panic(
+            "Partial enumeration preexisting device cleanup failed"
+        );
+    }
+
+    if (
+        bus_unregister_driver(
+            &bus,
+            &driver
+        ) !=
+            BUS_DRIVER_UNREGISTER_RESULT_UNREGISTERED
+    ) {
+        kernel_panic(
+            "Partial enumeration driver cleanup failed"
+        );
+    }
+}
+
+static void bus_test_enumeration_attach_failure(void)
+{
+    struct device_registry registry;
+
+    struct device first;
+    struct device second;
+    struct device duplicate;
+
+    if (
+        !device_initialize(
+            &first,
+            5700,
+            "attach-first",
+            sizeof("attach-first") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &second,
+            5701,
+            "attach-second",
+            sizeof("attach-second") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &duplicate,
+            5700,
+            "attach-duplicate",
+            sizeof("attach-duplicate") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Attach-failure enumeration device initialization failed"
+        );
+    }
+
+    struct device *devices[] = {
+        &first,
+        &second,
+        &duplicate,
+    };
+
+    struct bus_test_enumeration_state enumeration = {
+        .devices =
+            devices,
+        .device_count =
+            3,
+        .callback_count =
+            0,
+        .fail_after_enabled =
+            false,
+        .fail_after =
+            0,
+    };
+
+    struct bus bus;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "attach-failure-bus",
+            sizeof("attach-failure-bus") - 1U,
+            &registry,
+            &bus_test_operations,
+            &enumeration
+        )
+    ) {
+        kernel_panic(
+            "Attach-failure enumeration fixture initialization failed"
+        );
+    }
+
+    /*
+     * first and second attach successfully. duplicate is rejected because
+     * first already occupies identifier 5700.
+     *
+     * The mock enumerator owns and destroys the rejected duplicate. Generic
+     * rollback owns removal of first and second.
+     */
+    if (
+        bus_enumerate(
+            &bus
+        ) !=
+            BUS_ENUMERATION_RESULT_ATTACH_FAILED ||
+        enumeration.callback_count != 3 ||
+        bus.enumeration_active ||
+        bus.device_count != 0 ||
+        registry.count != 0 ||
+        first.state !=
+            DEVICE_STATE_GONE ||
+        second.state !=
+            DEVICE_STATE_GONE ||
+        duplicate.state !=
+            DEVICE_STATE_GONE ||
+        first.reference_count != 0 ||
+        second.reference_count != 0 ||
+        duplicate.reference_count != 0
+    ) {
+        kernel_panic(
+            "Enumeration attach failure did not unwind cleanly"
+        );
+    }
+}
+
+static void bus_test_enumeration_rejection_latches_failure(void)
+{
+    struct device_registry registry;
+
+    struct device first;
+    struct device second;
+    struct device duplicate;
+    struct device trailing;
+
+    if (
+        !device_initialize(
+            &first,
+            5800,
+            "latched-first",
+            sizeof("latched-first") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &second,
+            5801,
+            "latched-second",
+            sizeof("latched-second") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &duplicate,
+            5800,
+            "latched-duplicate",
+            sizeof("latched-duplicate") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        ) ||
+        !device_initialize(
+            &trailing,
+            5802,
+            "latched-trailing",
+            sizeof("latched-trailing") - 1U,
+            DEVICE_KIND_PHYSICAL,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Latched enumeration fixture device initialization failed"
+        );
+    }
+
+    struct device *devices[] = {
+        &first,
+        &second,
+        &duplicate,
+        &trailing,
+    };
+
+    struct bus_test_enumeration_state enumeration = {
+        .devices =
+            devices,
+        .device_count =
+            4,
+        .callback_count =
+            0,
+        .fail_after_enabled =
+            false,
+        .fail_after =
+            0,
+        .continue_after_rejection =
+            true,
+    };
+
+    struct bus bus;
+
+    if (
+        !device_registry_initialize(
+            &registry
+        ) ||
+        !bus_initialize(
+            &bus,
+            "latched-failure-bus",
+            sizeof("latched-failure-bus") - 1U,
+            &registry,
+            &bus_test_operations,
+            &enumeration
+        )
+    ) {
+        kernel_panic(
+            "Latched enumeration fixture initialization failed"
+        );
+    }
+
+    uint64_t initial_generation =
+        registry.generation;
+
+    /*
+     * first and second attach normally.
+     *
+     * duplicate is then rejected because identifier 5800 is already
+     * published. The intentionally broken enumerator ignores that false
+     * callback result and continues with trailing.
+     *
+     * The generic enumeration context must remember the first failure:
+     * trailing must also be rejected without ever reaching bus_attach_device().
+     *
+     * The enumerator then incorrectly returns true after processing all four
+     * devices. bus_enumerate() must still report ATTACH_FAILED and roll back
+     * only first and second.
+     */
+    if (
+        bus_enumerate(
+            &bus
+        ) !=
+            BUS_ENUMERATION_RESULT_ATTACH_FAILED ||
+        enumeration.callback_count != 4 ||
+        bus.enumeration_active ||
+        bus.device_count != 0 ||
+        registry.count != 0 ||
+        first.state !=
+            DEVICE_STATE_GONE ||
+        second.state !=
+            DEVICE_STATE_GONE ||
+        duplicate.state !=
+            DEVICE_STATE_GONE ||
+        trailing.state !=
+            DEVICE_STATE_GONE ||
+        first.reference_count != 0 ||
+        second.reference_count != 0 ||
+        duplicate.reference_count != 0 ||
+        trailing.reference_count != 0
+    ) {
+        kernel_panic(
+            "Enumeration failure was not latched after callback rejection"
+        );
+    }
+
+    /*
+     * Only first and second were ever published:
+     *
+     *   +2 generations for registration
+     *   +2 generations for rollback unregistration
+     *
+     * duplicate and trailing must never have mutated registry publication.
+     */
+    if (
+        registry.generation !=
+            initial_generation + 4ULL
+    ) {
+        kernel_panic(
+            "Rejected trailing discovery mutated registry state"
         );
     }
 }

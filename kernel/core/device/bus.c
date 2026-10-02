@@ -13,6 +13,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+struct bus_enumeration_context {
+    struct bus *bus;
+
+    bool attach_failed;
+};
+
 // Private functions and helpers declarations
 static bool bus_name_valid(
     const char *name,
@@ -61,6 +67,16 @@ static void bus_unbind_entry(
 
 static enum bus_device_attach_result bus_attach_registry_result(
     enum device_registry_register_result result
+);
+
+static bool bus_enumeration_discovered(
+    struct device *device,
+    void *context
+);
+
+static bool bus_enumeration_rollback(
+    struct bus *bus,
+    size_t initial_device_count
 );
 
 // Public functions implementations
@@ -121,6 +137,9 @@ bool bus_initialize(
     bus->private_data =
         private_data;
 
+    bus->enumeration_active =
+        false;
+
     for (
         size_t index = 0;
         index < BUS_DEVICE_CAPACITY;
@@ -152,6 +171,93 @@ bool bus_initialize(
         0;
 
     return true;
+}
+
+enum bus_enumeration_result bus_enumerate(
+    struct bus *bus)
+{
+    if (
+        bus == NULL ||
+        bus->registry == NULL ||
+        bus->device_count >
+            BUS_DEVICE_CAPACITY ||
+        bus->driver_count >
+            BUS_DRIVER_CAPACITY ||
+        bus->enumeration_active
+    ) {
+        return
+            BUS_ENUMERATION_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        bus->operations == NULL ||
+        bus->operations->enumerate == NULL
+    ) {
+        return
+            BUS_ENUMERATION_RESULT_NOT_SUPPORTED;
+    }
+
+    size_t initial_device_count =
+        bus->device_count;
+
+    struct bus_enumeration_context context = {
+        .bus =
+            bus,
+        .attach_failed =
+            false,
+    };
+
+    bus->enumeration_active =
+        true;
+
+    bool discovered =
+        bus->operations->enumerate(
+            bus,
+            bus_enumeration_discovered,
+            &context
+        );
+
+    /*
+     * A callback rejection wins over a misleading true result from a buggy
+     * enumerator. Once attachment failed, this discovery pass failed.
+     */
+    if (
+        discovered &&
+        !context.attach_failed
+    ) {
+        bus->enumeration_active =
+            false;
+
+        return
+            BUS_ENUMERATION_RESULT_COMPLETED;
+    }
+
+    /*
+     * Keep enumeration_active set throughout rollback. Driver remove()
+     * callbacks invoked by detach must not recursively start another
+     * enumeration pass against a partially unwound bus.
+     */
+    bool rollback_succeeded =
+        bus_enumeration_rollback(
+            bus,
+            initial_device_count
+        );
+
+    bus->enumeration_active =
+        false;
+
+    if (!rollback_succeeded) {
+        return
+            BUS_ENUMERATION_RESULT_ROLLBACK_FAILED;
+    }
+
+    if (context.attach_failed) {
+        return
+            BUS_ENUMERATION_RESULT_ATTACH_FAILED;
+    }
+
+    return
+        BUS_ENUMERATION_RESULT_DISCOVERY_FAILED;
 }
 
 enum bus_driver_register_result bus_register_driver(
@@ -865,4 +971,86 @@ static enum bus_device_attach_result bus_attach_registry_result(
 
     return
         BUS_DEVICE_ATTACH_RESULT_REGISTRY_REJECTED;
+}
+
+static bool bus_enumeration_discovered(
+    struct device *device,
+    void *context)
+{
+    if (
+        context == NULL
+    ) {
+        return false;
+    }
+
+    struct bus_enumeration_context *enumeration =
+        context;
+
+    if (
+        enumeration->bus == NULL ||
+        enumeration->attach_failed
+    ) {
+        return false;
+    }
+
+    enum bus_device_attach_result result =
+        bus_attach_device(
+            enumeration->bus,
+            device
+        );
+
+    if (
+        result !=
+            BUS_DEVICE_ATTACH_RESULT_ATTACHED
+    ) {
+        enumeration->attach_failed =
+            true;
+
+        return false;
+    }
+
+    return true;
+}
+
+static bool bus_enumeration_rollback(
+    struct bus *bus,
+    size_t initial_device_count)
+{
+    if (
+        bus == NULL ||
+        initial_device_count >
+            bus->device_count
+    ) {
+        return false;
+    }
+
+    /*
+     * Detach in reverse discovery order.
+     *
+     * Besides preserving deterministic rollback, this is the correct ordering
+     * for future parent-before-child discovery: children discovered later are
+     * removed before their parents.
+     */
+    while (
+        bus->device_count >
+            initial_device_count
+    ) {
+        struct device *device =
+            bus->devices[
+                bus->device_count - 1U
+            ].device;
+
+        if (
+            device == NULL ||
+            bus_detach_device(
+                bus,
+                device
+            ) !=
+                BUS_DEVICE_DETACH_RESULT_DETACHED
+        ) {
+            return false;
+        }
+    }
+
+    return true;
 }
