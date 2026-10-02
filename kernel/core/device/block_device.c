@@ -51,6 +51,10 @@ bool block_device_initialize(
         device->reference_count == 0 ||
         device->state !=
             DEVICE_STATE_ACTIVE ||
+        device->device_class !=
+            DEVICE_CLASS_NONE ||
+        device->class_interface !=
+            NULL ||
         operations == NULL ||
         operations->read == NULL ||
         !block_device_geometry_compute(

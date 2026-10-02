@@ -92,6 +92,9 @@ struct character_device {
  *
  * No generic-device reference is acquired. Initialization therefore does not
  * alter the generic object's ownership count.
+ *
+ * A device with an already-bound primary class is rejected before the
+ * candidate character capability is modified.
  */
 bool character_device_initialize(
     struct character_device *character,

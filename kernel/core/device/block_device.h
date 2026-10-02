@@ -118,6 +118,9 @@ struct block_device {
  *
  * On success the capability is bound to device as DEVICE_CLASS_BLOCK.
  *
+ * A device with an already-bound primary class is rejected before the
+ * candidate block capability is modified.
+ *
  * No generic-device reference is acquired.
  */
 bool block_device_initialize(

@@ -365,6 +365,43 @@ static void character_device_test_class_discovery(void)
         );
     }
 
+    /*
+     * Reinitializing the currently published interface must fail before the
+     * live capability is mutated.
+     */
+    struct character_device_test_state replacement_state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+    };
+
+    if (
+        character_device_initialize(
+            &character,
+            &generic,
+            &character_device_test_write_only_operations,
+            &replacement_state
+        ) ||
+        character.device !=
+            &generic ||
+        character.operations !=
+            &character_device_test_operations ||
+        character.private_data !=
+            &state ||
+        character_device_from_device(
+            &generic
+        ) !=
+            &character
+    ) {
+        kernel_panic(
+            "Character-device self-reinitialization corrupted binding"
+        );
+    }
+
+    /*
+     * Rejection must likewise leave an unrelated candidate untouched.
+     */
     struct character_device duplicate = {
         .device =
             (struct device *) &state,
@@ -381,16 +418,19 @@ static void character_device_test_class_discovery(void)
             &character_device_test_operations,
             &state
         ) ||
-        duplicate.device != NULL ||
-        duplicate.operations != NULL ||
-        duplicate.private_data != NULL ||
+        duplicate.device !=
+            (struct device *) &state ||
+        duplicate.operations !=
+            &character_device_test_operations ||
+        duplicate.private_data !=
+            &generic ||
         character_device_from_device(
             &generic
         ) !=
             &character
     ) {
         kernel_panic(
-            "Character-device duplicate class binding was not contained"
+            "Character-device duplicate binding mutated candidate"
         );
     }
 

@@ -495,6 +495,50 @@ static void block_device_test_class_discovery(void)
         );
     }
 
+    /*
+     * Reinitializing the currently published interface must fail without
+     * changing its geometry, backend, or private state.
+     */
+    struct block_device_test_state replacement_state;
+
+    block_device_test_state_initialize(
+        &replacement_state
+    );
+
+    if (
+        block_device_initialize(
+            &first,
+            &generic,
+            8,
+            4,
+            &block_device_test_operations,
+            &replacement_state
+        ) ||
+        first.device !=
+            &generic ||
+        first.geometry.logical_block_size !=
+            BLOCK_DEVICE_TEST_BLOCK_SIZE ||
+        first.geometry.block_count !=
+            BLOCK_DEVICE_TEST_BLOCK_COUNT ||
+        first.geometry.capacity_bytes !=
+            BLOCK_DEVICE_TEST_STORAGE_SIZE ||
+        first.operations !=
+            &block_device_test_operations ||
+        first.private_data !=
+            &state ||
+        block_device_from_device(
+            &generic
+        ) !=
+            &first
+    ) {
+        kernel_panic(
+            "Block-device self-reinitialization corrupted binding"
+        );
+    }
+
+    /*
+     * An unrelated rejected candidate must also remain untouched.
+     */
     struct block_device duplicate = {
         .device =
             (struct device *) &state,
@@ -521,19 +565,22 @@ static void block_device_test_class_discovery(void)
             &block_device_test_operations,
             &state
         ) ||
-        duplicate.device != NULL ||
-        duplicate.geometry.logical_block_size != 0 ||
-        duplicate.geometry.block_count != 0 ||
-        duplicate.geometry.capacity_bytes != 0 ||
-        duplicate.operations != NULL ||
-        duplicate.private_data != NULL ||
+        duplicate.device !=
+            (struct device *) &state ||
+        duplicate.geometry.logical_block_size != 999 ||
+        duplicate.geometry.block_count != 999 ||
+        duplicate.geometry.capacity_bytes != 999 ||
+        duplicate.operations !=
+            &block_device_test_operations ||
+        duplicate.private_data !=
+            &generic ||
         block_device_from_device(
             &generic
         ) !=
             &first
     ) {
         kernel_panic(
-            "Duplicate block-device class binding was not contained"
+            "Duplicate block-device binding mutated candidate"
         );
     }
 
