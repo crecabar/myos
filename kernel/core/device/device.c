@@ -19,6 +19,10 @@ static bool device_kind_valid(
     enum device_kind kind
 );
 
+static bool device_class_valid(
+    enum device_class device_class
+);
+
 static bool device_state_valid(
     enum device_state state
 );
@@ -166,6 +170,71 @@ bool device_initialize_child(
         device;
 
     return true;
+}
+
+bool device_class_bind(
+    struct device *device,
+    enum device_class device_class,
+    void *interface)
+{
+    if (
+        device == NULL ||
+        device->reference_count == 0 ||
+        !device_state_valid(
+            device->state
+        ) ||
+        device->state !=
+            DEVICE_STATE_ACTIVE ||
+        !device_class_valid(
+            device_class
+        ) ||
+        device_class ==
+            DEVICE_CLASS_NONE ||
+        interface == NULL ||
+        device->device_class !=
+            DEVICE_CLASS_NONE ||
+        device->class_interface !=
+            NULL
+    ) {
+        return false;
+    }
+
+    device->device_class =
+        device_class;
+
+    device->class_interface =
+        interface;
+
+    return true;
+}
+
+void *device_class_interface(
+    struct device *device,
+    enum device_class device_class)
+{
+    if (
+        device == NULL ||
+        device->reference_count == 0 ||
+        !device_state_valid(
+            device->state
+        ) ||
+        device->state !=
+            DEVICE_STATE_ACTIVE ||
+        !device_class_valid(
+            device_class
+        ) ||
+        device_class ==
+            DEVICE_CLASS_NONE ||
+        device->device_class !=
+            device_class ||
+        device->class_interface ==
+            NULL
+    ) {
+        return NULL;
+    }
+
+    return
+        device->class_interface;
 }
 
 bool device_retain(
@@ -375,6 +444,19 @@ static bool device_kind_valid(
     return false;
 }
 
+static bool device_class_valid(
+    enum device_class device_class)
+{
+    switch (device_class) {
+        case DEVICE_CLASS_NONE:
+        case DEVICE_CLASS_CHARACTER:
+        case DEVICE_CLASS_BLOCK:
+            return true;
+    }
+
+    return false;
+}
+
 static bool device_state_valid(
     enum device_state state)
 {
@@ -467,6 +549,12 @@ static void device_initialize_validated(
 
     device->kind =
         kind;
+
+    device->device_class =
+        DEVICE_CLASS_NONE;
+
+    device->class_interface =
+        NULL;
 
     device->state =
         DEVICE_STATE_ACTIVE;

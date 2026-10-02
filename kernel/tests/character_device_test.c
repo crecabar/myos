@@ -66,6 +66,8 @@ static void character_device_test_backend_failure(void);
 
 static void character_device_test_overreport_rejection(void);
 
+static void character_device_test_class_discovery(void);
+
 // Static local variables
 static const struct character_device_operations
     character_device_test_operations = {
@@ -87,6 +89,7 @@ static const struct character_device_operations
 void character_device_test_run(void)
 {
     character_device_test_initialization();
+    character_device_test_class_discovery();
     character_device_test_invalid_initialization();
     character_device_test_io_dispatch();
     character_device_test_missing_capability();
@@ -289,6 +292,14 @@ static void character_device_test_initialization(void)
             &character_device_test_operations ||
         character.private_data !=
             &state ||
+        generic.device_class !=
+            DEVICE_CLASS_CHARACTER ||
+        generic.class_interface !=
+            &character ||
+        character_device_from_device(
+            &generic
+        ) !=
+            &character ||
         generic.reference_count !=
             1 ||
         generic.private_data !=
@@ -308,6 +319,117 @@ static void character_device_test_initialization(void)
     character_device_test_remove_generic(
         &generic
     );
+}
+
+static void character_device_test_class_discovery(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6405,
+        "char-class",
+        sizeof("char-class") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character-device class fixture initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+    };
+
+    struct character_device character;
+
+    if (
+        !character_device_initialize(
+            &character,
+            &generic,
+            &character_device_test_operations,
+            &state
+        ) ||
+        character_device_from_device(
+            &generic
+        ) !=
+            &character
+    ) {
+        kernel_panic(
+            "Character-device class discovery failed"
+        );
+    }
+
+    struct character_device duplicate = {
+        .device =
+            (struct device *) &state,
+        .operations =
+            &character_device_test_operations,
+        .private_data =
+            &generic,
+    };
+
+    if (
+        character_device_initialize(
+            &duplicate,
+            &generic,
+            &character_device_test_operations,
+            &state
+        ) ||
+        duplicate.device != NULL ||
+        duplicate.operations != NULL ||
+        duplicate.private_data != NULL ||
+        character_device_from_device(
+            &generic
+        ) !=
+            &character
+    ) {
+        kernel_panic(
+            "Character-device duplicate class binding was not contained"
+        );
+    }
+
+    if (!device_begin_removal(
+        &generic
+    )) {
+        kernel_panic(
+            "Character-device class fixture removal failed"
+        );
+    }
+
+    if (
+        character_device_from_device(
+            &generic
+        ) != NULL ||
+        character_device_can_read(
+            &character
+        ) ||
+        character_device_can_write(
+            &character
+        )
+    ) {
+        kernel_panic(
+            "Removing character device remained discoverable"
+        );
+    }
+
+    if (
+        !device_finish_removal(
+            &generic
+        ) ||
+        !device_release(
+            &generic
+        )
+    ) {
+        kernel_panic(
+            "Character-device class fixture cleanup failed"
+        );
+    }
 }
 
 static void character_device_test_invalid_initialization(void)

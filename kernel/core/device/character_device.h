@@ -101,6 +101,18 @@ bool character_device_initialize(
 );
 
 /**
+ * Discovers the character-device capability bound to one generic device.
+ *
+ * The returned pointer is borrowed. The device must be ACTIVE and its primary
+ * class must be DEVICE_CLASS_CHARACTER.
+ *
+ * @return Borrowed character-device interface, or NULL when unavailable.
+ */
+struct character_device *character_device_from_device(
+    struct device *device
+);
+
+/**
  * Reports whether character currently exposes a readable ACTIVE device.
  */
 bool character_device_can_read(
