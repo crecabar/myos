@@ -34,6 +34,7 @@
 #include "memory/kernel_mapping.h"
 #include "memory/memory.h"
 #include "scheduler/scheduler.h"
+#include "vfs/character_device.h"
 #include "vfs/root.h"
 
 #if MYOS_RUNTIME_DIAGNOSTICS
@@ -92,6 +93,8 @@ static struct kernel_display kernel_display;
 static struct initramfs *kernel_root_filesystem;
 static struct device_registry kernel_device_registry;
 static struct pseudo_devices kernel_pseudo_devices;
+static struct vfs_character_device_node kernel_null_vfs_node;
+static struct vfs_character_device_node kernel_zero_vfs_node;
 
 static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
@@ -104,6 +107,12 @@ static void kernel_input_system_action(
 static void kernel_mount_root_filesystem(void);
 
 static void kernel_initialize_core_devices(void);
+
+static bool kernel_populate_bootstrap_device_namespace(
+    struct initramfs *filesystem
+);
+
+static void kernel_release_bootstrap_device_nodes(void);
 
 static _Noreturn void kernel_main_continue(void);
 
@@ -211,6 +220,128 @@ static void kernel_input_system_action(
     }
 }
 
+static bool kernel_populate_bootstrap_device_namespace(
+    struct initramfs *filesystem)
+{
+    if (
+        filesystem == NULL ||
+        kernel_null_vfs_node.vfs.reference_count != 0 ||
+        kernel_zero_vfs_node.vfs.reference_count != 0
+    ) {
+        return false;
+    }
+
+    struct vfs_node *root =
+        initramfs_root(
+            filesystem
+        );
+
+    if (
+        root == NULL ||
+        root->type !=
+            VFS_NODE_TYPE_DIRECTORY
+    ) {
+        return false;
+    }
+
+    /*
+     * /dev belongs to the bootstrap root namespace itself. Only its leaves are
+     * external objects. This preserves ordinary parent traversal within the
+     * initramfs while avoiding premature mountpoint semantics.
+     */
+    struct vfs_node *dev =
+        NULL;
+
+    if (
+        initramfs_create_directory(
+            filesystem,
+            root,
+            "dev",
+            sizeof("dev") - 1U,
+            &dev
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS ||
+        dev == NULL ||
+        dev->type !=
+            VFS_NODE_TYPE_DIRECTORY
+    ) {
+        return false;
+    }
+
+    if (!vfs_character_device_node_initialize(
+        &kernel_null_vfs_node,
+        &kernel_pseudo_devices.null_device.character
+    )) {
+        return false;
+    }
+
+    if (
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "null",
+            sizeof("null") - 1U,
+            &kernel_null_vfs_node.vfs
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS
+    ) {
+        return false;
+    }
+
+    if (!vfs_character_device_node_initialize(
+        &kernel_zero_vfs_node,
+        &kernel_pseudo_devices.zero_device.character
+    )) {
+        return false;
+    }
+
+    if (
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "zero",
+            sizeof("zero") - 1U,
+            &kernel_zero_vfs_node.vfs
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+static void kernel_release_bootstrap_device_nodes(void)
+{
+    /*
+     * This helper is used only after an unpublished initramfs has been
+     * unmounted. Any namespace-owned attachment reference has therefore
+     * already been released, leaving only the kernel's initial adapter
+     * ownership where initialization reached that point.
+     */
+    if (
+        kernel_zero_vfs_node.vfs.reference_count != 0 &&
+        !vfs_node_release(
+            &kernel_zero_vfs_node.vfs
+        )
+    ) {
+        kernel_panic(
+            "Unable to release bootstrap zero VFS node"
+        );
+    }
+
+    if (
+        kernel_null_vfs_node.vfs.reference_count != 0 &&
+        !vfs_node_release(
+            &kernel_null_vfs_node.vfs
+        )
+    ) {
+        kernel_panic(
+            "Unable to release bootstrap null VFS node"
+        );
+    }
+}
+
 static void kernel_mount_root_filesystem(void)
 {
     if (
@@ -271,12 +402,14 @@ static void kernel_mount_root_filesystem(void)
             filesystem
         );
 
-    if (
-        root == NULL ||
-        !vfs_root_install(
-            root
-        )
-    ) {
+    if (!vfs_root_install(
+        root
+    )) {
+        /*
+         * Publication failed before the filesystem became globally visible.
+         * Drop namespace ownership first, then the kernel's initial adapter
+         * references.
+         */
         if (!initramfs_unmount(
             filesystem
         )) {
@@ -285,10 +418,44 @@ static void kernel_mount_root_filesystem(void)
             );
         }
 
+        kernel_release_bootstrap_device_nodes();
+
         kernel_panic(
             "Unable to install system VFS root"
         );
     }
+
+    if (!kernel_populate_bootstrap_device_namespace(
+        filesystem
+    )) {
+        /*
+         * The root has not been globally published yet. Unmounting the
+         * temporary filesystem therefore removes any directory/attachment
+         * state created during a partial bootstrap namespace construction.
+         */
+        if (!initramfs_unmount(
+            filesystem
+        )) {
+            kernel_panic(
+                "Unable to roll back bootstrap device namespace"
+            );
+        }
+
+        /*
+         * External attachments owned one VFS reference each. unmount() has
+         * already released those; now release any initial adapter ownership
+         * that was successfully created before the failure.
+         */
+        kernel_release_bootstrap_device_nodes();
+
+        kernel_panic(
+            "Unable to populate bootstrap device namespace"
+        );
+    }
+
+    diagnostics_write(
+        "[fs] Bootstrap /dev populated with null/zero\n"
+    );
 
     kernel_root_filesystem =
         filesystem;
