@@ -20,7 +20,9 @@
 #include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
 #include "core/panic.h"
+#include "core/device/registry.h"
 #include "diagnostics/diagnostics.h"
+#include "drivers/pseudo.h"
 #include "fs/initramfs.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
@@ -64,6 +66,7 @@
 #include "tests/process_memory_test.h"
 #include "tests/process_namespace_test.h"
 #include "tests/process_path_test.h"
+#include "tests/pseudo_device_test.h"
 #include "tests/ps2_scancode_set1_test.h"
 #include "tests/ps2_mouse_packet_test.h"
 #include "tests/runtime_memory_test.h"
@@ -86,6 +89,8 @@ static struct boot_info kernel_boot_info;
 static struct kernel_boot_config kernel_boot_config;
 static struct kernel_display kernel_display;
 static struct initramfs *kernel_root_filesystem;
+static struct device_registry kernel_device_registry;
+static struct pseudo_devices kernel_pseudo_devices;
 
 static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
@@ -96,6 +101,8 @@ static void kernel_input_system_action(
 );
 
 static void kernel_mount_root_filesystem(void);
+
+static void kernel_initialize_core_devices(void);
 
 static _Noreturn void kernel_main_continue(void);
 
@@ -152,6 +159,36 @@ _Noreturn void kernel_main(void)
             KERNEL_RUNTIME_STACK_SIZE
         ],
         kernel_main_continue
+    );
+}
+
+static void kernel_initialize_core_devices(void)
+{
+    if (!device_registry_initialize(
+        &kernel_device_registry
+    )) {
+        kernel_panic(
+            "Unable to initialize kernel device registry"
+        );
+    }
+
+    enum pseudo_devices_initialize_result result =
+        pseudo_devices_initialize(
+            &kernel_pseudo_devices,
+            &kernel_device_registry
+        );
+
+    if (
+        result !=
+            PSEUDO_DEVICES_INITIALIZE_RESULT_INITIALIZED
+    ) {
+        kernel_panic(
+            "Unable to initialize core pseudo devices"
+        );
+    }
+
+    diagnostics_write(
+        "[device] Core null/zero pseudo devices registered\n"
     );
 }
 
@@ -338,6 +375,14 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 #endif
+
+    /*
+     * Establish the production device registry and bootstrap pseudo devices
+     * after the boot banner is visible. Device publication is independent of
+     * the bootloader-backed initramfs namespace and precedes later userspace
+     * exposure through /dev.
+     */
+    kernel_initialize_core_devices();
 
     /*
      * Consume the preserved boot initramfs while its normalized descriptor and
@@ -697,6 +742,7 @@ static _Noreturn void kernel_main_continue(void)
         device_test_run();
         character_device_test_run();
         device_registry_test_run();
+        pseudo_device_test_run();
         bus_test_run();
 
         acpi_test_run(
