@@ -74,11 +74,14 @@ static void initramfs_test_reference_lifetime(void);
 
 static void initramfs_test_invalid_arguments(void);
 
+static void initramfs_test_bootstrap_namespace(void);
+
 // Public functions implementations
 void initramfs_test_run(void)
 {
     initramfs_test_valid_tree();
     initramfs_test_file_io();
+    initramfs_test_bootstrap_namespace();
     initramfs_test_topology_errors();
     initramfs_test_unsupported_archive();
     initramfs_test_reference_lifetime();
@@ -1512,6 +1515,286 @@ static void initramfs_test_invalid_arguments(void)
     ) {
         kernel_panic(
             "Initramfs accepted invalid public API arguments"
+        );
+    }
+}
+
+static void initramfs_test_bootstrap_namespace(void)
+{
+    uint8_t archive[
+        INITRAMFS_TEST_ARCHIVE_CAPACITY
+    ];
+
+    memset(
+        archive,
+        0,
+        sizeof(archive)
+    );
+
+    size_t size =
+        initramfs_test_append_trailer(
+            archive,
+            sizeof(archive),
+            0
+        );
+
+    struct kernel_heap_stats before;
+
+    if (!kernel_heap_stats_get(
+        &before
+    )) {
+        kernel_panic(
+            "Unable to collect initramfs bootstrap heap baseline"
+        );
+    }
+
+    struct initramfs *filesystem =
+        NULL;
+
+    if (
+        initramfs_mount(
+            archive,
+            size,
+            &filesystem
+        ) !=
+            INITRAMFS_MOUNT_RESULT_MOUNTED ||
+        filesystem == NULL
+    ) {
+        kernel_panic(
+            "Unable to mount initramfs bootstrap fixture"
+        );
+    }
+
+    struct vfs_node *root =
+        initramfs_root(
+            filesystem
+        );
+
+    if (root == NULL) {
+        kernel_panic(
+            "Initramfs bootstrap fixture has no root"
+        );
+    }
+
+    struct vfs_node *dev =
+        NULL;
+
+    if (
+        initramfs_create_directory(
+            filesystem,
+            root,
+            "dev",
+            sizeof("dev") - 1U,
+            &dev
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS ||
+        dev == NULL ||
+        dev->type !=
+            VFS_NODE_TYPE_DIRECTORY ||
+        dev->reference_count != 1
+    ) {
+        kernel_panic(
+            "Initramfs bootstrap directory creation failed"
+        );
+    }
+
+    /*
+     * The returned directory is borrowed. An ordinary lookup must resolve the
+     * same object and acquire exactly one caller-owned reference.
+     */
+    struct vfs_node *resolved_dev =
+        NULL;
+
+    if (
+        vfs_node_lookup(
+            root,
+            "dev",
+            sizeof("dev") - 1U,
+            &resolved_dev
+        ) !=
+            VFS_LOOKUP_RESULT_FOUND ||
+        resolved_dev !=
+            dev ||
+        dev->reference_count != 2
+    ) {
+        kernel_panic(
+            "Initramfs bootstrap directory lookup failed"
+        );
+    }
+
+    if (!vfs_node_release(
+        resolved_dev
+    )) {
+        kernel_panic(
+            "Unable to release bootstrap directory lookup"
+        );
+    }
+
+    struct vfs_node *parent =
+        NULL;
+
+    if (
+        vfs_node_parent(
+            dev,
+            &parent
+        ) !=
+            VFS_PARENT_RESULT_FOUND ||
+        parent !=
+            root ||
+        !vfs_node_release(
+            parent
+        )
+    ) {
+        kernel_panic(
+            "Initramfs bootstrap directory parent contract failed"
+        );
+    }
+
+    struct vfs_node external;
+
+    if (!vfs_node_initialize(
+        &external,
+        VFS_NODE_TYPE_CHARACTER_DEVICE,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Unable to initialize external bootstrap leaf"
+        );
+    }
+
+    if (
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "null",
+            sizeof("null") - 1U,
+            &external
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_SUCCESS ||
+        external.reference_count != 2
+    ) {
+        kernel_panic(
+            "Initramfs external bootstrap attachment failed"
+        );
+    }
+
+    /*
+     * Namespace names are unique regardless of whether the existing child is
+     * archive-backed, kernel-created, or externally attached.
+     */
+    if (
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "null",
+            sizeof("null") - 1U,
+            &external
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_ALREADY_EXISTS ||
+        external.reference_count != 2
+    ) {
+        kernel_panic(
+            "Initramfs accepted duplicate external bootstrap name"
+        );
+    }
+
+    struct vfs_node external_directory;
+
+    if (
+        !vfs_node_initialize(
+            &external_directory,
+            VFS_NODE_TYPE_DIRECTORY,
+            NULL,
+            NULL
+        ) ||
+        initramfs_attach_leaf(
+            filesystem,
+            dev,
+            "nested",
+            sizeof("nested") - 1U,
+            &external_directory
+        ) !=
+            INITRAMFS_NAMESPACE_RESULT_NOT_SUPPORTED ||
+        external_directory.reference_count != 1
+    ) {
+        kernel_panic(
+            "Initramfs bootstrap attachment accepted external directory"
+        );
+    }
+
+    if (!vfs_node_release(
+        &external_directory
+    )) {
+        kernel_panic(
+            "Unable to release rejected external directory fixture"
+        );
+    }
+
+    struct vfs_node *resolved_external =
+        NULL;
+
+    if (
+        vfs_node_lookup(
+            dev,
+            "null",
+            sizeof("null") - 1U,
+            &resolved_external
+        ) !=
+            VFS_LOOKUP_RESULT_FOUND ||
+        resolved_external !=
+            &external ||
+        external.reference_count != 3
+    ) {
+        kernel_panic(
+            "Initramfs external bootstrap lookup failed"
+        );
+    }
+
+    /*
+     * An externally attached node is not owned storage of the initramfs.
+     * Unmount removes the namespace-owned reference but an ordinary VFS
+     * reference may keep the external object alive independently.
+     */
+    if (
+        !initramfs_unmount(
+            filesystem
+        ) ||
+        external.reference_count != 2
+    ) {
+        kernel_panic(
+            "Initramfs external bootstrap teardown failed"
+        );
+    }
+
+    if (
+        !vfs_node_release(
+            resolved_external
+        ) ||
+        external.reference_count != 1 ||
+        !vfs_node_release(
+            &external
+        ) ||
+        external.reference_count != 0
+    ) {
+        kernel_panic(
+            "External bootstrap node ownership did not drain cleanly"
+        );
+    }
+
+    struct kernel_heap_stats after;
+
+    if (
+        !kernel_heap_stats_get(
+            &after
+        ) ||
+        !initramfs_test_heap_equal(
+            &before,
+            &after
+        )
+    ) {
+        kernel_panic(
+            "Initramfs bootstrap namespace leaked heap ownership"
         );
     }
 }
