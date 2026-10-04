@@ -78,6 +78,7 @@ enum process_path_result process_path_resolve(
         vfs_path_resolve(
             root,
             start,
+            NULL,
             path,
             path_length,
             result

@@ -65,6 +65,7 @@ void initramfs_boot_test_run(void)
         vfs_path_resolve(
             root,
             root,
+            NULL,
             path,
             sizeof(path) - 1U,
             &init
@@ -221,6 +222,7 @@ static void initramfs_boot_test_core_devices(
         vfs_path_resolve(
             root,
             root,
+            NULL,
             dev_path,
             sizeof(dev_path) - 1U,
             &dev
@@ -257,6 +259,7 @@ static void initramfs_boot_test_core_devices(
         vfs_path_resolve(
             root,
             root,
+            NULL,
             null_path,
             sizeof(null_path) - 1U,
             &null_node
@@ -405,6 +408,7 @@ static void initramfs_boot_test_core_devices(
         vfs_path_resolve(
             root,
             root,
+            NULL,
             zero_path,
             sizeof(zero_path) - 1U,
             &zero_node
@@ -547,6 +551,7 @@ static void initramfs_boot_test_core_devices(
         vfs_path_resolve(
             root,
             root,
+            NULL,
             console_path,
             sizeof(console_path) - 1U,
             &console_node

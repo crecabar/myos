@@ -497,6 +497,7 @@ static void initramfs_test_valid_tree(void)
         vfs_path_resolve(
             root,
             root,
+            NULL,
             motd_path,
             sizeof(motd_path) - 1U,
             &motd_node
@@ -549,6 +550,7 @@ static void initramfs_test_valid_tree(void)
         vfs_path_resolve(
             root,
             root,
+            NULL,
             traversal,
             sizeof(traversal) - 1U,
             &tool
@@ -711,6 +713,7 @@ static void initramfs_test_file_io(void)
         vfs_path_resolve(
             root,
             root,
+            NULL,
             path,
             sizeof(path) - 1U,
             &file_node
