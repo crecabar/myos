@@ -18,6 +18,15 @@
  * directly to one component in the devfs root directory. This mapping belongs
  * to devfs and is not part of the generic device contract.
  *
+ * Device names that cannot represent ordinary VFS components, specifically
+ * "." and "..", remain valid generic device names but are not published by
+ * devfs.
+ *
+ * Directory enumeration is live with respect to the registry. Each open
+ * directory stream captures one registry generation. A successful registry
+ * mutation invalidates that stream rather than allowing silent skips or
+ * duplicate entries.
+ *
  * The initial implementation publishes character devices only. Block-device
  * VFS adaptation is deliberately deferred until the corresponding VFS
  * contract exists.
@@ -45,7 +54,8 @@ enum devfs_mount_result {
  * registry is borrowed and must outlive the filesystem.
  *
  * The filesystem does not snapshot the registry. Successful registry
- * publication changes therefore become visible to subsequent devfs lookups.
+ * publication changes therefore become visible to subsequent devfs lookups
+ * and newly opened directory streams.
  *
  * On success, result receives one owned filesystem object.
  * Failure leaves result unchanged.

@@ -21,6 +21,12 @@ struct devfs_entry {
     struct vfs_character_device_node character;
 };
 
+struct devfs_directory_file {
+    struct vfs_file vfs;
+
+    struct device_registry_iterator iterator;
+};
+
 struct devfs {
     const struct device_registry *registry;
 
@@ -49,7 +55,7 @@ static enum vfs_lookup_result devfs_materialize_character(
     struct devfs_entry **result
 );
 
-static void devfs_release_lookup_device(
+static void devfs_release_registry_device(
     struct device *device
 );
 
@@ -65,10 +71,33 @@ static enum vfs_lookup_result devfs_root_lookup(
     struct vfs_node **result
 );
 
+static struct devfs_directory_file *devfs_directory_file_from_vfs(
+    struct vfs_file *file
+);
+
+static bool devfs_device_name_publishable(
+    const struct device *device
+);
+
+static enum vfs_open_result devfs_root_open(
+    struct vfs_node *node,
+    enum vfs_open_access access,
+    struct vfs_file **result
+);
+
+static enum vfs_directory_read_result devfs_directory_read(
+    struct vfs_file *file,
+    struct vfs_directory_entry *result
+);
+
+static void devfs_directory_file_destroy(
+    struct vfs_file *file
+);
+
 // Static local variables
 static const struct vfs_node_operations devfs_root_operations = {
     .open =
-        NULL,
+        devfs_root_open,
     .stat =
         devfs_root_stat,
     .lookup =
@@ -78,6 +107,18 @@ static const struct vfs_node_operations devfs_root_operations = {
     .destroy =
         NULL,
 };
+
+static const struct vfs_file_operations
+    devfs_directory_file_operations = {
+        .read =
+            NULL,
+        .write =
+            NULL,
+        .read_directory =
+            devfs_directory_read,
+        .destroy =
+            devfs_directory_file_destroy,
+    };
 
 // Public functions implementations
 enum devfs_mount_result devfs_mount(
@@ -268,6 +309,325 @@ static struct devfs *devfs_from_root(
         filesystem;
 }
 
+static struct devfs_directory_file *devfs_directory_file_from_vfs(
+    struct vfs_file *file)
+{
+    if (
+        file == NULL ||
+        file->reference_count == 0 ||
+        file->node == NULL ||
+        file->private_data == NULL
+    ) {
+        return NULL;
+    }
+
+    struct devfs_directory_file *open_file =
+        file->private_data;
+
+    struct devfs *filesystem =
+        devfs_from_root(
+            file->node
+        );
+
+    if (
+        filesystem == NULL ||
+        &open_file->vfs !=
+            file ||
+        open_file->iterator.registry !=
+            filesystem->registry
+    ) {
+        return NULL;
+    }
+
+    return
+        open_file;
+}
+
+static bool devfs_device_name_publishable(
+    const struct device *device)
+{
+    if (
+        device == NULL ||
+        device->name_length == 0 ||
+        device->name_length >
+            DEVICE_NAME_MAX ||
+        device->name[
+            device->name_length
+        ] != '\0'
+    ) {
+        return false;
+    }
+
+    for (
+        size_t index = 0;
+        index < device->name_length;
+        ++index
+    ) {
+        if (
+            device->name[index] == '\0' ||
+            device->name[index] == '/'
+        ) {
+            return false;
+        }
+    }
+
+    if (
+        device->name_length == 1 &&
+        device->name[0] == '.'
+    ) {
+        return false;
+    }
+
+    if (
+        device->name_length == 2 &&
+        device->name[0] == '.' &&
+        device->name[1] == '.'
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+static enum vfs_open_result devfs_root_open(
+    struct vfs_node *node,
+    enum vfs_open_access access,
+    struct vfs_file **result)
+{
+    if (result == NULL) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct devfs *filesystem =
+        devfs_from_root(
+            node
+        );
+
+    if (filesystem == NULL) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        (access &
+            VFS_OPEN_ACCESS_WRITE) != 0
+    ) {
+        return
+            VFS_OPEN_RESULT_ACCESS_DENIED;
+    }
+
+    if (
+        access !=
+            VFS_OPEN_ACCESS_READ
+    ) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct devfs_directory_file *open_file =
+        kmalloc(sizeof(*open_file));
+
+    if (open_file == NULL) {
+        return
+            VFS_OPEN_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    /*
+     * Capture the registry generation before publishing the VFS file. The
+     * iterator itself owns no resources, so failure remains transactional.
+     */
+    if (!device_registry_iterator_initialize(
+        filesystem->registry,
+        &open_file->iterator
+    )) {
+        kfree(
+            open_file
+        );
+
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (!vfs_file_initialize(
+        &open_file->vfs,
+        node,
+        access,
+        &devfs_directory_file_operations,
+        open_file
+    )) {
+        kfree(
+            open_file
+        );
+
+        return
+            VFS_OPEN_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    *result =
+        &open_file->vfs;
+
+    return
+        VFS_OPEN_RESULT_OPENED;
+}
+
+static enum vfs_directory_read_result devfs_directory_read(
+    struct vfs_file *file,
+    struct vfs_directory_entry *result)
+{
+    if (result == NULL) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct devfs_directory_file *open_file =
+        devfs_directory_file_from_vfs(
+            file
+        );
+
+    if (open_file == NULL) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    for (;;) {
+        struct device *device =
+            NULL;
+
+        enum device_registry_iteration_result iteration_result =
+            device_registry_iterator_next(
+                &open_file->iterator,
+                &device
+            );
+
+        switch (iteration_result) {
+            case DEVICE_REGISTRY_ITERATION_RESULT_END:
+                return
+                    VFS_DIRECTORY_READ_RESULT_END;
+
+            case DEVICE_REGISTRY_ITERATION_RESULT_INVALIDATED:
+                return
+                    VFS_DIRECTORY_READ_RESULT_INVALIDATED;
+
+            case DEVICE_REGISTRY_ITERATION_RESULT_INVALID_ARGUMENT:
+                return
+                    VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+
+            case DEVICE_REGISTRY_ITERATION_RESULT_DEVICE:
+                break;
+        }
+
+        if (device == NULL) {
+            return
+                VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+        }
+
+        /*
+         * The initial devfs namespace publishes character devices only.
+         * Other classes remain present in the generic device registry but do
+         * not consume a pathname.
+         */
+        if (
+            device->device_class !=
+                DEVICE_CLASS_CHARACTER ||
+            !devfs_device_name_publishable(
+                device
+            )
+        ) {
+            devfs_release_registry_device(
+                device
+            );
+
+            continue;
+        }
+
+        /*
+         * A CHARACTER classification without a valid character capability is
+         * a violated device-model invariant, not an invisible device.
+         */
+        if (
+            character_device_from_device(
+                device
+            ) == NULL
+        ) {
+            devfs_release_registry_device(
+                device
+            );
+
+            return
+                VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+        }
+
+        result->type =
+            VFS_NODE_TYPE_CHARACTER_DEVICE;
+
+        result->name_length =
+            device->name_length;
+
+        for (
+            size_t index = 0;
+            index < device->name_length;
+            ++index
+        ) {
+            result->name[index] =
+                device->name[index];
+        }
+
+        result->name[
+            device->name_length
+        ] = '\0';
+
+        devfs_release_registry_device(
+            device
+        );
+
+        return
+            VFS_DIRECTORY_READ_RESULT_ENTRY;
+    }
+}
+
+static void devfs_directory_file_destroy(
+    struct vfs_file *file)
+{
+    if (
+        file == NULL ||
+        file->node == NULL
+    ) {
+        kernel_panic(
+            "devfs directory file destroy received invalid file"
+        );
+    }
+
+    struct devfs_directory_file *open_file =
+        file->private_data;
+
+    struct devfs *filesystem =
+        devfs_from_root(
+            file->node
+        );
+
+    if (
+        open_file == NULL ||
+        filesystem == NULL ||
+        &open_file->vfs !=
+            file ||
+        open_file->iterator.registry !=
+            filesystem->registry
+    ) {
+        kernel_panic(
+            "devfs directory open-file ownership corrupted"
+        );
+    }
+
+    /*
+     * The iterator owns no registry reference. vfs_file_release() releases
+     * the root vnode reference after this callback.
+     */
+    kfree(
+        open_file
+    );
+}
+
 static struct devfs_entry *devfs_find_entry(
     const struct devfs *filesystem,
     const struct device *device)
@@ -357,7 +717,7 @@ static enum vfs_lookup_result devfs_materialize_character(
         VFS_LOOKUP_RESULT_FOUND;
 }
 
-static void devfs_release_lookup_device(
+static void devfs_release_registry_device(
     struct device *device)
 {
     if (
@@ -367,7 +727,7 @@ static void devfs_release_lookup_device(
         )
     ) {
         kernel_panic(
-            "devfs failed to release registry lookup ownership"
+            "devfs failed to release registry device ownership"
         );
     }
 }
@@ -470,7 +830,7 @@ static enum vfs_lookup_result devfs_root_lookup(
         device->device_class !=
             DEVICE_CLASS_CHARACTER
     ) {
-        devfs_release_lookup_device(
+        devfs_release_registry_device(
             device
         );
 
@@ -491,7 +851,7 @@ static enum vfs_lookup_result devfs_root_lookup(
             );
 
         if (character == NULL) {
-            devfs_release_lookup_device(
+            devfs_release_registry_device(
                 device
             );
 
@@ -510,7 +870,7 @@ static enum vfs_lookup_result devfs_root_lookup(
             materialize_result !=
                 VFS_LOOKUP_RESULT_FOUND
         ) {
-            devfs_release_lookup_device(
+            devfs_release_registry_device(
                 device
             );
 
@@ -524,7 +884,7 @@ static enum vfs_lookup_result devfs_root_lookup(
      * character-device VFS adapter. Drop the temporary registry lookup
      * ownership before returning the borrowed vnode.
      */
-    devfs_release_lookup_device(
+    devfs_release_registry_device(
         device
     );
 
