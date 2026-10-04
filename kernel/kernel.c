@@ -83,6 +83,7 @@
 #include "tests/vfs_file_io_test.h"
 #include "tests/vfs_file_test.h"
 #include "tests/vfs_lookup_test.h"
+#include "tests/vfs_mount_test.h"
 #include "tests/vfs_node_test.h"
 #include "tests/vfs_node_operations_test.h"
 #include "tests/vfs_parent_test.h"
@@ -1003,6 +1004,7 @@ static _Noreturn void kernel_main_continue(void)
         vfs_file_io_test_run();
         vfs_character_device_test_run();
         vfs_lookup_test_run();
+        vfs_mount_test_run();
         vfs_parent_test_run();
         vfs_path_test_run();
         process_fd_table_test_run();
