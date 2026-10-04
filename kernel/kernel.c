@@ -53,6 +53,7 @@
 #include "tests/character_device_test.h"
 #include "tests/console_device_test.h"
 #include "tests/core_device_fd_test.h"
+#include "tests/devfs_test.h"
 #include "tests/device_registry_test.h"
 #include "tests/device_test.h"
 #include "tests/elf64_test.h"
@@ -1003,6 +1004,7 @@ static _Noreturn void kernel_main_continue(void)
         vfs_file_test_run();
         vfs_file_io_test_run();
         vfs_character_device_test_run();
+        devfs_test_run();
         vfs_lookup_test_run();
         vfs_mount_test_run();
         vfs_parent_test_run();
