@@ -52,10 +52,11 @@ static size_t process_file_test_stat_call_count;
 static uint64_t process_file_test_stat_size;
 static enum vfs_stat_result process_file_test_stat_result;
 
-static struct vfs_node *process_file_test_lookup(
+static enum vfs_lookup_result process_file_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length
+    size_t name_length,
+    struct vfs_node **result
 );
 
 static enum vfs_open_result process_file_test_open_callback(
@@ -145,14 +146,16 @@ void process_file_test_run(void)
     );
 }
 
-static struct vfs_node *process_file_test_lookup(
+static enum vfs_lookup_result process_file_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length)
+    size_t name_length,
+    struct vfs_node **result)
 {
     if (
         directory == NULL ||
-        name == NULL
+        name == NULL ||
+        result == NULL
     ) {
         kernel_panic(
             "Process file lookup received invalid input"
@@ -175,11 +178,15 @@ static struct vfs_node *process_file_test_lookup(
         name[2] == 'l' &&
         name[3] == 'e'
     ) {
-        return
+        *result =
             fixture->file;
+
+        return
+            VFS_LOOKUP_RESULT_FOUND;
     }
 
-    return NULL;
+    return
+        VFS_LOOKUP_RESULT_NOT_FOUND;
 }
 
 static enum vfs_open_result process_file_test_open_callback(

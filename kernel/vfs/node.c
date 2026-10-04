@@ -311,15 +311,49 @@ enum vfs_lookup_result vfs_node_lookup(
     }
 
     struct vfs_node *child =
+        NULL;
+
+    enum vfs_lookup_result lookup_result =
         directory->operations->lookup(
             directory,
             name,
-            name_length
+            name_length,
+            &child
         );
+
+    if (
+        lookup_result !=
+        VFS_LOOKUP_RESULT_FOUND
+    ) {
+        /*
+         * Filesystem callbacks must leave their result unchanged on failure.
+         * child began NULL, so a non-NULL value here violates that contract.
+         */
+        if (child != NULL) {
+            return
+                VFS_LOOKUP_RESULT_INVALID_ARGUMENT;
+        }
+
+        switch (lookup_result) {
+            case VFS_LOOKUP_RESULT_NOT_FOUND:
+            case VFS_LOOKUP_RESULT_INVALID_ARGUMENT:
+            case VFS_LOOKUP_RESULT_NOT_DIRECTORY:
+            case VFS_LOOKUP_RESULT_NOT_SUPPORTED:
+            case VFS_LOOKUP_RESULT_RESOURCE_EXHAUSTED:
+                return
+                    lookup_result;
+
+            case VFS_LOOKUP_RESULT_FOUND:
+                break;
+        }
+
+        return
+            VFS_LOOKUP_RESULT_INVALID_ARGUMENT;
+    }
 
     if (child == NULL) {
         return
-            VFS_LOOKUP_RESULT_NOT_FOUND;
+            VFS_LOOKUP_RESULT_INVALID_ARGUMENT;
     }
 
     /*

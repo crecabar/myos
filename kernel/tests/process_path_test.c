@@ -52,10 +52,11 @@ struct process_path_test_tree {
     struct process_path_test_directory etc_directory;
 };
 
-static struct vfs_node *process_path_test_lookup(
+static enum vfs_lookup_result process_path_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length
+    size_t name_length,
+    struct vfs_node **result
 );
 
 static struct vfs_node *process_path_test_parent(
@@ -125,14 +126,16 @@ void process_path_test_run(void)
     );
 }
 
-static struct vfs_node *process_path_test_lookup(
+static enum vfs_lookup_result process_path_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length)
+    size_t name_length,
+    struct vfs_node **result)
 {
     if (
         directory == NULL ||
-        name == NULL
+        name == NULL ||
+        result == NULL
     ) {
         kernel_panic(
             "Process path lookup fixture received invalid input"
@@ -148,9 +151,11 @@ static struct vfs_node *process_path_test_lookup(
         );
     }
 
-    for (size_t index = 0;
-         index < fixture->entry_count;
-         ++index) {
+    for (
+        size_t index = 0;
+        index < fixture->entry_count;
+        ++index
+    ) {
         const struct process_path_test_entry *entry =
             &fixture->entries[index];
 
@@ -160,12 +165,16 @@ static struct vfs_node *process_path_test_lookup(
             entry->name,
             entry->name_length
         )) {
-            return
+            *result =
                 entry->node;
+
+            return
+                VFS_LOOKUP_RESULT_FOUND;
         }
     }
 
-    return NULL;
+    return
+        VFS_LOOKUP_RESULT_NOT_FOUND;
 }
 
 static struct vfs_node *process_path_test_parent(

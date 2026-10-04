@@ -28,13 +28,16 @@ struct vfs_lookup_test_directory {
     const struct vfs_lookup_test_entry *entries;
     size_t entry_count;
     size_t lookup_count;
+
+    enum vfs_lookup_result callback_result;
 };
 
 // Private functions and helpers declarations
-static struct vfs_node *vfs_lookup_test_lookup(
+static enum vfs_lookup_result vfs_lookup_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length
+    size_t name_length,
+    struct vfs_node **result
 );
 
 static bool vfs_lookup_test_name_equal(
@@ -63,14 +66,16 @@ void vfs_lookup_test_run(void)
 }
 
 // Private functions and helpers implementations
-static struct vfs_node *vfs_lookup_test_lookup(
+static enum vfs_lookup_result vfs_lookup_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length)
+    size_t name_length,
+    struct vfs_node **result)
 {
     if (
         directory == NULL ||
-        name == NULL
+        name == NULL ||
+        result == NULL
     ) {
         kernel_panic(
             "VFS lookup test callback received invalid input"
@@ -88,9 +93,19 @@ static struct vfs_node *vfs_lookup_test_lookup(
 
     ++fixture->lookup_count;
 
-    for (size_t index = 0;
-         index < fixture->entry_count;
-         ++index) {
+    if (
+        fixture->callback_result !=
+        VFS_LOOKUP_RESULT_FOUND
+    ) {
+        return
+            fixture->callback_result;
+    }
+
+    for (
+        size_t index = 0;
+        index < fixture->entry_count;
+        ++index
+    ) {
         const struct vfs_lookup_test_entry *entry =
             &fixture->entries[index];
 
@@ -100,12 +115,16 @@ static struct vfs_node *vfs_lookup_test_lookup(
             entry->name,
             entry->name_length
         )) {
-            return
+            *result =
                 entry->node;
+
+            return
+                VFS_LOOKUP_RESULT_FOUND;
         }
     }
 
-    return NULL;
+    return
+        VFS_LOOKUP_RESULT_NOT_FOUND;
 }
 
 static bool vfs_lookup_test_name_equal(
@@ -443,6 +462,33 @@ static void vfs_lookup_test_errors(void)
             "Rejected VFS lookup mutated observable state"
         );
     }
+
+    /*
+     * Filesystem-originated failures must propagate through the generic VFS
+     * without being collapsed into NOT_FOUND and without publishing a result.
+     */
+    fixture.callback_result =
+        VFS_LOOKUP_RESULT_RESOURCE_EXHAUSTED;
+
+    if (
+        vfs_node_lookup(
+            &directory,
+            "dynamic",
+            7,
+            &result
+        ) !=
+            VFS_LOOKUP_RESULT_RESOURCE_EXHAUSTED ||
+        result !=
+            &sentinel ||
+        fixture.lookup_count != 2
+    ) {
+        kernel_panic(
+            "VFS filesystem lookup failure propagation failed"
+        );
+    }
+
+    fixture.callback_result =
+        VFS_LOOKUP_RESULT_FOUND;
 
     if (
         !vfs_node_release(

@@ -172,22 +172,24 @@ struct vfs_node_operations {
      * NUL-terminated. "." and ".." are handled by the generic pathname layer
      * and are never passed to this callback.
      *
-     * On success, the callback returns a borrowed live node pointer. Ownership
-     * remains with the filesystem. The generic VFS retains the returned node
-     * before exposing it to the lookup caller.
+     * On VFS_LOOKUP_RESULT_FOUND, result receives a borrowed live node
+     * pointer. Ownership remains with the filesystem. The generic VFS retains
+     * the returned node before exposing it to the lookup caller.
      *
-     * Returning NULL means that no child with this name exists.
+     * On failure, result must remain unchanged.
      *
      * @param directory Directory in which to search.
      * @param name Component bytes.
      * @param name_length Number of component bytes.
+     * @param result Receives a borrowed child node on success.
      *
-     * @return Borrowed child node, or NULL when not found.
+     * @return Detailed lookup result.
      */
-    struct vfs_node *(*lookup)(
+    enum vfs_lookup_result (*lookup)(
         struct vfs_node *directory,
         const char *name,
-        size_t name_length
+        size_t name_length,
+        struct vfs_node **result
     );
 
     /**

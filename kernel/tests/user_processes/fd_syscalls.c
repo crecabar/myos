@@ -62,10 +62,11 @@ static uint64_t
     fd_syscalls_test_free_frame_baseline;
 
 // Private helpers declarations
-static struct vfs_node *fd_syscalls_test_lookup(
+static enum vfs_lookup_result fd_syscalls_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length
+    size_t name_length,
+    struct vfs_node **result
 );
 
 static enum vfs_open_result fd_syscalls_test_open(
@@ -297,15 +298,17 @@ void user_process_fd_syscalls_test_terminated(
 }
 
 // Private helpers implementations
-static struct vfs_node *fd_syscalls_test_lookup(
+static enum vfs_lookup_result fd_syscalls_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length)
+    size_t name_length,
+    struct vfs_node **result)
 {
     if (
         directory !=
             &fd_syscalls_fixture.root ||
-        name == NULL
+        name == NULL ||
+        result == NULL
     ) {
         kernel_panic(
             "FD syscall lookup received invalid input"
@@ -319,13 +322,17 @@ static struct vfs_node *fd_syscalls_test_lookup(
         name[2] == 'l' &&
         name[3] == 'e'
     ) {
-        return
+        *result =
             fd_syscalls_fixture
                 .root_directory
                 .file;
+
+        return
+            VFS_LOOKUP_RESULT_FOUND;
     }
 
-    return NULL;
+    return
+        VFS_LOOKUP_RESULT_NOT_FOUND;
 }
 
 static enum vfs_open_result fd_syscalls_test_open(

@@ -158,10 +158,11 @@ static enum vfs_stat_result initramfs_node_stat(
     struct vfs_stat *result
 );
 
-static struct vfs_node *initramfs_node_lookup(
+static enum vfs_lookup_result initramfs_node_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length
+    size_t name_length,
+    struct vfs_node **result
 );
 
 static struct vfs_node *initramfs_node_parent(
@@ -1640,16 +1641,19 @@ static enum vfs_stat_result initramfs_node_stat(
         VFS_STAT_RESULT_INVALID_ARGUMENT;
 }
 
-static struct vfs_node *initramfs_node_lookup(
+static enum vfs_lookup_result initramfs_node_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length)
+    size_t name_length,
+    struct vfs_node **result)
 {
     if (
         directory == NULL ||
-        name == NULL
+        name == NULL ||
+        result == NULL
     ) {
-        return NULL;
+        return
+            VFS_LOOKUP_RESULT_INVALID_ARGUMENT;
     }
 
     struct initramfs_node *entry =
@@ -1662,7 +1666,8 @@ static struct vfs_node *initramfs_node_lookup(
         directory->type !=
             VFS_NODE_TYPE_DIRECTORY
     ) {
-        return NULL;
+        return
+            VFS_LOOKUP_RESULT_INVALID_ARGUMENT;
     }
 
     for (
@@ -1677,8 +1682,11 @@ static struct vfs_node *initramfs_node_lookup(
             name,
             name_length
         )) {
-            return
+            *result =
                 &child->vfs;
+
+            return
+                VFS_LOOKUP_RESULT_FOUND;
         }
     }
 
@@ -1694,12 +1702,16 @@ static struct vfs_node *initramfs_node_lookup(
             name,
             name_length
         )) {
-            return
+            *result =
                 external->node;
+
+            return
+                VFS_LOOKUP_RESULT_FOUND;
         }
     }
 
-    return NULL;
+    return
+        VFS_LOOKUP_RESULT_NOT_FOUND;
 }
 
 static struct vfs_node *initramfs_node_parent(
