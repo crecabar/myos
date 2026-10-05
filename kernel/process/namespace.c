@@ -23,9 +23,21 @@ struct vfs_node *process_namespace_root_get(
         instance->namespace_root;
 }
 
+const struct vfs_mount_table *process_namespace_mounts_get(
+    const struct process_instance *instance)
+{
+    if (instance == NULL) {
+        return NULL;
+    }
+
+    return
+        instance->namespace_mounts;
+}
+
 bool process_namespace_root_set(
     struct process_instance *instance,
-    struct vfs_node *root)
+    struct vfs_node *root,
+    const struct vfs_mount_table *mounts)
 {
     if (
         instance == NULL ||
@@ -34,7 +46,10 @@ bool process_namespace_root_set(
         return false;
     }
 
-    if (instance->namespace_root != NULL) {
+    if (
+        instance->namespace_root != NULL ||
+        instance->namespace_mounts != NULL
+    ) {
         return false;
     }
 
@@ -55,6 +70,9 @@ bool process_namespace_root_set(
     instance->namespace_root =
         root;
 
+    instance->namespace_mounts =
+        mounts;
+
     return true;
 }
 
@@ -70,15 +88,22 @@ bool process_namespace_root_inherit(
         return false;
     }
 
-    if (destination->namespace_root != NULL) {
+    if (
+        destination->namespace_root != NULL ||
+        destination->namespace_mounts != NULL
+    ) {
         return false;
     }
 
     struct vfs_node *root =
         source->namespace_root;
 
+    const struct vfs_mount_table *mounts =
+        source->namespace_mounts;
+
     if (root == NULL) {
-        return true;
+        return
+            mounts == NULL;
     }
 
     if (
@@ -98,6 +123,9 @@ bool process_namespace_root_inherit(
     destination->namespace_root =
         root;
 
+    destination->namespace_mounts =
+        mounts;
+
     return true;
 }
 
@@ -111,8 +139,12 @@ bool process_namespace_root_release(
     struct vfs_node *root =
         instance->namespace_root;
 
+    const struct vfs_mount_table *mounts =
+        instance->namespace_mounts;
+
     if (root == NULL) {
-        return true;
+        return
+            mounts == NULL;
     }
 
     if (
@@ -124,21 +156,28 @@ bool process_namespace_root_release(
     }
 
     /*
-     * Unpublish before release because the final reference may destroy the
-     * storage containing the node.
+     * Unpublish the complete namespace context before releasing the owned root
+     * reference. The mount table is borrowed and therefore requires no
+     * release operation.
      */
     instance->namespace_root =
+        NULL;
+
+    instance->namespace_mounts =
         NULL;
 
     if (!vfs_node_release(
         root
     )) {
         /*
-         * A failed release does not consume ownership, so restore the
-         * previously published state.
+         * A failed release consumes no ownership, so restore the complete
+         * namespace context.
          */
         instance->namespace_root =
             root;
+
+        instance->namespace_mounts =
+            mounts;
 
         return false;
     }

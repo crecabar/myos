@@ -13,6 +13,7 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/namespace.h"
+#include "../vfs/mount.h"
 #include "../vfs/vfs.h"
 
 #include <stddef.h>
@@ -54,17 +55,31 @@ static void process_namespace_test_set_release(void)
         );
     }
 
+    struct vfs_mount_table mounts;
+
+    if (!vfs_mount_table_initialize(
+        &mounts
+    )) {
+        kernel_panic(
+            "Unable to initialize namespace mount topology fixture"
+        );
+    }
+
     if (
         process_namespace_root_get(
             &instance
         ) != NULL ||
         !process_namespace_root_set(
             &instance,
-            &root
+            &root,
+            &mounts
         ) ||
         process_namespace_root_get(
             &instance
         ) != &root ||
+        process_namespace_mounts_get(
+            &instance
+        ) != &mounts ||
         root.reference_count != 2
     ) {
         kernel_panic(
@@ -78,7 +93,8 @@ static void process_namespace_test_set_release(void)
     if (
         process_namespace_root_set(
             &instance,
-            &root
+            &root,
+            &mounts
         ) ||
         root.reference_count != 2
     ) {
@@ -92,6 +108,9 @@ static void process_namespace_test_set_release(void)
             &instance
         ) ||
         process_namespace_root_get(
+            &instance
+        ) != NULL ||
+        process_namespace_mounts_get(
             &instance
         ) != NULL ||
         root.reference_count != 1
@@ -153,11 +172,25 @@ static void process_namespace_test_inheritance(void)
         );
     }
 
+    struct vfs_mount_table mounts;
+
+    if (!vfs_mount_table_initialize(
+        &mounts
+    )) {
+        kernel_panic(
+            "Unable to initialize namespace mount topology fixture"
+        );
+    }
+
     if (
         !process_namespace_root_set(
             &parent,
-            &root
+            &root,
+            &mounts
         ) ||
+        process_namespace_mounts_get(
+            &parent
+        ) != &mounts ||
         root.reference_count != 2
     ) {
         kernel_panic(
@@ -170,6 +203,9 @@ static void process_namespace_test_inheritance(void)
             &child,
             &parent
         ) ||
+        process_namespace_mounts_get(
+            &child
+        ) != &mounts ||
         child.namespace_root != &root ||
         parent.namespace_root != &root ||
         root.reference_count != 3
@@ -238,18 +274,31 @@ static void process_namespace_test_errors(void)
         );
     }
 
+    struct vfs_mount_table mounts;
+
+    if (!vfs_mount_table_initialize(
+        &mounts
+    )) {
+        kernel_panic(
+            "Unable to initialize namespace mount topology fixture"
+        );
+    }
+
     if (
         process_namespace_root_set(
             NULL,
-            &root
+            &root,
+            &mounts
         ) ||
         process_namespace_root_set(
             &instance,
-            NULL
+            NULL,
+            &mounts
         ) ||
         process_namespace_root_set(
             &instance,
-            &regular
+            &regular,
+            &mounts
         ) ||
         instance.namespace_root != NULL ||
         root.reference_count != 1 ||
@@ -266,7 +315,8 @@ static void process_namespace_test_errors(void)
     if (
         process_namespace_root_set(
             &instance,
-            &root
+            &root,
+            &mounts
         ) ||
         instance.namespace_root != NULL ||
         root.reference_count != SIZE_MAX
@@ -281,7 +331,8 @@ static void process_namespace_test_errors(void)
 
     if (!process_namespace_root_set(
         &instance,
-        &root
+        &root,
+        &mounts
     )) {
         kernel_panic(
             "Unable to prepare namespace error ownership"
@@ -323,6 +374,44 @@ static void process_namespace_test_errors(void)
 
     root.reference_count =
         2;
+
+    struct process_instance inconsistent = {
+        .namespace_root =
+            NULL,
+        .namespace_mounts =
+            &mounts,
+    };
+
+    if (
+        process_namespace_root_inherit(
+            &destination,
+            &inconsistent
+        ) ||
+        destination.namespace_root != NULL ||
+        destination.namespace_mounts != NULL
+    ) {
+        kernel_panic(
+            "Namespace inheritance accepted partial source state"
+        );
+    }
+
+    if (
+        process_namespace_root_release(
+            &inconsistent
+        ) ||
+        inconsistent.namespace_root != NULL ||
+        inconsistent.namespace_mounts != &mounts
+    ) {
+        kernel_panic(
+            "Namespace release accepted partial namespace state"
+        );
+    }
+
+    /*
+     * Borrowed mount topology requires no ownership cleanup.
+     */
+    inconsistent.namespace_mounts =
+        NULL;
 
     if (
         !process_namespace_root_release(

@@ -199,7 +199,8 @@ void user_process_fd_syscalls_test_prepare(void)
      */
     if (!process_namespace_root_set(
         fd_syscalls_test_instance,
-        &fd_syscalls_fixture.root
+        &fd_syscalls_fixture.root,
+        NULL
     )) {
         kernel_panic(
             "Unable to install FD syscall test namespace root"

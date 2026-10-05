@@ -392,7 +392,8 @@ static void process_file_test_fixture_initialize(
         ) ||
         !process_namespace_root_set(
             &fixture->instance,
-            &fixture->root
+            &fixture->root,
+            NULL
         )
     ) {
         kernel_panic(

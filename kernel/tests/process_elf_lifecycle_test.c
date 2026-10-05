@@ -1085,7 +1085,8 @@ static void process_elf_lifecycle_test_fork_clone(
         ) ||
         !process_namespace_root_set(
             parent,
-            &namespace_root_node
+            &namespace_root_node,
+            NULL
         ) ||
         process_namespace_root_get(
             parent
@@ -1651,7 +1652,8 @@ static void process_elf_lifecycle_test_fork_rollback(
         ) ||
         !process_namespace_root_set(
             parent,
-            &rollback_namespace_root_node
+            &rollback_namespace_root_node,
+            NULL
         ) ||
         rollback_namespace_root_node.reference_count != 2
     ) {
@@ -2410,7 +2412,8 @@ void process_elf_lifecycle_test_run(void)
         ) ||
         !process_namespace_root_set(
             &exec_instance,
-            &exec_namespace_root_node
+            &exec_namespace_root_node,
+            NULL
         ) ||
         exec_namespace_root_node.reference_count != 2
     ) {

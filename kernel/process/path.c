@@ -57,6 +57,11 @@ enum process_path_result process_path_resolve(
             PROCESS_PATH_RESULT_NO_NAMESPACE_ROOT;
     }
 
+    const struct vfs_mount_table *mounts =
+        process_namespace_mounts_get(
+            instance
+        );
+
     struct vfs_node *start;
 
     if (path[0] == '/') {
@@ -78,7 +83,7 @@ enum process_path_result process_path_resolve(
         vfs_path_resolve(
             root,
             start,
-            NULL,
+            mounts,
             path,
             path_length,
             result

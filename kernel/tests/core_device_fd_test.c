@@ -65,7 +65,8 @@ void core_device_fd_test_run(void)
         ) ||
         !process_namespace_root_set(
             &instance,
-            root
+            root,
+            NULL
         )
     ) {
         kernel_panic(
