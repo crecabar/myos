@@ -35,6 +35,9 @@ enum process_path_result {
  * instance->current_directory, while traversal remains bounded by the process
  * namespace root.
  *
+ * When instance->namespace_mounts is non-NULL, pathname traversal observes
+ * that mount topology.
+ *
  * The process must own a namespace root. Relative paths additionally require a
  * current working directory.
  *
