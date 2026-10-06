@@ -12,6 +12,7 @@
 
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../vfs/mount.h"
 #include "../vfs/path.h"
 #include "../vfs/vfs.h"
 
@@ -53,10 +54,31 @@ struct vfs_path_test_tree {
     struct vfs_path_test_directory bin_directory;
 };
 
-static struct vfs_node *vfs_path_test_lookup(
+struct vfs_path_mount_test_tree {
+    struct vfs_node host_root;
+    struct vfs_node mountpoint;
+    struct vfs_node sibling;
+    struct vfs_node hidden;
+    struct vfs_node mounted_root;
+    struct vfs_node mounted_child;
+    struct vfs_node sentinel;
+
+    struct vfs_path_test_entry host_root_entries[2];
+    struct vfs_path_test_entry mountpoint_entries[1];
+    struct vfs_path_test_entry mounted_root_entries[1];
+
+    struct vfs_path_test_directory host_root_directory;
+    struct vfs_path_test_directory mountpoint_directory;
+    struct vfs_path_test_directory mounted_root_directory;
+
+    struct vfs_mount_table mounts;
+};
+
+static enum vfs_lookup_result vfs_path_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length
+    size_t name_length,
+    struct vfs_node **result
 );
 
 static struct vfs_node *vfs_path_test_parent(
@@ -104,6 +126,38 @@ static void vfs_path_test_errors(void);
 
 static void vfs_path_test_reference_failures(void);
 
+static void vfs_path_mount_test_tree_initialize(
+    struct vfs_path_mount_test_tree *tree
+);
+
+static void vfs_path_mount_test_tree_expect_steady(
+    const struct vfs_path_mount_test_tree *tree
+);
+
+static void vfs_path_mount_test_tree_release(
+    struct vfs_path_mount_test_tree *tree
+);
+
+static void vfs_path_mount_test_expect_success(
+    struct vfs_path_mount_test_tree *tree,
+    struct vfs_node *root,
+    struct vfs_node *start,
+    const char *path,
+    size_t path_length,
+    struct vfs_node *expected
+);
+
+static void vfs_path_mount_test_expect_failure(
+    struct vfs_path_mount_test_tree *tree,
+    struct vfs_node *root,
+    struct vfs_node *start,
+    const char *path,
+    size_t path_length,
+    enum vfs_path_result expected
+);
+
+static void vfs_path_test_mount_traversal(void);
+
 static const struct vfs_node_operations
     vfs_path_test_directory_operations = {
         .lookup =
@@ -119,20 +173,23 @@ void vfs_path_test_run(void)
     vfs_path_test_success();
     vfs_path_test_errors();
     vfs_path_test_reference_failures();
+    vfs_path_test_mount_traversal();
 
     diagnostics_write(
         "[vfs] Pathname resolution tests passed\n"
     );
 }
 
-static struct vfs_node *vfs_path_test_lookup(
+static enum vfs_lookup_result vfs_path_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length)
+    size_t name_length,
+    struct vfs_node **result)
 {
     if (
         directory == NULL ||
-        name == NULL
+        name == NULL ||
+        result == NULL
     ) {
         kernel_panic(
             "VFS path lookup fixture received invalid input"
@@ -150,9 +207,11 @@ static struct vfs_node *vfs_path_test_lookup(
 
     ++fixture->lookup_count;
 
-    for (size_t index = 0;
-         index < fixture->entry_count;
-         ++index) {
+    for (
+        size_t index = 0;
+        index < fixture->entry_count;
+        ++index
+    ) {
         const struct vfs_path_test_entry *entry =
             &fixture->entries[index];
 
@@ -162,12 +221,16 @@ static struct vfs_node *vfs_path_test_lookup(
             entry->name,
             entry->name_length
         )) {
-            return
+            *result =
                 entry->node;
+
+            return
+                VFS_LOOKUP_RESULT_FOUND;
         }
     }
 
-    return NULL;
+    return
+        VFS_LOOKUP_RESULT_NOT_FOUND;
 }
 
 static struct vfs_node *vfs_path_test_parent(
@@ -421,6 +484,7 @@ static void vfs_path_test_expect_success(
         vfs_path_resolve(
             &tree->root,
             start,
+            NULL,
             path,
             path_length,
             &result
@@ -460,6 +524,7 @@ static void vfs_path_test_expect_failure(
         vfs_path_resolve(
             &tree->root,
             start,
+            NULL,
             path,
             path_length,
             &result
@@ -720,6 +785,7 @@ static void vfs_path_test_errors(void)
         vfs_path_resolve(
             &tree.root,
             &tree.root,
+            NULL,
             "",
             0,
             &result
@@ -728,6 +794,7 @@ static void vfs_path_test_errors(void)
         vfs_path_resolve(
             NULL,
             &tree.root,
+            NULL,
             "/",
             1,
             &result
@@ -735,6 +802,7 @@ static void vfs_path_test_errors(void)
         result != &tree.sentinel ||
         vfs_path_resolve(
             &tree.root,
+            NULL,
             NULL,
             "/",
             1,
@@ -745,6 +813,7 @@ static void vfs_path_test_errors(void)
             &tree.root,
             &tree.root,
             NULL,
+            NULL,
             1,
             &result
         ) != VFS_PATH_RESULT_INVALID_ARGUMENT ||
@@ -752,6 +821,7 @@ static void vfs_path_test_errors(void)
         vfs_path_resolve(
             &tree.root,
             &tree.root,
+            NULL,
             "/",
             1,
             NULL
@@ -793,6 +863,7 @@ static void vfs_path_test_reference_failures(void)
         vfs_path_resolve(
             &tree.root,
             &tree.root,
+            NULL,
             "/etc/motd",
             9,
             &result
@@ -828,6 +899,7 @@ static void vfs_path_test_reference_failures(void)
         vfs_path_resolve(
             &tree.root,
             &tree.etc,
+            NULL,
             "..",
             2,
             &result
@@ -862,6 +934,7 @@ static void vfs_path_test_reference_failures(void)
         vfs_path_resolve(
             &tree.root,
             &tree.root,
+            NULL,
             "/",
             1,
             &result
@@ -882,6 +955,451 @@ static void vfs_path_test_reference_failures(void)
     );
 
     vfs_path_test_tree_release(
+        &tree
+    );
+}
+
+static void vfs_path_mount_test_tree_initialize(
+    struct vfs_path_mount_test_tree *tree)
+{
+    if (tree == NULL) {
+        kernel_panic(
+            "Unable to initialize NULL VFS mount path tree"
+        );
+    }
+
+    tree->host_root_entries[0] =
+        (struct vfs_path_test_entry) {
+            .name = "mount",
+            .name_length = sizeof("mount") - 1U,
+            .node = &tree->mountpoint,
+        };
+
+    tree->host_root_entries[1] =
+        (struct vfs_path_test_entry) {
+            .name = "sibling",
+            .name_length = sizeof("sibling") - 1U,
+            .node = &tree->sibling,
+        };
+
+    /*
+     * This entry represents content physically present behind the covered
+     * mountpoint. It must become invisible once the mount is installed.
+     */
+    tree->mountpoint_entries[0] =
+        (struct vfs_path_test_entry) {
+            .name = "hidden",
+            .name_length = sizeof("hidden") - 1U,
+            .node = &tree->hidden,
+        };
+
+    tree->mounted_root_entries[0] =
+        (struct vfs_path_test_entry) {
+            .name = "child",
+            .name_length = sizeof("child") - 1U,
+            .node = &tree->mounted_child,
+        };
+
+    tree->host_root_directory =
+        (struct vfs_path_test_directory) {
+            .parent = NULL,
+            .entries = tree->host_root_entries,
+            .entry_count = 2,
+            .lookup_count = 0,
+            .parent_count = 0,
+        };
+
+    tree->mountpoint_directory =
+        (struct vfs_path_test_directory) {
+            .parent = &tree->host_root,
+            .entries = tree->mountpoint_entries,
+            .entry_count = 1,
+            .lookup_count = 0,
+            .parent_count = 0,
+        };
+
+    /*
+     * The mounted filesystem correctly knows nothing about its external
+     * parent. Crossing back into the host namespace is a VFS mount-topology
+     * operation, not a filesystem parent operation.
+     */
+    tree->mounted_root_directory =
+        (struct vfs_path_test_directory) {
+            .parent = NULL,
+            .entries = tree->mounted_root_entries,
+            .entry_count = 1,
+            .lookup_count = 0,
+            .parent_count = 0,
+        };
+
+    if (
+        !vfs_node_initialize(
+            &tree->host_root,
+            VFS_NODE_TYPE_DIRECTORY,
+            &vfs_path_test_directory_operations,
+            &tree->host_root_directory
+        ) ||
+        !vfs_node_initialize(
+            &tree->mountpoint,
+            VFS_NODE_TYPE_DIRECTORY,
+            &vfs_path_test_directory_operations,
+            &tree->mountpoint_directory
+        ) ||
+        !vfs_node_initialize(
+            &tree->sibling,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_node_initialize(
+            &tree->hidden,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_node_initialize(
+            &tree->mounted_root,
+            VFS_NODE_TYPE_DIRECTORY,
+            &vfs_path_test_directory_operations,
+            &tree->mounted_root_directory
+        ) ||
+        !vfs_node_initialize(
+            &tree->mounted_child,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_node_initialize(
+            &tree->sentinel,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_mount_table_initialize(
+            &tree->mounts
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize VFS mount pathname fixture"
+        );
+    }
+
+    if (
+        vfs_mount_table_attach(
+            &tree->mounts,
+            &tree->mountpoint,
+            &tree->mounted_root
+        ) != VFS_MOUNT_RESULT_SUCCESS
+    ) {
+        kernel_panic(
+            "Unable to install VFS mount pathname fixture"
+        );
+    }
+
+    vfs_path_mount_test_tree_expect_steady(
+        tree
+    );
+}
+
+static void vfs_path_mount_test_tree_expect_steady(
+    const struct vfs_path_mount_test_tree *tree)
+{
+    /*
+     * mountpoint and mounted_root each carry one initial fixture reference
+     * plus one reference owned by the mount table.
+     */
+    if (
+        tree->host_root.reference_count != 1 ||
+        tree->mountpoint.reference_count != 2 ||
+        tree->sibling.reference_count != 1 ||
+        tree->hidden.reference_count != 1 ||
+        tree->mounted_root.reference_count != 2 ||
+        tree->mounted_child.reference_count != 1 ||
+        tree->sentinel.reference_count != 1 ||
+        tree->mounts.count != 1
+    ) {
+        kernel_panic(
+            "VFS mount pathname operation leaked node references"
+        );
+    }
+}
+
+static void vfs_path_mount_test_tree_release(
+    struct vfs_path_mount_test_tree *tree)
+{
+    vfs_path_mount_test_tree_expect_steady(
+        tree
+    );
+
+    if (
+        vfs_mount_table_detach(
+            &tree->mounts,
+            &tree->mountpoint
+        ) != VFS_MOUNT_RESULT_SUCCESS ||
+        tree->mounts.count != 0 ||
+        tree->mountpoint.reference_count != 1 ||
+        tree->mounted_root.reference_count != 1
+    ) {
+        kernel_panic(
+            "Unable to detach VFS mount pathname fixture"
+        );
+    }
+
+    if (
+        !vfs_node_release(
+            &tree->sentinel
+        ) ||
+        !vfs_node_release(
+            &tree->mounted_child
+        ) ||
+        !vfs_node_release(
+            &tree->mounted_root
+        ) ||
+        !vfs_node_release(
+            &tree->hidden
+        ) ||
+        !vfs_node_release(
+            &tree->sibling
+        ) ||
+        !vfs_node_release(
+            &tree->mountpoint
+        ) ||
+        !vfs_node_release(
+            &tree->host_root
+        )
+    ) {
+        kernel_panic(
+            "VFS mount pathname fixture cleanup failed"
+        );
+    }
+}
+
+static void vfs_path_mount_test_expect_success(
+    struct vfs_path_mount_test_tree *tree,
+    struct vfs_node *root,
+    struct vfs_node *start,
+    const char *path,
+    size_t path_length,
+    struct vfs_node *expected)
+{
+    struct vfs_node *result =
+        NULL;
+
+    size_t expected_before =
+        expected->reference_count;
+
+    if (
+        vfs_path_resolve(
+            root,
+            start,
+            &tree->mounts,
+            path,
+            path_length,
+            &result
+        ) != VFS_PATH_RESULT_FOUND ||
+        result != expected ||
+        expected->reference_count !=
+            expected_before + 1
+    ) {
+        kernel_panic(
+            "VFS mount pathname did not resolve expected node"
+        );
+    }
+
+    if (!vfs_node_release(
+        result
+    )) {
+        kernel_panic(
+            "Unable to release VFS mount pathname result"
+        );
+    }
+
+    vfs_path_mount_test_tree_expect_steady(
+        tree
+    );
+}
+
+static void vfs_path_mount_test_expect_failure(
+    struct vfs_path_mount_test_tree *tree,
+    struct vfs_node *root,
+    struct vfs_node *start,
+    const char *path,
+    size_t path_length,
+    enum vfs_path_result expected)
+{
+    struct vfs_node *result =
+        &tree->sentinel;
+
+    if (
+        vfs_path_resolve(
+            root,
+            start,
+            &tree->mounts,
+            path,
+            path_length,
+            &result
+        ) != expected ||
+        result != &tree->sentinel
+    ) {
+        kernel_panic(
+            "VFS mount pathname returned incorrect failure"
+        );
+    }
+
+    vfs_path_mount_test_tree_expect_steady(
+        tree
+    );
+}
+
+static void vfs_path_test_mount_traversal(void)
+{
+    struct vfs_path_mount_test_tree tree;
+
+    vfs_path_mount_test_tree_initialize(
+        &tree
+    );
+
+    /*
+     * Resolving the covered directory itself exposes the mounted root.
+     */
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.host_root,
+        &tree.host_root,
+        "/mount",
+        sizeof("/mount") - 1U,
+        &tree.mounted_root
+    );
+
+    /*
+     * Ordinary descent continues inside the mounted filesystem.
+     */
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.host_root,
+        &tree.host_root,
+        "/mount/child",
+        sizeof("/mount/child") - 1U,
+        &tree.mounted_child
+    );
+
+    /*
+     * Content belonging to the covered host directory is no longer visible
+     * through the mounted pathname.
+     */
+    vfs_path_mount_test_expect_failure(
+        &tree,
+        &tree.host_root,
+        &tree.host_root,
+        "/mount/hidden",
+        sizeof("/mount/hidden") - 1U,
+        VFS_PATH_RESULT_NOT_FOUND
+    );
+
+    /*
+     * ".." from the mounted root crosses the VFS mount relation and then asks
+     * the host filesystem for the covered mountpoint's parent.
+     */
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.host_root,
+        &tree.host_root,
+        "/mount/..",
+        sizeof("/mount/..") - 1U,
+        &tree.host_root
+    );
+
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.host_root,
+        &tree.host_root,
+        "/mount/../sibling",
+        sizeof("/mount/../sibling") - 1U,
+        &tree.sibling
+    );
+
+    /*
+     * A relative traversal beginning from a stale reference to the covered
+     * mountpoint observes the visible mounted root rather than the hidden
+     * directory.
+     */
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.host_root,
+        &tree.mountpoint,
+        ".",
+        sizeof(".") - 1U,
+        &tree.mounted_root
+    );
+
+    /*
+     * A current directory that already names the mounted root can cross back
+     * into its host filesystem through "..".
+     */
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.host_root,
+        &tree.mounted_root,
+        "..",
+        sizeof("..") - 1U,
+        &tree.host_root
+    );
+
+    /*
+     * Namespace-root containment wins over reverse mount traversal.
+     */
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.mounted_root,
+        &tree.mounted_root,
+        "..",
+        sizeof("..") - 1U,
+        &tree.mounted_root
+    );
+
+    /*
+     * A covered mountpoint used directly as namespace root is first
+     * normalized to the mounted root and cannot be escaped with "..".
+     */
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.mountpoint,
+        &tree.mountpoint,
+        "/",
+        sizeof("/") - 1U,
+        &tree.mounted_root
+    );
+
+    vfs_path_mount_test_expect_success(
+        &tree,
+        &tree.mountpoint,
+        &tree.mountpoint,
+        "..",
+        sizeof("..") - 1U,
+        &tree.mounted_root
+    );
+
+    /*
+     * Crossing a mount must never ask the mounted filesystem to fabricate an
+     * external parent or expose the covered directory's children.
+     *
+     * Three successful reverse crossings occurred above:
+     *   /mount/..
+     *   /mount/../sibling
+     *   mounted_root + ".."
+     */
+    if (
+        tree.mounted_root_directory.parent_count != 0 ||
+        tree.mountpoint_directory.parent_count != 3 ||
+        tree.mountpoint_directory.lookup_count != 0 ||
+        tree.mounted_root_directory.lookup_count != 2
+    ) {
+        kernel_panic(
+            "VFS mount pathname crossed filesystem topology incorrectly"
+        );
+    }
+
+    vfs_path_mount_test_tree_release(
         &tree
     );
 }

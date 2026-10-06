@@ -36,6 +36,7 @@ bool process_instance_prepare_elf64(
     }
 
     instance->namespace_root = NULL;
+    instance->namespace_mounts = NULL;
     instance->current_directory = NULL;
 
     if (!process_image_create_elf64(
@@ -115,6 +116,7 @@ bool process_instance_prepare_clone(
     }
 
     instance->namespace_root = NULL;
+    instance->namespace_mounts = NULL;
     instance->current_directory = NULL;
 
     if (!process_image_clone(

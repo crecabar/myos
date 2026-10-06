@@ -11,6 +11,10 @@
 #ifndef MYOS_TESTS_INITRAMFS_BOOT_TEST_H
 #define MYOS_TESTS_INITRAMFS_BOOT_TEST_H
 
-void initramfs_boot_test_run(void);
+struct vfs_mount_table;
+
+void initramfs_boot_test_run(
+    const struct vfs_mount_table *mounts
+);
 
 #endif

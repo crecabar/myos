@@ -29,15 +29,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct vfs_mount_table;
+
 /**
  * Owns the lifecycle storage of one userspace process.
  *
  * The embedded process descriptor borrows the memory and layout contained in
- * image. The instance also owns the process descriptor table, whose occupied
- * slots own references to open-file descriptions. The instance may also own
- * one reference to a VFS directory representing its namespace root and one
- * independent reference to a VFS directory representing its current working
- * directory.
+ * image.
+ *
+ * The instance may also own one reference to a VFS directory representing its
+ * namespace root and one independent reference to a VFS directory representing
+ * its current working directory.
+ *
+ * namespace_mounts is a borrowed pointer to the VFS mount topology associated
+ * with namespace_root. The process does not own that table, so it must remain
+ * alive while the namespace context references it.
  *
  * Therefore the instance must remain alive while the process may be referenced
  * by the scheduler.
@@ -48,6 +54,9 @@
     struct process_fd_table file_descriptors;
 
     struct vfs_node *namespace_root;
+
+    const struct vfs_mount_table *namespace_mounts;
+
     struct vfs_node *current_directory;
 
     /*

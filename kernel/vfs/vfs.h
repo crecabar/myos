@@ -64,6 +64,17 @@ enum vfs_lookup_result {
     VFS_LOOKUP_RESULT_RESOURCE_EXHAUSTED,
 };
 
+enum vfs_directory_read_result {
+    VFS_DIRECTORY_READ_RESULT_ENTRY,
+    VFS_DIRECTORY_READ_RESULT_END,
+    VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT,
+    VFS_DIRECTORY_READ_RESULT_NOT_DIRECTORY,
+    VFS_DIRECTORY_READ_RESULT_NOT_SUPPORTED,
+    VFS_DIRECTORY_READ_RESULT_ACCESS_DENIED,
+    VFS_DIRECTORY_READ_RESULT_INVALIDATED,
+    VFS_DIRECTORY_READ_RESULT_RESOURCE_EXHAUSTED,
+};
+
 /**
  * Result of resolving the parent of one directory node.
  */
@@ -120,6 +131,29 @@ struct vfs_stat {
     uint64_t size;
 };
 
+/**
+ * Describes one entry returned by directory enumeration.
+ *
+ * name contains exactly one ordinary pathname component. name_length excludes
+ * the terminating NUL byte, while name[name_length] is guaranteed to be '\0'
+ * on every successfully published entry.
+ *
+ * "." and ".." are namespace traversal concepts handled above individual
+ * filesystems and are never returned as ordinary directory entries.
+ *
+ * The entry carries descriptive metadata only. It does not own or retain a
+ * VFS node.
+ */
+struct vfs_directory_entry {
+    enum vfs_node_type type;
+
+    size_t name_length;
+
+    char name[
+        VFS_NAME_MAX + 1U
+    ];
+};
+
 struct vfs_node;
 struct vfs_file;
 
@@ -172,22 +206,24 @@ struct vfs_node_operations {
      * NUL-terminated. "." and ".." are handled by the generic pathname layer
      * and are never passed to this callback.
      *
-     * On success, the callback returns a borrowed live node pointer. Ownership
-     * remains with the filesystem. The generic VFS retains the returned node
-     * before exposing it to the lookup caller.
+     * On VFS_LOOKUP_RESULT_FOUND, result receives a borrowed live node
+     * pointer. Ownership remains with the filesystem. The generic VFS retains
+     * the returned node before exposing it to the lookup caller.
      *
-     * Returning NULL means that no child with this name exists.
+     * On failure, result must remain unchanged.
      *
      * @param directory Directory in which to search.
      * @param name Component bytes.
      * @param name_length Number of component bytes.
+     * @param result Receives a borrowed child node on success.
      *
-     * @return Borrowed child node, or NULL when not found.
+     * @return Detailed lookup result.
      */
-    struct vfs_node *(*lookup)(
+    enum vfs_lookup_result (*lookup)(
         struct vfs_node *directory,
         const char *name,
-        size_t name_length
+        size_t name_length,
+        struct vfs_node **result
     );
 
     /**
@@ -267,6 +303,32 @@ struct vfs_file_operations {
         const void *buffer,
         size_t size,
         size_t *bytes_written
+    );
+
+    /**
+     * Returns the next entry from one open directory stream.
+     *
+     * Enumeration state belongs to this open-file description. Separate
+     * vfs_file objects referring to the same directory therefore have
+     * independent cursors.
+     *
+     * On VFS_DIRECTORY_READ_RESULT_ENTRY, result receives exactly one valid
+     * ordinary directory entry.
+     *
+     * END means that the stream has been consumed.
+     *
+     * INVALIDATED means that filesystem namespace state changed in a way that
+     * prevents deterministic continuation of the current stream. Callers may
+     * close and reopen the directory to begin a new enumeration.
+     *
+     * On every result other than ENTRY, result must remain unchanged.
+     *
+     * The callback does not use or modify file->offset. Directory cursor state
+     * is filesystem-specific open-file state.
+     */
+    enum vfs_directory_read_result (*read_directory)(
+        struct vfs_file *file,
+        struct vfs_directory_entry *result
     );
 
     /**
@@ -513,6 +575,26 @@ enum vfs_io_result vfs_file_write(
     const void *buffer,
     size_t size,
     size_t *bytes_written
+);
+
+/**
+ * Retrieves the next entry from an open directory stream.
+ *
+ * file must be a live open-file description referring to a directory and must
+ * include VFS_OPEN_ACCESS_READ.
+ *
+ * The generic VFS validates successful filesystem output before publishing it
+ * to the caller. result is modified only when
+ * VFS_DIRECTORY_READ_RESULT_ENTRY is returned.
+ *
+ * @param file Open directory stream.
+ * @param result Receives one directory entry on success.
+ *
+ * @return Detailed directory enumeration result.
+ */
+enum vfs_directory_read_result vfs_file_read_directory(
+    struct vfs_file *file,
+    struct vfs_directory_entry *result
 );
 
 enum vfs_stat_result vfs_node_stat(

@@ -39,8 +39,15 @@ static void core_device_fd_test_console(
 );
 
 // Public functions implementations
-void core_device_fd_test_run(void)
+void core_device_fd_test_run(
+    const struct vfs_mount_table *mounts)
 {
+    if (mounts == NULL) {
+        kernel_panic(
+            "Core device FD test has no mount topology"
+        );
+    }
+
     struct vfs_node *root =
         vfs_root_get();
 
@@ -65,7 +72,8 @@ void core_device_fd_test_run(void)
         ) ||
         !process_namespace_root_set(
             &instance,
-            root
+            root,
+            mounts
         )
     ) {
         kernel_panic(
@@ -75,10 +83,13 @@ void core_device_fd_test_run(void)
 
     if (
         root->reference_count !=
-            root_references_before + 1U
+            root_references_before + 1U ||
+        process_namespace_mounts_get(
+            &instance
+        ) != mounts
     ) {
         kernel_panic(
-            "Core device FD fixture did not retain namespace root"
+            "Core device FD fixture did not install namespace"
         );
     }
 
@@ -101,6 +112,9 @@ void core_device_fd_test_run(void)
         !process_namespace_root_release(
             &instance
         ) ||
+        process_namespace_mounts_get(
+            &instance
+        ) != NULL ||
         root->reference_count !=
             root_references_before
     ) {

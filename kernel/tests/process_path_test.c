@@ -15,8 +15,9 @@
 #include "../process/cwd.h"
 #include "../process/namespace.h"
 #include "../process/path.h"
-#include "../vfs/vfs.h"
+#include "../vfs/mount.h"
 #include "../vfs/path.h"
+#include "../vfs/vfs.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -52,10 +53,11 @@ struct process_path_test_tree {
     struct process_path_test_directory etc_directory;
 };
 
-static struct vfs_node *process_path_test_lookup(
+static enum vfs_lookup_result process_path_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length
+    size_t name_length,
+    struct vfs_node **result
 );
 
 static struct vfs_node *process_path_test_parent(
@@ -100,6 +102,8 @@ static void process_path_test_expect_failure(
 
 static void process_path_test_resolution(void);
 
+static void process_path_test_mount_topology(void);
+
 static void process_path_test_chdir(void);
 
 static void process_path_test_errors(void);
@@ -117,6 +121,7 @@ static const struct vfs_node_operations
 void process_path_test_run(void)
 {
     process_path_test_resolution();
+    process_path_test_mount_topology();
     process_path_test_chdir();
     process_path_test_errors();
 
@@ -125,14 +130,16 @@ void process_path_test_run(void)
     );
 }
 
-static struct vfs_node *process_path_test_lookup(
+static enum vfs_lookup_result process_path_test_lookup(
     struct vfs_node *directory,
     const char *name,
-    size_t name_length)
+    size_t name_length,
+    struct vfs_node **result)
 {
     if (
         directory == NULL ||
-        name == NULL
+        name == NULL ||
+        result == NULL
     ) {
         kernel_panic(
             "Process path lookup fixture received invalid input"
@@ -148,9 +155,11 @@ static struct vfs_node *process_path_test_lookup(
         );
     }
 
-    for (size_t index = 0;
-         index < fixture->entry_count;
-         ++index) {
+    for (
+        size_t index = 0;
+        index < fixture->entry_count;
+        ++index
+    ) {
         const struct process_path_test_entry *entry =
             &fixture->entries[index];
 
@@ -160,12 +169,16 @@ static struct vfs_node *process_path_test_lookup(
             entry->name,
             entry->name_length
         )) {
-            return
+            *result =
                 entry->node;
+
+            return
+                VFS_LOOKUP_RESULT_FOUND;
         }
     }
 
-    return NULL;
+    return
+        VFS_LOOKUP_RESULT_NOT_FOUND;
 }
 
 static struct vfs_node *process_path_test_parent(
@@ -497,7 +510,8 @@ static void process_path_test_resolution(void)
 
     if (!process_namespace_root_set(
         &instance,
-        &tree.root
+        &tree.root,
+        NULL
     )) {
         kernel_panic(
             "Unable to initialize process pathname namespace root"
@@ -600,6 +614,207 @@ static void process_path_test_resolution(void)
     );
 }
 
+static void process_path_test_mount_topology(void)
+{
+    struct vfs_node root;
+    struct vfs_node mountpoint;
+    struct vfs_node mounted_root;
+    struct vfs_node null_device;
+
+    struct process_path_test_entry root_entries[] = {
+        {
+            .name = "dev",
+            .name_length = sizeof("dev") - 1U,
+            .node = &mountpoint,
+        },
+    };
+
+    struct process_path_test_entry mounted_entries[] = {
+        {
+            .name = "null",
+            .name_length = sizeof("null") - 1U,
+            .node = &null_device,
+        },
+    };
+
+    struct process_path_test_directory root_directory = {
+        .parent = NULL,
+        .entries = root_entries,
+        .entry_count =
+            sizeof(root_entries) /
+            sizeof(root_entries[0]),
+    };
+
+    struct process_path_test_directory mountpoint_directory = {
+        .parent = &root,
+        .entries = NULL,
+        .entry_count = 0,
+    };
+
+    struct process_path_test_directory mounted_directory = {
+        .parent = NULL,
+        .entries = mounted_entries,
+        .entry_count =
+            sizeof(mounted_entries) /
+            sizeof(mounted_entries[0]),
+    };
+
+    if (
+        !vfs_node_initialize(
+            &root,
+            VFS_NODE_TYPE_DIRECTORY,
+            &process_path_test_directory_operations,
+            &root_directory
+        ) ||
+        !vfs_node_initialize(
+            &mountpoint,
+            VFS_NODE_TYPE_DIRECTORY,
+            &process_path_test_directory_operations,
+            &mountpoint_directory
+        ) ||
+        !vfs_node_initialize(
+            &mounted_root,
+            VFS_NODE_TYPE_DIRECTORY,
+            &process_path_test_directory_operations,
+            &mounted_directory
+        ) ||
+        !vfs_node_initialize(
+            &null_device,
+            VFS_NODE_TYPE_CHARACTER_DEVICE,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize process mount pathname fixture"
+        );
+    }
+
+    struct vfs_mount_table mounts;
+
+    if (
+        !vfs_mount_table_initialize(
+            &mounts
+        ) ||
+        vfs_mount_table_attach(
+            &mounts,
+            &mountpoint,
+            &mounted_root
+        ) !=
+            VFS_MOUNT_RESULT_SUCCESS
+    ) {
+        kernel_panic(
+            "Unable to initialize process mount topology"
+        );
+    }
+
+    struct process_instance instance = {0};
+
+    if (
+        !process_namespace_root_set(
+            &instance,
+            &root,
+            &mounts
+        ) ||
+        process_namespace_mounts_get(
+            &instance
+        ) != &mounts
+    ) {
+        kernel_panic(
+            "Unable to install process mount namespace"
+        );
+    }
+
+    struct vfs_node *result =
+        NULL;
+
+    if (
+        process_path_resolve(
+            &instance,
+            "/dev/null",
+            sizeof("/dev/null") - 1U,
+            &result
+        ) !=
+            PROCESS_PATH_RESULT_RESOLVED ||
+        result !=
+            &null_device
+    ) {
+        kernel_panic(
+            "Process pathname did not traverse namespace mount"
+        );
+    }
+
+    if (!vfs_node_release(
+        result
+    )) {
+        kernel_panic(
+            "Unable to release mounted process pathname result"
+        );
+    }
+
+    /*
+     * The namespace owns the root, while the mount table independently owns
+     * its mountpoint and mounted-root references.
+     */
+    if (
+        root.reference_count != 2 ||
+        mountpoint.reference_count != 2 ||
+        mounted_root.reference_count != 2 ||
+        null_device.reference_count != 1
+    ) {
+        kernel_panic(
+            "Process mount pathname leaked VFS references"
+        );
+    }
+
+    if (
+        !process_namespace_root_release(
+            &instance
+        ) ||
+        process_namespace_mounts_get(
+            &instance
+        ) != NULL ||
+        root.reference_count != 1
+    ) {
+        kernel_panic(
+            "Unable to release process mount namespace"
+        );
+    }
+
+    if (
+        vfs_mount_table_detach(
+            &mounts,
+            &mountpoint
+        ) !=
+            VFS_MOUNT_RESULT_SUCCESS ||
+        mountpoint.reference_count != 1 ||
+        mounted_root.reference_count != 1
+    ) {
+        kernel_panic(
+            "Unable to detach process mount topology fixture"
+        );
+    }
+
+    if (
+        !vfs_node_release(
+            &null_device
+        ) ||
+        !vfs_node_release(
+            &mounted_root
+        ) ||
+        !vfs_node_release(
+            &mountpoint
+        ) ||
+        !vfs_node_release(
+            &root
+        )
+    ) {
+        kernel_panic(
+            "Process mount pathname fixture cleanup failed"
+        );
+    }
+}
+
 static void process_path_test_chdir(void)
 {
     struct process_path_test_tree tree;
@@ -611,7 +826,8 @@ static void process_path_test_chdir(void)
 
     if (!process_namespace_root_set(
         &instance,
-        &tree.root
+        &tree.root,
+        NULL
     )) {
         kernel_panic(
             "Unable to initialize chdir namespace root"
@@ -849,7 +1065,8 @@ static void process_path_test_errors(void)
 
     if (!process_namespace_root_set(
         &instance,
-        &tree.root
+        &tree.root,
+        NULL
     )) {
         kernel_panic(
             "Unable to initialize pathname error namespace root"

@@ -3,6 +3,11 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
+/**
+ * @file path.c
+ * @brief Generic VFS pathname resolution implementation.
+ */
+
 #include "path.h"
 
 #include <stdbool.h>
@@ -32,6 +37,21 @@ static enum vfs_path_result vfs_path_parent_result(
     enum vfs_parent_result result
 );
 
+static enum vfs_path_result vfs_path_mount_result(
+    enum vfs_mount_result result
+);
+
+static enum vfs_path_result vfs_path_follow_mount(
+    const struct vfs_mount_table *mounts,
+    struct vfs_node **node
+);
+
+static enum vfs_path_result vfs_path_parent_step(
+    const struct vfs_mount_table *mounts,
+    struct vfs_node *namespace_root,
+    struct vfs_node **current
+);
+
 static enum vfs_path_result vfs_path_replace_current(
     struct vfs_node **current,
     struct vfs_node *next
@@ -39,6 +59,7 @@ static enum vfs_path_result vfs_path_replace_current(
 
 static enum vfs_path_result vfs_path_fail(
     struct vfs_node *current,
+    struct vfs_node *namespace_root,
     enum vfs_path_result result
 );
 
@@ -46,6 +67,7 @@ static enum vfs_path_result vfs_path_fail(
 enum vfs_path_result vfs_path_resolve(
     struct vfs_node *root,
     struct vfs_node *start,
+    const struct vfs_mount_table *mounts,
     const char *path,
     size_t path_length,
     struct vfs_node **result)
@@ -77,16 +99,86 @@ enum vfs_path_result vfs_path_resolve(
             VFS_PATH_RESULT_INVALID_ARGUMENT;
     }
 
-    struct vfs_node *current =
-        path[0] == '/'
-            ? root
-            : start;
+    /*
+     * Hold an independent reference to the visible namespace root for the
+     * complete traversal. This makes namespace-boundary checks independent of
+     * movement of the current node.
+     */
+    struct vfs_node *namespace_root =
+        root;
 
     if (!vfs_node_retain(
-        current
+        namespace_root
     )) {
         return
             VFS_PATH_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    enum vfs_path_result follow_result =
+        vfs_path_follow_mount(
+            mounts,
+            &namespace_root
+        );
+
+    if (
+        follow_result !=
+        VFS_PATH_RESULT_FOUND
+    ) {
+        (void) vfs_node_release(
+            namespace_root
+        );
+
+        return
+            follow_result;
+    }
+
+    struct vfs_node *current;
+
+    if (path[0] == '/') {
+        current =
+            namespace_root;
+
+        if (!vfs_node_retain(
+            current
+        )) {
+            (void) vfs_node_release(
+                namespace_root
+            );
+
+            return
+                VFS_PATH_RESULT_RESOURCE_EXHAUSTED;
+        }
+    } else {
+        current =
+            start;
+
+        if (!vfs_node_retain(
+            current
+        )) {
+            (void) vfs_node_release(
+                namespace_root
+            );
+
+            return
+                VFS_PATH_RESULT_RESOURCE_EXHAUSTED;
+        }
+
+        follow_result =
+            vfs_path_follow_mount(
+                mounts,
+                &current
+            );
+
+        if (
+            follow_result !=
+            VFS_PATH_RESULT_FOUND
+        ) {
+            return vfs_path_fail(
+                current,
+                namespace_root,
+                follow_result
+            );
+        }
     }
 
     size_t index =
@@ -123,6 +215,7 @@ enum vfs_path_result vfs_path_resolve(
         ) {
             return vfs_path_fail(
                 current,
+                namespace_root,
                 VFS_PATH_RESULT_INVALID_ARGUMENT
             );
         }
@@ -140,6 +233,7 @@ enum vfs_path_result vfs_path_resolve(
             ) {
                 return vfs_path_fail(
                     current,
+                    namespace_root,
                     VFS_PATH_RESULT_NOT_DIRECTORY
                 );
             }
@@ -157,52 +251,27 @@ enum vfs_path_result vfs_path_resolve(
             ) {
                 return vfs_path_fail(
                     current,
+                    namespace_root,
                     VFS_PATH_RESULT_NOT_DIRECTORY
                 );
             }
 
-            /*
-             * Namespace traversal is bounded at the supplied root. The
-             * filesystem does not need to manufacture a self-parent link for
-             * its root node.
-             */
-            if (current == root) {
-                continue;
-            }
-
-            struct vfs_node *parent =
-                NULL;
-
-            enum vfs_parent_result parent_result =
-                vfs_node_parent(
-                    current,
-                    &parent
+            enum vfs_path_result parent_result =
+                vfs_path_parent_step(
+                    mounts,
+                    namespace_root,
+                    &current
                 );
 
             if (
                 parent_result !=
-                VFS_PARENT_RESULT_FOUND
+                VFS_PATH_RESULT_FOUND
             ) {
                 return vfs_path_fail(
                     current,
-                    vfs_path_parent_result(
-                        parent_result
-                    )
+                    namespace_root,
+                    parent_result
                 );
-            }
-
-            enum vfs_path_result replace_result =
-                vfs_path_replace_current(
-                    &current,
-                    parent
-                );
-
-            if (
-                replace_result !=
-                VFS_PATH_RESULT_FOUND
-            ) {
-                return
-                    replace_result;
             }
 
             continue;
@@ -225,9 +294,31 @@ enum vfs_path_result vfs_path_resolve(
         ) {
             return vfs_path_fail(
                 current,
+                namespace_root,
                 vfs_path_lookup_result(
                     lookup_result
                 )
+            );
+        }
+
+        follow_result =
+            vfs_path_follow_mount(
+                mounts,
+                &child
+            );
+
+        if (
+            follow_result !=
+            VFS_PATH_RESULT_FOUND
+        ) {
+            (void) vfs_node_release(
+                child
+            );
+
+            return vfs_path_fail(
+                current,
+                namespace_root,
+                follow_result
             );
         }
 
@@ -241,6 +332,10 @@ enum vfs_path_result vfs_path_resolve(
             replace_result !=
             VFS_PATH_RESULT_FOUND
         ) {
+            (void) vfs_node_release(
+                namespace_root
+            );
+
             return
                 replace_result;
         }
@@ -257,8 +352,24 @@ enum vfs_path_result vfs_path_resolve(
     ) {
         return vfs_path_fail(
             current,
+            namespace_root,
             VFS_PATH_RESULT_NOT_DIRECTORY
         );
+    }
+
+    /*
+     * current carries the result ownership. The independent namespace-root
+     * reference is no longer needed once traversal has completed.
+     */
+    if (!vfs_node_release(
+        namespace_root
+    )) {
+        (void) vfs_node_release(
+            current
+        );
+
+        return
+            VFS_PATH_RESULT_INVALID_ARGUMENT;
     }
 
     *result =
@@ -375,6 +486,254 @@ static enum vfs_path_result vfs_path_parent_result(
         VFS_PATH_RESULT_INVALID_ARGUMENT;
 }
 
+static enum vfs_path_result vfs_path_mount_result(
+    enum vfs_mount_result result)
+{
+    switch (result) {
+        case VFS_MOUNT_RESULT_NOT_FOUND:
+            return
+                VFS_PATH_RESULT_NOT_FOUND;
+
+        case VFS_MOUNT_RESULT_INVALID_ARGUMENT:
+        case VFS_MOUNT_RESULT_CONFLICT:
+            return
+                VFS_PATH_RESULT_INVALID_ARGUMENT;
+
+        case VFS_MOUNT_RESULT_RESOURCE_EXHAUSTED:
+            return
+                VFS_PATH_RESULT_RESOURCE_EXHAUSTED;
+
+        case VFS_MOUNT_RESULT_SUCCESS:
+            break;
+    }
+
+    return
+        VFS_PATH_RESULT_INVALID_ARGUMENT;
+}
+
+static enum vfs_path_result vfs_path_follow_mount(
+    const struct vfs_mount_table *mounts,
+    struct vfs_node **node)
+{
+    if (
+        node == NULL ||
+        *node == NULL ||
+        (*node)->reference_count == 0
+    ) {
+        return
+            VFS_PATH_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * Only directories can participate as mountpoints. Avoid presenting
+     * ordinary files to the stricter mount-table lookup contract.
+     */
+    if (
+        mounts == NULL ||
+        (*node)->type !=
+            VFS_NODE_TYPE_DIRECTORY
+    ) {
+        return
+            VFS_PATH_RESULT_FOUND;
+    }
+
+    struct vfs_node *mounted_root =
+        NULL;
+
+    enum vfs_mount_result mount_result =
+        vfs_mount_table_lookup_mounted_root(
+            mounts,
+            *node,
+            &mounted_root
+        );
+
+    if (
+        mount_result ==
+        VFS_MOUNT_RESULT_NOT_FOUND
+    ) {
+        return
+            VFS_PATH_RESULT_FOUND;
+    }
+
+    if (
+        mount_result !=
+        VFS_MOUNT_RESULT_SUCCESS
+    ) {
+        return
+            vfs_path_mount_result(
+                mount_result
+            );
+    }
+
+    /*
+     * mounted_root is already an owned reference. Replace the covered node
+     * without changing the traversal's total ownership.
+     */
+    if (!vfs_node_release(
+        *node
+    )) {
+        (void) vfs_node_release(
+            mounted_root
+        );
+
+        return
+            VFS_PATH_RESULT_INVALID_ARGUMENT;
+    }
+
+    *node =
+        mounted_root;
+
+    return
+        VFS_PATH_RESULT_FOUND;
+}
+
+static enum vfs_path_result vfs_path_parent_step(
+    const struct vfs_mount_table *mounts,
+    struct vfs_node *namespace_root,
+    struct vfs_node **current)
+{
+    if (
+        namespace_root == NULL ||
+        current == NULL ||
+        *current == NULL
+    ) {
+        return
+            VFS_PATH_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * The namespace boundary takes precedence over mount traversal. A mounted
+     * root used as the namespace root therefore cannot escape through "..".
+     */
+    if (*current == namespace_root) {
+        return
+            VFS_PATH_RESULT_FOUND;
+    }
+
+    struct vfs_node *parent =
+        NULL;
+
+    if (mounts != NULL) {
+        struct vfs_node *mountpoint =
+            NULL;
+
+        enum vfs_mount_result mount_result =
+            vfs_mount_table_lookup_mountpoint(
+                mounts,
+                *current,
+                &mountpoint
+            );
+
+        if (
+            mount_result ==
+            VFS_MOUNT_RESULT_SUCCESS
+        ) {
+            enum vfs_parent_result parent_result =
+                vfs_node_parent(
+                    mountpoint,
+                    &parent
+                );
+
+            if (!vfs_node_release(
+                mountpoint
+            )) {
+                if (parent != NULL) {
+                    (void) vfs_node_release(
+                        parent
+                    );
+                }
+
+                return
+                    VFS_PATH_RESULT_INVALID_ARGUMENT;
+            }
+
+            if (
+                parent_result !=
+                VFS_PARENT_RESULT_FOUND
+            ) {
+                return
+                    vfs_path_parent_result(
+                        parent_result
+                    );
+            }
+
+            enum vfs_path_result follow_result =
+                vfs_path_follow_mount(
+                    mounts,
+                    &parent
+                );
+
+            if (
+                follow_result !=
+                VFS_PATH_RESULT_FOUND
+            ) {
+                (void) vfs_node_release(
+                    parent
+                );
+
+                return
+                    follow_result;
+            }
+
+            return
+                vfs_path_replace_current(
+                    current,
+                    parent
+                );
+        }
+
+        if (
+            mount_result !=
+            VFS_MOUNT_RESULT_NOT_FOUND
+        ) {
+            return
+                vfs_path_mount_result(
+                    mount_result
+                );
+        }
+    }
+
+    enum vfs_parent_result parent_result =
+        vfs_node_parent(
+            *current,
+            &parent
+        );
+
+    if (
+        parent_result !=
+        VFS_PARENT_RESULT_FOUND
+    ) {
+        return
+            vfs_path_parent_result(
+                parent_result
+            );
+    }
+
+    enum vfs_path_result follow_result =
+        vfs_path_follow_mount(
+            mounts,
+            &parent
+        );
+
+    if (
+        follow_result !=
+        VFS_PATH_RESULT_FOUND
+    ) {
+        (void) vfs_node_release(
+            parent
+        );
+
+        return
+            follow_result;
+    }
+
+    return
+        vfs_path_replace_current(
+            current,
+            parent
+        );
+}
+
 static enum vfs_path_result vfs_path_replace_current(
     struct vfs_node **current,
     struct vfs_node *next)
@@ -418,11 +777,18 @@ static enum vfs_path_result vfs_path_replace_current(
 
 static enum vfs_path_result vfs_path_fail(
     struct vfs_node *current,
+    struct vfs_node *namespace_root,
     enum vfs_path_result result)
 {
     if (current != NULL) {
         (void) vfs_node_release(
             current
+        );
+    }
+
+    if (namespace_root != NULL) {
+        (void) vfs_node_release(
+            namespace_root
         );
     }
 

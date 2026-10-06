@@ -24,6 +24,15 @@ static bool vfs_file_apply_signed_offset(
     uint64_t *result
 );
 
+static bool vfs_directory_entry_valid(
+    const struct vfs_directory_entry *entry
+);
+
+static bool vfs_directory_entry_name_valid(
+    const char *name,
+    size_t name_length
+);
+
 // Public functions implementations
 bool vfs_file_initialize(
     struct vfs_file *file,
@@ -360,6 +369,101 @@ enum vfs_io_result vfs_file_write(
         VFS_IO_RESULT_SUCCESS;
 }
 
+enum vfs_directory_read_result vfs_file_read_directory(
+    struct vfs_file *file,
+    struct vfs_directory_entry *result)
+{
+    if (
+        result == NULL ||
+        !vfs_file_state_valid(
+            file
+        )
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        file->node->type !=
+            VFS_NODE_TYPE_DIRECTORY
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_NOT_DIRECTORY;
+    }
+
+    if (
+        (file->access &
+            VFS_OPEN_ACCESS_READ) == 0
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_ACCESS_DENIED;
+    }
+
+    if (
+        file->operations == NULL ||
+        file->operations->read_directory == NULL
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_NOT_SUPPORTED;
+    }
+
+    uint64_t original_offset =
+        file->offset;
+
+    struct vfs_directory_entry entry = {0};
+
+    enum vfs_directory_read_result read_result =
+        file->operations->read_directory(
+            file,
+            &entry
+        );
+
+    /*
+     * Directory enumeration owns filesystem-specific cursor state, not the
+     * generic byte offset. Reject callbacks that mutate shared VFS offset
+     * state.
+     */
+    if (file->offset != original_offset) {
+        file->offset =
+            original_offset;
+
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    switch (read_result) {
+        case VFS_DIRECTORY_READ_RESULT_ENTRY:
+            break;
+
+        case VFS_DIRECTORY_READ_RESULT_END:
+        case VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT:
+        case VFS_DIRECTORY_READ_RESULT_NOT_DIRECTORY:
+        case VFS_DIRECTORY_READ_RESULT_NOT_SUPPORTED:
+        case VFS_DIRECTORY_READ_RESULT_ACCESS_DENIED:
+        case VFS_DIRECTORY_READ_RESULT_INVALIDATED:
+        case VFS_DIRECTORY_READ_RESULT_RESOURCE_EXHAUSTED:
+            return
+                read_result;
+    }
+
+    if (
+        read_result !=
+            VFS_DIRECTORY_READ_RESULT_ENTRY ||
+        !vfs_directory_entry_valid(
+            &entry
+        )
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    *result =
+        entry;
+
+    return
+        VFS_DIRECTORY_READ_RESULT_ENTRY;
+}
+
 enum vfs_seek_result vfs_file_seek(
     struct vfs_file *file,
     int64_t offset,
@@ -534,6 +638,73 @@ static bool vfs_file_apply_signed_offset(
     *result =
         base -
         negative_magnitude;
+
+    return true;
+}
+
+static bool vfs_directory_entry_valid(
+    const struct vfs_directory_entry *entry)
+{
+    if (
+        entry == NULL ||
+        !vfs_directory_entry_name_valid(
+            entry->name,
+            entry->name_length
+        )
+    ) {
+        return false;
+    }
+
+    switch (entry->type) {
+        case VFS_NODE_TYPE_REGULAR_FILE:
+        case VFS_NODE_TYPE_DIRECTORY:
+        case VFS_NODE_TYPE_CHARACTER_DEVICE:
+            return true;
+    }
+
+    return false;
+}
+
+static bool vfs_directory_entry_name_valid(
+    const char *name,
+    size_t name_length)
+{
+    if (
+        name == NULL ||
+        name_length == 0 ||
+        name_length > VFS_NAME_MAX ||
+        name[name_length] != '\0'
+    ) {
+        return false;
+    }
+
+    for (
+        size_t index = 0;
+        index < name_length;
+        ++index
+    ) {
+        if (
+            name[index] == '\0' ||
+            name[index] == '/'
+        ) {
+            return false;
+        }
+    }
+
+    if (
+        name_length == 1 &&
+        name[0] == '.'
+    ) {
+        return false;
+    }
+
+    if (
+        name_length == 2 &&
+        name[0] == '.' &&
+        name[1] == '.'
+    ) {
+        return false;
+    }
 
     return true;
 }

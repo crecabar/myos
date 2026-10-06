@@ -11,6 +11,10 @@
 #ifndef MYOS_TESTS_CORE_DEVICE_FD_TEST_H
 #define MYOS_TESTS_CORE_DEVICE_FD_TEST_H
 
-void core_device_fd_test_run(void);
+struct vfs_mount_table;
+
+void core_device_fd_test_run(
+    const struct vfs_mount_table *mounts
+);
 
 #endif

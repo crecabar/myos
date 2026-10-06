@@ -32,6 +32,22 @@ struct vfs_node *process_namespace_root_get(
 );
 
 /**
+ * Returns the mount topology associated with one process namespace.
+ *
+ * The returned pointer is borrowed. The process does not own the mount table
+ * and does not modify it through this reference.
+ *
+ * NULL means that the namespace has no mount topology.
+ *
+ * @param instance Process instance.
+ *
+ * @return Borrowed mount table, or NULL when none is assigned.
+ */
+const struct vfs_mount_table *process_namespace_mounts_get(
+    const struct process_instance *instance
+);
+
+/**
  * Installs the initial namespace root of one process instance.
  *
  * root must be a live VFS directory. The instance must not already own a
@@ -44,14 +60,23 @@ struct vfs_node *process_namespace_root_get(
  * A future operation that changes an established namespace must also preserve
  * current-directory containment semantics.
  *
+ * mounts may be NULL to describe a namespace without mounted filesystems.
+ * Otherwise the pointer is borrowed and must remain valid for the complete
+ * lifetime of the installed namespace context.
+ *
+ * The namespace root and mount topology are installed as one logical context.
+ * A process may not carry a mount topology without a namespace root.
+ *
  * @param instance Process instance.
  * @param root Live directory to install as namespace root.
+ * @param mounts Borrowed mount topology, or NULL when none is installed.
  *
  * @return true when root ownership was installed; false otherwise.
  */
 bool process_namespace_root_set(
     struct process_instance *instance,
-    struct vfs_node *root
+    struct vfs_node *root,
+    const struct vfs_mount_table *mounts
 );
 
 /**
