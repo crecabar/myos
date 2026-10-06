@@ -13,6 +13,7 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../runtime/memory.h"
+#include "../vfs/mount.h"
 #include "../vfs/path.h"
 #include "../vfs/root.h"
 #include "../vfs/vfs.h"
@@ -22,7 +23,8 @@
 
 // Private functions and helpers declarations
 static void initramfs_boot_test_core_devices(
-    struct vfs_node *root
+    struct vfs_node *root,
+    const struct vfs_mount_table *mounts
 );
 
 static bool initramfs_boot_test_bytes_equal(
@@ -32,8 +34,15 @@ static bool initramfs_boot_test_bytes_equal(
 );
 
 // Public functions implementations
-void initramfs_boot_test_run(void)
+void initramfs_boot_test_run(
+    const struct vfs_mount_table *mounts)
 {
+    if (mounts == NULL) {
+        kernel_panic(
+            "Boot initramfs test has no mount topology"
+        );
+    }
+
     static const char path[] =
         "/init";
 
@@ -65,7 +74,7 @@ void initramfs_boot_test_run(void)
         vfs_path_resolve(
             root,
             root,
-            NULL,
+            mounts,
             path,
             sizeof(path) - 1U,
             &init
@@ -181,7 +190,8 @@ void initramfs_boot_test_run(void)
     }
 
     initramfs_boot_test_core_devices(
-        root
+        root,
+        mounts
     );
 
     /*
@@ -204,11 +214,15 @@ void initramfs_boot_test_run(void)
 
 // Private functions and helpers implementations
 static void initramfs_boot_test_core_devices(
-    struct vfs_node *root)
+    struct vfs_node *root,
+    const struct vfs_mount_table *mounts)
 {
-    if (root == NULL) {
+    if (
+        root == NULL ||
+        mounts == NULL
+    ) {
         kernel_panic(
-            "Boot core-device test received null root"
+            "Boot core-device test received invalid namespace"
         );
     }
 
@@ -222,7 +236,7 @@ static void initramfs_boot_test_core_devices(
         vfs_path_resolve(
             root,
             root,
-            NULL,
+            mounts,
             dev_path,
             sizeof(dev_path) - 1U,
             &dev
@@ -259,7 +273,7 @@ static void initramfs_boot_test_core_devices(
         vfs_path_resolve(
             root,
             root,
-            NULL,
+            mounts,
             null_path,
             sizeof(null_path) - 1U,
             &null_node
@@ -408,7 +422,7 @@ static void initramfs_boot_test_core_devices(
         vfs_path_resolve(
             root,
             root,
-            NULL,
+            mounts,
             zero_path,
             sizeof(zero_path) - 1U,
             &zero_node
@@ -551,7 +565,7 @@ static void initramfs_boot_test_core_devices(
         vfs_path_resolve(
             root,
             root,
-            NULL,
+            mounts,
             console_path,
             sizeof(console_path) - 1U,
             &console_node
