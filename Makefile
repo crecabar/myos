@@ -774,9 +774,16 @@ TEST_ISO_BOOTX64        := $(TEST_ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
 TEST_ISO_LIMINE_UEFI_CD := $(TEST_ISO_ROOT)/limine-uefi-cd.bin
 TEST_ISO_INITRAMFS := $(TEST_ISO_ROOT)/boot/initramfs.cpio
 
-.PHONY: iso
+.PHONY: iso iso-tests
 
 iso: $(ISO_IMAGE)
+
+iso-tests:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=0 \
+		MYOS_QEMU_TEST_EXIT=0 \
+		$(TEST_ISO_IMAGE)
 
 $(ISO_ROOT):
 	mkdir -p $(ISO_ROOT)/boot
