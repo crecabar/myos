@@ -63,6 +63,12 @@ static void vfs_file_io_test_read_validation(void);
 
 static void vfs_file_io_test_read_callback_failures(void);
 
+static void vfs_file_io_test_read_at_success(void);
+
+static void vfs_file_io_test_read_at_validation(void);
+
+static void vfs_file_io_test_read_at_callback_failures(void);
+
 static void vfs_file_io_test_write_success(void);
 
 static void vfs_file_io_test_write_validation(void);
@@ -81,6 +87,10 @@ void vfs_file_io_test_run(void)
     vfs_file_io_test_read_success();
     vfs_file_io_test_read_validation();
     vfs_file_io_test_read_callback_failures();
+
+    vfs_file_io_test_read_at_success();
+    vfs_file_io_test_read_at_validation();
+    vfs_file_io_test_read_at_callback_failures();
 
     vfs_file_io_test_write_success();
     vfs_file_io_test_write_validation();
@@ -657,6 +667,492 @@ static void vfs_file_io_test_read_callback_failures(void)
     ) {
         kernel_panic(
             "VFS read failure fixture cleanup failed"
+        );
+    }
+}
+
+static void vfs_file_io_test_read_at_success(void)
+{
+    struct vfs_node node;
+    struct vfs_file file;
+
+    struct vfs_file_operations operations = {
+        .read =
+            vfs_file_io_test_read_callback,
+    };
+
+    if (
+        !vfs_node_initialize(
+            &node,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_file_initialize(
+            &file,
+            &node,
+            VFS_OPEN_ACCESS_READ,
+            &operations,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "VFS positioned-read success fixture initialization failed"
+        );
+    }
+
+    file.offset =
+        37;
+
+    vfs_file_io_test_read_call_count =
+        0;
+
+    vfs_file_io_test_read_last_offset =
+        0;
+
+    vfs_file_io_test_read_transfer_size =
+        3;
+
+    vfs_file_io_test_read_result =
+        VFS_IO_RESULT_SUCCESS;
+
+    vfs_file_io_test_read_mutate_offset =
+        false;
+
+    uint8_t buffer[8] = {0};
+
+    size_t bytes_read =
+        99;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            11,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_SUCCESS ||
+        bytes_read != 3 ||
+        file.offset != 37 ||
+        vfs_file_io_test_read_call_count != 1 ||
+        vfs_file_io_test_read_last_offset != 11
+    ) {
+        kernel_panic(
+            "VFS positioned short-read contract failed"
+        );
+    }
+
+    /*
+     * Zero-length positioned reads neither require a buffer nor consult the
+     * filesystem. The explicit position therefore does not need to describe
+     * an addressable byte.
+     */
+    bytes_read =
+        99;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            UINT64_MAX,
+            NULL,
+            0,
+            &bytes_read
+        ) != VFS_IO_RESULT_SUCCESS ||
+        bytes_read != 0 ||
+        file.offset != 37 ||
+        vfs_file_io_test_read_call_count != 1
+    ) {
+        kernel_panic(
+            "VFS zero-length positioned-read contract failed"
+        );
+    }
+
+    if (
+        !vfs_file_release(&file) ||
+        !vfs_node_release(&node)
+    ) {
+        kernel_panic(
+            "VFS positioned-read success fixture cleanup failed"
+        );
+    }
+}
+
+static void vfs_file_io_test_read_at_validation(void)
+{
+    struct vfs_node node;
+    struct vfs_file file;
+
+    struct vfs_file_operations operations = {
+        .read =
+            vfs_file_io_test_read_callback,
+    };
+
+    if (
+        !vfs_node_initialize(
+            &node,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_file_initialize(
+            &file,
+            &node,
+            VFS_OPEN_ACCESS_WRITE,
+            &operations,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "VFS positioned-read validation fixture initialization failed"
+        );
+    }
+
+    file.offset =
+        41;
+
+    vfs_file_io_test_read_call_count =
+        0;
+
+    uint8_t buffer =
+        0;
+
+    size_t bytes_read =
+        77;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            12,
+            &buffer,
+            1,
+            &bytes_read
+        ) != VFS_IO_RESULT_ACCESS_DENIED ||
+        bytes_read != 77 ||
+        file.offset != 41 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS positioned read ignored open access mode"
+        );
+    }
+
+    /*
+     * Access validation precedes zero-length positioned-read handling.
+     */
+    if (
+        vfs_file_read_at(
+            &file,
+            UINT64_MAX,
+            NULL,
+            0,
+            &bytes_read
+        ) != VFS_IO_RESULT_ACCESS_DENIED ||
+        bytes_read != 77 ||
+        file.offset != 41 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS zero-length positioned read bypassed access validation"
+        );
+    }
+
+    file.access =
+        VFS_OPEN_ACCESS_READ;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            12,
+            NULL,
+            1,
+            &bytes_read
+        ) != VFS_IO_RESULT_INVALID_ARGUMENT ||
+        bytes_read != 77 ||
+        file.offset != 41 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS positioned read accepted NULL non-empty buffer"
+        );
+    }
+
+    if (
+        vfs_file_read_at(
+            NULL,
+            12,
+            &buffer,
+            1,
+            &bytes_read
+        ) != VFS_IO_RESULT_INVALID_ARGUMENT ||
+        bytes_read != 77 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS positioned read accepted NULL file"
+        );
+    }
+
+    if (
+        vfs_file_read_at(
+            &file,
+            12,
+            &buffer,
+            1,
+            NULL
+        ) != VFS_IO_RESULT_INVALID_ARGUMENT ||
+        file.offset != 41 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS positioned read accepted NULL result storage"
+        );
+    }
+
+    file.operations =
+        NULL;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            12,
+            &buffer,
+            1,
+            &bytes_read
+        ) != VFS_IO_RESULT_NOT_SUPPORTED ||
+        bytes_read != 77 ||
+        file.offset != 41 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS positioned read accepted missing operation"
+        );
+    }
+
+    file.operations =
+        &operations;
+
+    node.type =
+        VFS_NODE_TYPE_CHARACTER_DEVICE;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            12,
+            &buffer,
+            1,
+            &bytes_read
+        ) != VFS_IO_RESULT_NOT_SUPPORTED ||
+        bytes_read != 77 ||
+        file.offset != 41 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS positioned read accepted non-regular file"
+        );
+    }
+
+    /*
+     * Object-type validation also precedes zero-length handling.
+     */
+    if (
+        vfs_file_read_at(
+            &file,
+            UINT64_MAX,
+            NULL,
+            0,
+            &bytes_read
+        ) != VFS_IO_RESULT_NOT_SUPPORTED ||
+        bytes_read != 77 ||
+        file.offset != 41 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS zero-length positioned read bypassed object-type validation"
+        );
+    }
+
+    node.type =
+        VFS_NODE_TYPE_REGULAR_FILE;
+
+    file.reference_count =
+        0;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            12,
+            &buffer,
+            1,
+            &bytes_read
+        ) != VFS_IO_RESULT_INVALID_ARGUMENT ||
+        bytes_read != 77 ||
+        file.offset != 41 ||
+        vfs_file_io_test_read_call_count != 0
+    ) {
+        kernel_panic(
+            "VFS positioned read accepted dead file"
+        );
+    }
+
+    file.reference_count =
+        1;
+
+    if (
+        !vfs_file_release(&file) ||
+        !vfs_node_release(&node)
+    ) {
+        kernel_panic(
+            "VFS positioned-read validation fixture cleanup failed"
+        );
+    }
+}
+
+static void vfs_file_io_test_read_at_callback_failures(void)
+{
+    struct vfs_node node;
+    struct vfs_file file;
+
+    struct vfs_file_operations operations = {
+        .read =
+            vfs_file_io_test_read_callback,
+    };
+
+    if (
+        !vfs_node_initialize(
+            &node,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_file_initialize(
+            &file,
+            &node,
+            VFS_OPEN_ACCESS_READ,
+            &operations,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "VFS positioned-read failure fixture initialization failed"
+        );
+    }
+
+    file.offset =
+        43;
+
+    uint8_t buffer[8] = {0};
+
+    size_t bytes_read =
+        73;
+
+    vfs_file_io_test_read_call_count =
+        0;
+
+    vfs_file_io_test_read_last_offset =
+        0;
+
+    vfs_file_io_test_read_transfer_size =
+        5;
+
+    vfs_file_io_test_read_result =
+        VFS_IO_RESULT_NOT_SUPPORTED;
+
+    vfs_file_io_test_read_mutate_offset =
+        false;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            19,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_NOT_SUPPORTED ||
+        bytes_read != 73 ||
+        file.offset != 43 ||
+        vfs_file_io_test_read_call_count != 1 ||
+        vfs_file_io_test_read_last_offset != 19
+    ) {
+        kernel_panic(
+            "VFS positioned-read callback failure mutated state"
+        );
+    }
+
+    vfs_file_io_test_read_transfer_size =
+        1;
+
+    vfs_file_io_test_read_result =
+        VFS_IO_RESULT_SUCCESS;
+
+    vfs_file_io_test_read_mutate_offset =
+        true;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            19,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_INVALID_ARGUMENT ||
+        bytes_read != 73 ||
+        file.offset != 43
+    ) {
+        kernel_panic(
+            "VFS positioned read accepted callback offset mutation"
+        );
+    }
+
+    vfs_file_io_test_read_mutate_offset =
+        false;
+
+    vfs_file_io_test_read_transfer_size =
+        sizeof(buffer) + 1;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            19,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_INVALID_ARGUMENT ||
+        bytes_read != 73 ||
+        file.offset != 43
+    ) {
+        kernel_panic(
+            "VFS positioned read accepted oversized transfer"
+        );
+    }
+
+    vfs_file_io_test_read_transfer_size =
+        1;
+
+    vfs_file_io_test_read_result =
+        (enum vfs_io_result) 99;
+
+    if (
+        vfs_file_read_at(
+            &file,
+            19,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_INVALID_ARGUMENT ||
+        bytes_read != 73 ||
+        file.offset != 43
+    ) {
+        kernel_panic(
+            "VFS positioned read propagated unknown callback result"
+        );
+    }
+
+    if (
+        !vfs_file_release(&file) ||
+        !vfs_node_release(&node)
+    ) {
+        kernel_panic(
+            "VFS positioned-read failure fixture cleanup failed"
         );
     }
 }

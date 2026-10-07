@@ -570,6 +570,40 @@ enum vfs_io_result vfs_file_read(
     size_t *bytes_read
 );
 
+/**
+ * Reads bytes from an explicit file offset without changing the shared
+ * open-file offset.
+ *
+ * This operation is available only for regular files opened with read access.
+ * The filesystem read callback receives offset exactly as supplied by the
+ * caller. A successful short read is permitted and reported through
+ * bytes_read.
+ *
+ * file->offset remains unchanged on both success and failure. Filesystem
+ * callbacks that mutate the shared offset directly violate the VFS contract;
+ * such mutations are rolled back and reported as INVALID_ARGUMENT.
+ *
+ * A zero-length positioned read succeeds after file, access, and object-type
+ * validation without invoking the filesystem callback or requiring buffer.
+ *
+ * On failure, bytes_read remains unchanged.
+ *
+ * @param file Live open-file description.
+ * @param offset Absolute byte offset at which to begin reading.
+ * @param buffer Destination buffer, or NULL for a zero-length read.
+ * @param size Maximum number of bytes to read.
+ * @param bytes_read Receives the number of bytes transferred on success.
+ *
+ * @return Detailed VFS I/O result.
+ */
+enum vfs_io_result vfs_file_read_at(
+    struct vfs_file *file,
+    uint64_t offset,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read
+);
+
 enum vfs_io_result vfs_file_write(
     struct vfs_file *file,
     const void *buffer,

@@ -256,6 +256,131 @@ enum vfs_io_result vfs_file_read(
         VFS_IO_RESULT_SUCCESS;
 }
 
+enum vfs_io_result vfs_file_read_at(
+    struct vfs_file *file,
+    uint64_t offset,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read)
+{
+    if (
+        bytes_read == NULL ||
+        !vfs_file_state_valid(
+            file
+        )
+    ) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        (file->access &
+            VFS_OPEN_ACCESS_READ) == 0
+    ) {
+        return
+            VFS_IO_RESULT_ACCESS_DENIED;
+    }
+
+    /*
+     * Positioned byte I/O is meaningful only for regular files. Stream-like
+     * objects such as character devices retain their ordinary read semantics.
+     */
+    if (
+        file->node->type !=
+            VFS_NODE_TYPE_REGULAR_FILE
+    ) {
+        return
+            VFS_IO_RESULT_NOT_SUPPORTED;
+    }
+
+    /*
+     * A zero-length positioned read succeeds once file state, access mode and
+     * object type have been validated. No filesystem callback or buffer is
+     * required.
+     */
+    if (size == 0) {
+        *bytes_read =
+            0;
+
+        return
+            VFS_IO_RESULT_SUCCESS;
+    }
+
+    if (buffer == NULL) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        file->operations == NULL ||
+        file->operations->read == NULL
+    ) {
+        return
+            VFS_IO_RESULT_NOT_SUPPORTED;
+    }
+
+    uint64_t original_offset =
+        file->offset;
+
+    size_t transferred =
+        0;
+
+    enum vfs_io_result io_result =
+        file->operations->read(
+            file,
+            offset,
+            buffer,
+            size,
+            &transferred
+        );
+
+    /*
+     * Positioned reads never transfer ownership of the shared open-file
+     * offset to the filesystem callback. Restore and reject any callback that
+     * mutates it directly.
+     */
+    if (file->offset != original_offset) {
+        file->offset =
+            original_offset;
+
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    switch (io_result) {
+        case VFS_IO_RESULT_SUCCESS:
+            break;
+
+        case VFS_IO_RESULT_INVALID_ARGUMENT:
+        case VFS_IO_RESULT_NOT_SUPPORTED:
+        case VFS_IO_RESULT_ACCESS_DENIED:
+        case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
+            return
+                io_result;
+    }
+
+    if (io_result != VFS_IO_RESULT_SUCCESS) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (transferred > size) {
+        return
+            VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * Unlike ordinary read(), no offset arithmetic is performed here. The
+     * caller-supplied position belongs only to this operation and the shared
+     * open-file offset remains unchanged.
+     */
+    *bytes_read =
+        transferred;
+
+    return
+        VFS_IO_RESULT_SUCCESS;
+}
+
 enum vfs_io_result vfs_file_write(
     struct vfs_file *file,
     const void *buffer,
