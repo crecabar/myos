@@ -7,6 +7,7 @@
  * @file crt0.S
  * @brief Minimal C runtime entry point for bootstrap userspace programs.
  */
+#include <myos/abi/syscall.h>
 
 .section .text._start
 
@@ -14,8 +15,6 @@
 .type _start, @function
 
 .extern main
-
-.set SYSCALL_EXIT, 2
 
 _start:
     /*

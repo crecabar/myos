@@ -108,6 +108,7 @@ LIMINE_HEADER                := $(LIMINE_PROTOCOL_DIR)/limine.h
 LIMINE_PROTOCOL_FETCH_SCRIPT := scripts/fetch-limine-protocol.sh
 
 TARGET := x86_64-unknown-none-elf
+MYOS_INCLUDE_DIR := include
 
 CFLAGS := \
 	--target=$(TARGET) \
@@ -120,6 +121,7 @@ CFLAGS := \
 	-O0 \
 	-g \
 	-I$(LIMINE_PROTOCOL_DIR) \
+	-I$(MYOS_INCLUDE_DIR) \
 	-DMYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS) \
 	-DMYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS) \
 	-DMYOS_QEMU_TEST_EXIT=$(MYOS_QEMU_TEST_EXIT) \
@@ -167,6 +169,8 @@ USER_BOOTSTRAP_LINKER_SCRIPT := user/bootstrap/user.ld
 USER_BOOTSTRAP_CRT0_SOURCE := user/runtime/crt0.S
 USER_BOOTSTRAP_CRT0_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/crt0.o
 
+USER_SYSCALL_ABI_HEADER := include/myos/abi/syscall.h
+
 USER_INIT_SOURCE := user/bootstrap/init/main.c
 USER_INIT_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/init.o
 USER_INIT_ELF    := $(USER_BOOTSTRAP_BUILD_DIR)/init.elf
@@ -182,6 +186,7 @@ USER_BOOTSTRAP_CFLAGS := \
 	-mgeneral-regs-only \
 	-O0 \
 	-g \
+	-I$(MYOS_INCLUDE_DIR) \
 	-Wall \
 	-Wextra \
 	-Werror \
@@ -192,6 +197,7 @@ $(USER_BOOTSTRAP_BUILD_DIR):
 
 $(USER_BOOTSTRAP_CRT0_OBJECT): \
 	$(USER_BOOTSTRAP_CRT0_SOURCE) \
+	$(USER_SYSCALL_ABI_HEADER) \
 	| $(USER_BOOTSTRAP_BUILD_DIR)
 	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
 		-c $< \
