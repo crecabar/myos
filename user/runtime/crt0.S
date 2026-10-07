@@ -7,7 +7,6 @@
  * @file crt0.S
  * @brief Minimal C runtime entry point for bootstrap userspace programs.
  */
-#include <myos/abi/syscall.h>
 
 .section .text._start
 
@@ -15,6 +14,7 @@
 .type _start, @function
 
 .extern main
+.extern _exit
 
 _start:
     /*
@@ -43,15 +43,12 @@ _start:
     call main
 
     /*
-     * A returning main() terminates the process using its int return value.
-     *
-     * The syscall number is part of MyOS syscall ABI version 1. A public
-     * userspace syscall header will replace this local definition as the
-     * bootstrap runtime grows under #57.
+     * Returning from main terminates the process through the bootstrap
+     * runtime. crt0 itself deliberately knows nothing about the architecture
+     * syscall instruction or the numeric exit syscall identifier.
      */
-    movslq %eax, %rdi
-    movq $SYSCALL_EXIT, %rax
-    int $0x80
+    movl %eax, %edi
+    call _exit
 
 .Lhang:
     jmp .Lhang
