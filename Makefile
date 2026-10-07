@@ -146,6 +146,9 @@ INITRAMFS_ROOT    := initramfs/root
 INITRAMFS_BUILDER := scripts/build-initramfs.py
 INITRAMFS_IMAGE   := $(BUILD_DIR)/initramfs.cpio
 
+TEST_INITRAMFS_ROOT  := $(BUILD_DIR)/initramfs-test-root
+TEST_INITRAMFS_IMAGE := $(BUILD_DIR)/initramfs-test.cpio
+
 INITRAMFS_SOURCES := $(shell \
 	find $(INITRAMFS_ROOT) \
 		-type f \
@@ -163,6 +166,10 @@ ELF_ENTRY_SOURCE        := user/tests/elf_entry.S
 ELF_ENTRY_LINKER_SCRIPT := user/tests/elf_entry.ld
 ELF_ENTRY_OBJECT        := $(USER_TEST_BUILD_DIR)/elf_entry.o
 ELF_ENTRY_ELF           := $(USER_TEST_BUILD_DIR)/elf_entry.elf
+
+ELF_FROM_VFS_SOURCE := user/tests/elf_from_vfs.S
+ELF_FROM_VFS_OBJECT := $(USER_TEST_BUILD_DIR)/elf_from_vfs.o
+ELF_FROM_VFS_ELF    := $(USER_TEST_BUILD_DIR)/elf_from_vfs.elf
 
 SYSCALL_ABI_SOURCE := user/tests/syscall_abi.S
 SYSCALL_ABI_OBJECT := $(USER_TEST_BUILD_DIR)/syscall_abi.o
@@ -236,6 +243,21 @@ $(ELF_ENTRY_ELF): $(ELF_ENTRY_OBJECT) $(ELF_ENTRY_LINKER_SCRIPT)
 		-T $(ELF_ENTRY_LINKER_SCRIPT) \
 		-o $@ \
 		$(ELF_ENTRY_OBJECT)
+
+$(ELF_FROM_VFS_OBJECT): \
+	$(ELF_FROM_VFS_SOURCE) \
+	| $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(ELF_FROM_VFS_ELF): \
+	$(ELF_FROM_VFS_OBJECT) \
+	$(ELF_ENTRY_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-T $(ELF_ENTRY_LINKER_SCRIPT) \
+		-o $@ \
+		$(ELF_FROM_VFS_OBJECT)
 
 $(SYSCALL_ABI_OBJECT): $(SYSCALL_ABI_SOURCE) | $(USER_TEST_BUILD_DIR)
 	$(CLANG) $(ELF_ENTRY_CFLAGS) \
@@ -551,6 +573,22 @@ $(INITRAMFS_IMAGE): \
 		$(INITRAMFS_ROOT) \
 		$@
 
+$(TEST_INITRAMFS_IMAGE): \
+	$(INITRAMFS_BUILDER) \
+	$(INITRAMFS_SOURCES) \
+	$(ELF_FROM_VFS_ELF) \
+	| $(BUILD_DIR)
+	rm -rf $(TEST_INITRAMFS_ROOT)
+	mkdir -p $(TEST_INITRAMFS_ROOT)/bin
+	cp -R $(INITRAMFS_ROOT)/. $(TEST_INITRAMFS_ROOT)/
+	cp \
+		$(ELF_FROM_VFS_ELF) \
+		$(TEST_INITRAMFS_ROOT)/bin/elf-from-vfs
+	python3 \
+		$(INITRAMFS_BUILDER) \
+		$(TEST_INITRAMFS_ROOT) \
+		$@
+
 .PHONY: FORCE
 FORCE:
 
@@ -731,8 +769,8 @@ $(TEST_ISO_IMAGE): \
 $(ISO_INITRAMFS): $(INITRAMFS_IMAGE) | $(ISO_ROOT)
 	cp $(INITRAMFS_IMAGE) $(ISO_INITRAMFS)
 
-$(TEST_ISO_INITRAMFS): $(INITRAMFS_IMAGE) | $(TEST_ISO_ROOT)
-	cp $(INITRAMFS_IMAGE) $(TEST_ISO_INITRAMFS)
+$(TEST_ISO_INITRAMFS): $(TEST_INITRAMFS_IMAGE) | $(TEST_ISO_ROOT)
+	cp $(TEST_INITRAMFS_IMAGE) $(TEST_ISO_INITRAMFS)
 
 # -----------------------------------------------------------------------------
 # USB boot image

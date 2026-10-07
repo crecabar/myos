@@ -11,14 +11,18 @@
 #ifndef MYOS_TESTS_USER_PROCESSES_H
 #define MYOS_TESTS_USER_PROCESSES_H
 
-#include <stdint.h>
+struct vfs_mount_table;
 
 /**
  * Prepares the built-in user processes used to exercise the scheduler.
  *
- * The created processes and their address spaces remain alive for the entire
- * kernel lifetime.
+ * The supplied mount topology is borrowed from the kernel for VFS-backed
+ * userspace regressions and remains kernel-owned.
+ *
+ * @param mounts Borrowed kernel-owned mount topology.
  */
-void user_process_tests_prepare(void);
+void user_process_tests_prepare(
+    const struct vfs_mount_table *mounts
+);
 
 #endif

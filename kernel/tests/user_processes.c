@@ -21,8 +21,10 @@
 #include "user_processes/syscall_abi.h"
 #include "user_processes/syscall_pointer.h"
 #include "user_processes/fd_syscalls.h"
+#include "user_processes/vfs_elf.h"
 #include "user_processes/waitpid.h"
 
+#include "../core/panic.h"
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"
 
@@ -30,6 +32,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+static const struct vfs_mount_table *
+user_process_test_mounts;
 
 // Private helpers declarations
 static void user_process_exec_terminated_handler(
@@ -78,10 +82,24 @@ static void user_process_waitpid_terminated_handler(
 static void user_process_fork_terminated_handler(
     struct process *process
 );
+
+static void user_process_vfs_elf_terminated_handler(
+    struct process *process
+);
 // End private helpers declarations
 
-void user_process_tests_prepare(void)
+void user_process_tests_prepare(
+    const struct vfs_mount_table *mounts)
 {
+    if (mounts == NULL) {
+        kernel_panic(
+            "User-process tests received NULL mount topology"
+        );
+    }
+
+    user_process_test_mounts =
+        mounts;
+
     scheduler_set_terminated_handler(
         user_process_lifecycle_stress_terminated_handler
     );
@@ -273,6 +291,22 @@ static void user_process_elf_isolation_terminated_handler(
     )) {
         return;
     }
+
+    scheduler_set_terminated_handler(
+        user_process_vfs_elf_terminated_handler
+    );
+
+    user_process_vfs_elf_test_prepare(
+        user_process_test_mounts
+    );
+}
+
+static void user_process_vfs_elf_terminated_handler(
+    struct process *process)
+{
+    user_process_vfs_elf_test_terminated(
+        process
+    );
 
     scheduler_set_terminated_handler(
         user_process_standard_test_terminated

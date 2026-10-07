@@ -69,10 +69,23 @@ static void elf64_program_header_clear(
 );
 
 static bool elf64_program_header_decode(
-    const uint8_t *data,
-    size_t size,
+    const struct elf64_source *source,
     uint64_t offset,
     struct elf64_program_header *program_header
+);
+
+static bool elf64_memory_source_read(
+    const void *context,
+    uint64_t offset,
+    void *buffer,
+    size_t size
+);
+
+static bool elf64_source_read_exact(
+    const struct elf64_source *source,
+    uint64_t offset,
+    void *buffer,
+    size_t size
 );
 
 static uint16_t elf64_read_u16(const uint8_t *bytes)
@@ -176,7 +189,8 @@ static bool elf64_ident_valid(const uint8_t *data)
 static void elf64_image_clear(
     struct elf64_image *image)
 {
-    image->data = NULL;
+    image->source_context = NULL;
+    image->source_read = NULL;
     image->size = 0;
     image->entry_point = 0;
     image->program_header_offset = 0;
@@ -198,71 +212,132 @@ static void elf64_program_header_clear(
 }
 
 static bool elf64_program_header_decode(
-    const uint8_t *data,
-    size_t size,
+    const struct elf64_source *source,
     uint64_t offset,
     struct elf64_program_header *program_header)
 {
-    if (
-        !elf64_range_valid(
-            size,
-            offset,
-            ELF64_PROGRAM_HEADER_SIZE
-        )
-    ) {
+    uint8_t bytes[ELF64_PROGRAM_HEADER_SIZE];
+
+    if (!elf64_source_read_exact(
+        source,
+        offset,
+        bytes,
+        sizeof(bytes)
+    )) {
         return false;
     }
 
-    const uint8_t *header =
-        data + (size_t) offset;
-
     program_header->type =
         elf64_read_u32(
-            header +
+            bytes +
             ELF64_PROGRAM_TYPE_OFFSET
         );
 
     program_header->flags =
         elf64_read_u32(
-            header +
+            bytes +
             ELF64_PROGRAM_FLAGS_OFFSET
         );
 
     program_header->file_offset =
         elf64_read_u64(
-            header +
+            bytes +
             ELF64_PROGRAM_FILE_OFFSET_OFFSET
         );
 
     program_header->virtual_address =
         elf64_read_u64(
-            header +
+            bytes +
             ELF64_PROGRAM_VIRTUAL_ADDRESS_OFFSET
         );
 
     program_header->physical_address =
         elf64_read_u64(
-            header +
+            bytes +
             ELF64_PROGRAM_PHYSICAL_ADDRESS_OFFSET
         );
 
     program_header->file_size =
         elf64_read_u64(
-            header +
+            bytes +
             ELF64_PROGRAM_FILE_SIZE_OFFSET
         );
 
     program_header->memory_size =
         elf64_read_u64(
-            header +
+            bytes +
             ELF64_PROGRAM_MEMORY_SIZE_OFFSET
         );
 
     program_header->alignment =
         elf64_read_u64(
-            header +
+            bytes +
             ELF64_PROGRAM_ALIGNMENT_OFFSET
         );
+
+    return true;
+}
+
+static bool elf64_source_read_exact(
+    const struct elf64_source *source,
+    uint64_t offset,
+    void *buffer,
+    size_t size)
+{
+    if (
+        source == NULL ||
+        source->read == NULL
+    ) {
+        return false;
+    }
+
+    if (!elf64_range_valid(
+        source->size,
+        offset,
+        (uint64_t) size
+    )) {
+        return false;
+    }
+
+    if (size == 0) {
+        return true;
+    }
+
+    if (buffer == NULL) {
+        return false;
+    }
+
+    return source->read(
+        source->context,
+        offset,
+        buffer,
+        size
+    );
+}
+
+static bool elf64_memory_source_read(
+    const void *context,
+    uint64_t offset,
+    void *buffer,
+    size_t size)
+{
+    if (
+        context == NULL ||
+        buffer == NULL
+    ) {
+        return false;
+    }
+
+    const uint8_t *source =
+        (const uint8_t *) context;
+
+    uint8_t *destination =
+        (uint8_t *) buffer;
+
+    for (size_t index = 0; index < size; ++index) {
+        destination[index] =
+            source[(size_t) offset + index];
+    }
 
     return true;
 }
@@ -276,26 +351,65 @@ bool elf64_parse(
         return false;
     }
 
-    elf64_image_clear(image);
-
     if (data == NULL) {
+        elf64_image_clear(image);
+
         return false;
     }
 
-    if (size < ELF64_HEADER_SIZE) {
+    struct elf64_source source = {
+        .context = data,
+        .size = size,
+        .read = elf64_memory_source_read,
+    };
+
+    return elf64_parse_source(
+        &source,
+        image
+    );
+}
+
+bool elf64_parse_source(
+    const struct elf64_source *source,
+    struct elf64_image *image)
+{
+    if (image == NULL) {
         return false;
     }
 
-    const uint8_t *bytes =
-        (const uint8_t *) data;
+    elf64_image_clear(
+        image
+    );
 
-    if (!elf64_ident_valid(bytes)) {
+    if (
+        source == NULL ||
+        source->read == NULL
+    ) {
+        return false;
+    }
+
+    uint8_t header[
+        ELF64_HEADER_SIZE
+    ];
+
+    if (!elf64_source_read_exact(
+        source,
+        0,
+        header,
+        sizeof(header)
+    )) {
+        return false;
+    }
+
+    if (!elf64_ident_valid(
+        header
+    )) {
         return false;
     }
 
     uint16_t type =
         elf64_read_u16(
-            bytes +
+            header +
             ELF64_HEADER_TYPE_OFFSET
         );
 
@@ -305,7 +419,7 @@ bool elf64_parse(
 
     uint16_t machine =
         elf64_read_u16(
-            bytes +
+            header +
             ELF64_HEADER_MACHINE_OFFSET
         );
 
@@ -315,7 +429,7 @@ bool elf64_parse(
 
     uint32_t version =
         elf64_read_u32(
-            bytes +
+            header +
             ELF64_HEADER_VERSION_OFFSET
         );
 
@@ -325,7 +439,7 @@ bool elf64_parse(
 
     uint16_t header_size =
         elf64_read_u16(
-            bytes +
+            header +
             ELF64_HEADER_HEADER_SIZE_OFFSET
         );
 
@@ -335,7 +449,7 @@ bool elf64_parse(
 
     uint16_t program_header_size =
         elf64_read_u16(
-            bytes +
+            header +
             ELF64_HEADER_PROGRAM_HEADER_SIZE_OFFSET
         );
 
@@ -348,7 +462,7 @@ bool elf64_parse(
 
     uint16_t program_header_count =
         elf64_read_u16(
-            bytes +
+            header +
             ELF64_HEADER_PROGRAM_HEADER_COUNT_OFFSET
         );
 
@@ -361,13 +475,14 @@ bool elf64_parse(
 
     uint64_t program_header_offset =
         elf64_read_u64(
-            bytes +
+            header +
             ELF64_HEADER_PROGRAM_HEADER_OFFSET
         );
 
     if (
         program_header_count > 0 &&
-        program_header_offset < ELF64_HEADER_SIZE
+        program_header_offset <
+            ELF64_HEADER_SIZE
     ) {
         return false;
     }
@@ -378,7 +493,7 @@ bool elf64_parse(
 
     if (
         !elf64_range_valid(
-            size,
+            source->size,
             program_header_offset,
             program_header_table_size
         )
@@ -386,7 +501,8 @@ bool elf64_parse(
         return false;
     }
 
-    uint16_t load_segment_count = 0;
+    uint16_t load_segment_count =
+        0;
 
     for (
         uint16_t index = 0;
@@ -400,14 +516,11 @@ bool elf64_parse(
 
         struct elf64_program_header program_header;
 
-        if (
-            !elf64_program_header_decode(
-                bytes,
-                size,
-                header_offset,
-                &program_header
-            )
-        ) {
+        if (!elf64_program_header_decode(
+            source,
+            header_offset,
+            &program_header
+        )) {
             return false;
         }
 
@@ -419,12 +532,18 @@ bool elf64_parse(
         }
     }
 
-    image->data = bytes;
-    image->size = size;
+    image->source_context =
+        source->context;
+
+    image->source_read =
+        source->read;
+
+    image->size =
+        source->size;
 
     image->entry_point =
         elf64_read_u64(
-            bytes +
+            header +
             ELF64_HEADER_ENTRY_OFFSET
         );
 
@@ -455,7 +574,7 @@ bool elf64_program_header_get(
 
     if (
         image == NULL ||
-        image->data == NULL
+        image->source_read == NULL
     ) {
         return false;
     }
@@ -472,10 +591,45 @@ bool elf64_program_header_get(
         (uint64_t) index *
         ELF64_PROGRAM_HEADER_SIZE;
 
+    struct elf64_source source = {
+        .context =
+            image->source_context,
+        .size =
+            image->size,
+        .read =
+            image->source_read,
+    };
+
     return elf64_program_header_decode(
-        image->data,
-        image->size,
+        &source,
         header_offset,
         program_header
+    );
+}
+
+bool elf64_image_read(
+    const struct elf64_image *image,
+    uint64_t offset,
+    void *buffer,
+    size_t size)
+{
+    if (image == NULL) {
+        return false;
+    }
+
+    struct elf64_source source = {
+        .context =
+            image->source_context,
+        .size =
+            image->size,
+        .read =
+            image->source_read,
+    };
+
+    return elf64_source_read_exact(
+        &source,
+        offset,
+        buffer,
+        size
     );
 }

@@ -106,6 +106,29 @@ struct elf64_program_header {
 };
 
 /**
+ * Reads bytes from an ELF64 backing source.
+ *
+ * A successful operation must copy exactly size bytes beginning at offset.
+ * Partial success is not supported. Range validation is performed by the
+ * generic ELF64 layer before this callback is invoked.
+ *
+ * context is borrowed and must remain valid while any elf64_image referring
+ * to the source is in use.
+ */
+typedef bool (*elf64_source_read_fn)(
+    const void *context,
+    uint64_t offset,
+    void *buffer,
+    size_t size
+);
+
+struct elf64_source {
+    const void *context;
+    size_t size;
+    elf64_source_read_fn read;
+};
+
+/**
  * Validated structural description of an ELF64 executable image.
  *
  * The image borrows the input byte buffer supplied to elf64_parse(). The
@@ -118,7 +141,8 @@ struct elf64_program_header {
  * p_filesz <= p_memsz, or BSS zero-fill requirements.
  */
 struct elf64_image {
-    const uint8_t *data;
+    const void *source_context;
+    elf64_source_read_fn source_read;
     size_t size;
 
     uint64_t entry_point;
@@ -166,6 +190,18 @@ bool elf64_program_header_get(
     const struct elf64_image *image,
     size_t index,
     struct elf64_program_header *program_header
+);
+
+bool elf64_parse_source(
+    const struct elf64_source *source,
+    struct elf64_image *image
+);
+
+bool elf64_image_read(
+    const struct elf64_image *image,
+    uint64_t offset,
+    void *buffer,
+    size_t size
 );
 
 #endif
