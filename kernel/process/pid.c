@@ -14,15 +14,43 @@
 #include <stdint.h>
 
 /*
- * Dynamic PID allocation currently starts above the fixed legacy test ranges.
- * The temporary offset can be removed once all process creation paths use the
- * central allocator.
+ * PID allocation is initialized explicitly by boot policy.
+ *
+ * Keeping the initial identifier outside this module prevents the allocator
+ * from depending on build-time test configuration. Normal boot currently
+ * starts at PID 1, while test boot may select a compatibility range for
+ * legacy fixtures that still assign identifiers directly.
  */
-static uint64_t next_process_pid = 1000;
+static uint64_t next_process_pid;
+static bool process_pid_initialized;
+
+bool process_pid_initialize(
+    uint64_t first_pid)
+{
+    if (
+        process_pid_initialized ||
+        first_pid == 0
+    ) {
+        return false;
+    }
+
+    next_process_pid =
+        first_pid;
+
+    process_pid_initialized =
+        true;
+
+    return true;
+}
 
 bool process_pid_allocate(uint64_t *pid)
 {
-    if (pid == NULL) return false;
+    if (
+        pid == NULL ||
+        !process_pid_initialized
+    ) {
+        return false;
+    }
 
     if (next_process_pid == 0) {
         return false;
@@ -37,7 +65,12 @@ bool process_pid_allocate(uint64_t *pid)
 
 bool process_pid_release(uint64_t pid)
 {
-    if (pid == 0) return false;
+    if (
+        !process_pid_initialized ||
+        pid == 0
+    ) {
+        return false;
+    }
 
     if (next_process_pid == 0) {
         if (pid != UINT64_MAX) {

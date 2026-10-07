@@ -15,6 +15,22 @@
 #include <stdint.h>
 
 /**
+ * Initializes process identifier allocation.
+ *
+ * The allocator may be initialized exactly once. first_pid becomes the next
+ * identifier returned by process_pid_allocate(). PID zero is invalid and
+ * cannot be selected as the initial identifier.
+ *
+ * @param first_pid First process identifier available for allocation.
+ *
+ * @return true when the allocator was initialized; false when first_pid is
+ * zero or the allocator was already initialized.
+ */
+bool process_pid_initialize(
+    uint64_t first_pid
+);
+
+/**
  * Allocates the next process identifier.
  *
  * PID zero is reserved as invalid and is never returned.

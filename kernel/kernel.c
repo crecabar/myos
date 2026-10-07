@@ -28,6 +28,7 @@
 #include "fs/initramfs.h"
 #include "init/boot_banner.h"
 #include "init/display.h"
+#include "init/userspace.h"
 #include "input/input.h"
 #include "memory/boot_paging.h"
 #include "memory/device_mapping.h"
@@ -35,6 +36,7 @@
 #include "memory/heap.h"
 #include "memory/kernel_mapping.h"
 #include "memory/memory.h"
+#include "process/pid.h"
 #include "scheduler/scheduler.h"
 #include "vfs/mount.h"
 #include "vfs/root.h"
@@ -962,6 +964,30 @@ static _Noreturn void kernel_main_continue(void)
 
     diagnostics_write("[arch] x86-64 initialized\n");
 
+    uint64_t first_process_pid = 1;
+
+#if MYOS_KERNEL_TESTS
+    if (
+        kernel_boot_config.mode ==
+        KERNEL_BOOT_MODE_TEST
+    ) {
+        /*
+         * Temporary compatibility range for legacy test fixtures that still
+         * assign synthetic process identifiers directly.
+         */
+        first_process_pid =
+            1000;
+    }
+#endif
+
+    if (!process_pid_initialize(
+        first_process_pid
+    )) {
+        kernel_panic(
+            "Unable to initialize process identifier allocator"
+        );
+    }
+
     scheduler_init();
     diagnostics_write("[scheduler] Initialized\n");
 
@@ -1066,6 +1092,29 @@ static _Noreturn void kernel_main_continue(void)
         );
     }
 #endif
+
+    if (
+        kernel_boot_config.mode ==
+        KERNEL_BOOT_MODE_NORMAL
+    ) {
+        struct vfs_node *root =
+            vfs_root_get();
+
+        if (root == NULL) {
+            kernel_panic(
+                "Normal boot has no system VFS root"
+            );
+        }
+
+        if (!userspace_init_start(
+            root,
+            &kernel_mount_table
+        )) {
+            kernel_panic(
+                "Unable to launch userspace /init"
+            );
+        }
+    }
 
     input_system_action_handler_set(
         kernel_input_system_action
