@@ -177,11 +177,17 @@ USER_BOOTSTRAP_EXIT_SOURCE := user/runtime/exit.c
 USER_BOOTSTRAP_EXIT_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/exit.o
 
 USER_SYSCALL_ABI_HEADER := include/myos/abi/syscall.h
+USER_RUNTIME_INCLUDE_DIR := user/runtime/include
+
+USER_BOOTSTRAP_STRING_SOURCE := user/runtime/string.c
+USER_BOOTSTRAP_STRING_HEADER := user/runtime/include/string.h
+USER_BOOTSTRAP_STRING_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/string.o
 
 USER_BOOTSTRAP_RUNTIME_OBJECTS := \
 	$(USER_BOOTSTRAP_CRT0_OBJECT) \
 	$(USER_BOOTSTRAP_SYSCALL_OBJECT) \
-	$(USER_BOOTSTRAP_EXIT_OBJECT)
+	$(USER_BOOTSTRAP_EXIT_OBJECT) \
+	$(USER_BOOTSTRAP_STRING_OBJECT)
 
 USER_INIT_SOURCE := user/bootstrap/init/main.c
 USER_INIT_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/init.o
@@ -199,10 +205,20 @@ USER_BOOTSTRAP_CFLAGS := \
 	-O0 \
 	-g \
 	-I$(MYOS_INCLUDE_DIR) \
+	-I$(USER_RUNTIME_INCLUDE_DIR) \
+	-fno-builtin \
 	-Wall \
 	-Wextra \
 	-Werror \
 	-Wpedantic
+
+$(USER_BOOTSTRAP_STRING_OBJECT): \
+	$(USER_BOOTSTRAP_STRING_SOURCE) \
+	$(USER_BOOTSTRAP_STRING_HEADER) \
+	| $(USER_BOOTSTRAP_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-c $< \
+		-o $@
 
 $(USER_BOOTSTRAP_BUILD_DIR):
 	mkdir -p $(USER_BOOTSTRAP_BUILD_DIR)
@@ -313,6 +329,10 @@ ELF_ISOLATION_ATTACKER_LINKER_SCRIPT := user/tests/elf_isolation_attacker.ld
 ELF_ISOLATION_VICTIM_SOURCE := user/tests/elf_isolation_victim.S
 ELF_ISOLATION_VICTIM_OBJECT := $(USER_TEST_BUILD_DIR)/elf_isolation_victim.o
 ELF_ISOLATION_VICTIM_ELF    := $(USER_TEST_BUILD_DIR)/elf_isolation_victim.elf
+
+RUNTIME_STRING_SOURCE := user/tests/runtime_string.c
+RUNTIME_STRING_OBJECT := $(USER_TEST_BUILD_DIR)/runtime_string.o
+RUNTIME_STRING_ELF    := $(USER_TEST_BUILD_DIR)/runtime_string.elf
 
 ELF_ENTRY_CFLAGS := \
 	--target=$(TARGET) \
@@ -521,6 +541,26 @@ $(ELF_ISOLATION_VICTIM_ELF): \
 		-o $@ \
 		$(ELF_ISOLATION_VICTIM_OBJECT)
 
+$(RUNTIME_STRING_OBJECT): \
+	$(RUNTIME_STRING_SOURCE) \
+	$(USER_BOOTSTRAP_STRING_HEADER) \
+	| $(USER_TEST_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(RUNTIME_STRING_ELF): \
+	$(USER_BOOTSTRAP_RUNTIME_OBJECTS) \
+	$(RUNTIME_STRING_OBJECT) \
+	$(USER_BOOTSTRAP_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-static \
+		--build-id=none \
+		-T $(USER_BOOTSTRAP_LINKER_SCRIPT) \
+		-o $@ \
+		$(USER_BOOTSTRAP_RUNTIME_OBJECTS) \
+		$(RUNTIME_STRING_OBJECT)
+
 # -----------------------------------------------------------------------------
 # Kernel
 # -----------------------------------------------------------------------------
@@ -679,6 +719,7 @@ $(TEST_INITRAMFS_IMAGE): \
 	$(INITRAMFS_SOURCES) \
 	$(USER_INIT_ELF) \
 	$(ELF_FROM_VFS_ELF) \
+	$(RUNTIME_STRING_ELF) \
 	| $(BUILD_DIR)
 	rm -rf $(TEST_INITRAMFS_ROOT)
 	mkdir -p $(TEST_INITRAMFS_ROOT)/bin
@@ -689,6 +730,9 @@ $(TEST_INITRAMFS_IMAGE): \
 	cp \
 		$(ELF_FROM_VFS_ELF) \
 		$(TEST_INITRAMFS_ROOT)/bin/elf-from-vfs
+	cp \
+		$(RUNTIME_STRING_ELF) \
+		$(TEST_INITRAMFS_ROOT)/bin/runtime-string
 	python3 \
 		$(INITRAMFS_BUILDER) \
 		$(TEST_INITRAMFS_ROOT) \

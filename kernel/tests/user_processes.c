@@ -15,6 +15,7 @@
 #include "user_processes/exec.h"
 #include "user_processes/fork.h"
 #include "user_processes/lifecycle_stress.h"
+#include "user_processes/runtime_string.h"
 #include "user_processes/scheduler_context.h"
 #include "user_processes/sleep.h"
 #include "user_processes/standard.h"
@@ -84,6 +85,10 @@ static void user_process_fork_terminated_handler(
 );
 
 static void user_process_vfs_elf_terminated_handler(
+    struct process *process
+);
+
+static void user_process_runtime_string_terminated_handler(
     struct process *process
 );
 // End private helpers declarations
@@ -305,6 +310,22 @@ static void user_process_vfs_elf_terminated_handler(
     struct process *process)
 {
     user_process_vfs_elf_test_terminated(
+        process
+    );
+
+    scheduler_set_terminated_handler(
+        user_process_runtime_string_terminated_handler
+    );
+
+    user_process_runtime_string_test_prepare(
+        user_process_test_mounts
+    );
+}
+
+static void user_process_runtime_string_terminated_handler(
+    struct process *process)
+{
+    user_process_runtime_string_test_terminated(
         process
     );
 
