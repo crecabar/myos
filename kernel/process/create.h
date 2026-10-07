@@ -22,6 +22,23 @@
 #include <stdint.h>
 
 /**
+ * Describes the initial VFS namespace installed before process publication.
+ *
+ * namespace_root is a borrowed input. A successfully created process acquires
+ * one independent namespace-root reference and one independent current-
+ * directory reference to the same node before it is registered with the
+ * scheduler.
+ *
+ * namespace_mounts is borrowed for the complete lifetime of the installed
+ * namespace and must outlive the process.
+ */
+struct process_initial_vfs {
+    struct vfs_node *namespace_root;
+
+    const struct vfs_mount_table *namespace_mounts;
+};
+
+/**
  * Dynamically creates and schedules an ELF64 userspace process.
  *
  * Lifecycle storage is allocated from the kernel heap. A complete ELF-backed
@@ -52,6 +69,42 @@
  */
 struct process_instance *process_create_elf64(
     const struct elf64_image *elf,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[]
+);
+
+/**
+ * Dynamically creates and schedules an ELF64 process with initial VFS state.
+ *
+ * The executable image and namespace are completely installed before the
+ * process becomes visible to the scheduler. The initial current working
+ * directory is the namespace root.
+ *
+ * namespace_root must reference a live VFS directory. namespace_mounts may be
+ * NULL when the namespace has no mount topology.
+ *
+ * On success, the process owns independent references to namespace_root as its
+ * namespace root and current working directory. The mount table remains
+ * borrowed.
+ *
+ * On failure, no process, PID, VFS node reference or executable resource
+ * acquired by this operation remains owned.
+ *
+ * @param elf Parsed ELF64 executable.
+ * @param initial_vfs Initial namespace state.
+ * @param argc Number of argv strings.
+ * @param argv Argument strings, or NULL when argc is zero.
+ * @param envc Number of environment strings.
+ * @param envp Environment strings, or NULL when envc is zero.
+ *
+ * @return Owned process instance when creation and scheduler publication
+ *         succeed; NULL otherwise.
+ */
+struct process_instance *process_create_elf64_with_vfs(
+    const struct elf64_image *elf,
+    const struct process_initial_vfs *initial_vfs,
     size_t argc,
     const char *const argv[],
     size_t envc,
