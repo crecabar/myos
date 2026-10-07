@@ -968,7 +968,7 @@ QEMU_DISPLAY_RESOLUTION := "xres=1280,yres=1024"
 # Keep firmware serial output from resizing the host terminal.
 QEMU_SERIAL_RUNNER := python3 scripts/qemu-serial-console.py
 
-.PHONY: run run-usb run-usb-tests run-usb-diagnostics debug debug-stop run-qemu-tests
+.PHONY: run run-with-tests run-usb run-usb-tests run-usb-diagnostics debug debug-stop run-qemu-tests
 
 run: $(ISO_IMAGE)
 	$(QEMU_SERIAL_RUNNER) $(QEMU) \
@@ -985,6 +985,13 @@ run: $(ISO_IMAGE)
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio
+
+run-with-tests:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=0 \
+		MYOS_QEMU_TEST_EXIT=0 \
+		run
 
 run-qemu-tests: $(TEST_ISO_IMAGE)
 	@set +e; \
@@ -1114,7 +1121,6 @@ debug-diagnostics:
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=1 \
 		debug
-
 
 # -----------------------------------------------------------------------------
 # Snapshot of current repository status
