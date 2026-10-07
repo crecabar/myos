@@ -67,6 +67,7 @@
 #include "tests/kernel_heap_test.h"
 #include "tests/process_cwd_test.h"
 #include "tests/process_elf_lifecycle_test.h"
+#include "tests/process_executable_test.h"
 #include "tests/process_fd_table_test.h"
 #include "tests/process_file_test.h"
 #include "tests/process_lifecycle_test.h"
@@ -1046,6 +1047,9 @@ static _Noreturn void kernel_main_continue(void)
         process_namespace_test_run();
         process_cwd_test_run();
         process_path_test_run();
+        process_executable_test_run(
+            &kernel_mount_table
+        );
         process_file_test_run();
         core_device_fd_test_run(
             &kernel_mount_table
