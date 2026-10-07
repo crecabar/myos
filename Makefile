@@ -142,9 +142,10 @@ CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 # Initramfs
 # -----------------------------------------------------------------------------
 
-INITRAMFS_ROOT    := initramfs/root
-INITRAMFS_BUILDER := scripts/build-initramfs.py
-INITRAMFS_IMAGE   := $(BUILD_DIR)/initramfs.cpio
+INITRAMFS_ROOT         := initramfs/root
+INITRAMFS_STAGING_ROOT := $(BUILD_DIR)/initramfs-root
+INITRAMFS_BUILDER      := scripts/build-initramfs.py
+INITRAMFS_IMAGE        := $(BUILD_DIR)/initramfs.cpio
 
 TEST_INITRAMFS_ROOT  := $(BUILD_DIR)/initramfs-test-root
 TEST_INITRAMFS_IMAGE := $(BUILD_DIR)/initramfs-test.cpio
@@ -154,6 +155,66 @@ INITRAMFS_SOURCES := $(shell \
 		-type f \
 		-print 2>/dev/null | sort \
 )
+
+# -----------------------------------------------------------------------------
+# Bootstrap userspace
+# -----------------------------------------------------------------------------
+
+USER_BOOTSTRAP_BUILD_DIR := $(BUILD_DIR)/user-bootstrap
+
+USER_BOOTSTRAP_LINKER_SCRIPT := user/bootstrap/user.ld
+
+USER_BOOTSTRAP_CRT0_SOURCE := user/runtime/crt0.S
+USER_BOOTSTRAP_CRT0_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/crt0.o
+
+USER_INIT_SOURCE := user/bootstrap/init/main.c
+USER_INIT_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/init.o
+USER_INIT_ELF    := $(USER_BOOTSTRAP_BUILD_DIR)/init.elf
+
+USER_BOOTSTRAP_CFLAGS := \
+	--target=$(TARGET) \
+	-ffreestanding \
+	-fno-stack-protector \
+	-fno-common \
+	-fno-pic \
+	-fno-pie \
+	-mno-red-zone \
+	-mgeneral-regs-only \
+	-O0 \
+	-g \
+	-Wall \
+	-Wextra \
+	-Werror \
+	-Wpedantic
+
+$(USER_BOOTSTRAP_BUILD_DIR):
+	mkdir -p $(USER_BOOTSTRAP_BUILD_DIR)
+
+$(USER_BOOTSTRAP_CRT0_OBJECT): \
+	$(USER_BOOTSTRAP_CRT0_SOURCE) \
+	| $(USER_BOOTSTRAP_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(USER_INIT_OBJECT): \
+	$(USER_INIT_SOURCE) \
+	| $(USER_BOOTSTRAP_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(USER_INIT_ELF): \
+	$(USER_BOOTSTRAP_CRT0_OBJECT) \
+	$(USER_INIT_OBJECT) \
+	$(USER_BOOTSTRAP_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-static \
+		--build-id=none \
+		-T $(USER_BOOTSTRAP_LINKER_SCRIPT) \
+		-o $@ \
+		$(USER_BOOTSTRAP_CRT0_OBJECT) \
+		$(USER_INIT_OBJECT)
 
 # -----------------------------------------------------------------------------
 # Userspace test images
@@ -567,20 +628,31 @@ $(BUILD_DIR):
 $(INITRAMFS_IMAGE): \
 	$(INITRAMFS_BUILDER) \
 	$(INITRAMFS_SOURCES) \
+	$(USER_INIT_ELF) \
 	| $(BUILD_DIR)
+	rm -rf $(INITRAMFS_STAGING_ROOT)
+	mkdir -p $(INITRAMFS_STAGING_ROOT)
+	cp -R $(INITRAMFS_ROOT)/. $(INITRAMFS_STAGING_ROOT)/
+	cp \
+		$(USER_INIT_ELF) \
+		$(INITRAMFS_STAGING_ROOT)/init
 	python3 \
 		$(INITRAMFS_BUILDER) \
-		$(INITRAMFS_ROOT) \
+		$(INITRAMFS_STAGING_ROOT) \
 		$@
 
 $(TEST_INITRAMFS_IMAGE): \
 	$(INITRAMFS_BUILDER) \
 	$(INITRAMFS_SOURCES) \
+	$(USER_INIT_ELF) \
 	$(ELF_FROM_VFS_ELF) \
 	| $(BUILD_DIR)
 	rm -rf $(TEST_INITRAMFS_ROOT)
 	mkdir -p $(TEST_INITRAMFS_ROOT)/bin
 	cp -R $(INITRAMFS_ROOT)/. $(TEST_INITRAMFS_ROOT)/
+	cp \
+		$(USER_INIT_ELF) \
+		$(TEST_INITRAMFS_ROOT)/init
 	cp \
 		$(ELF_FROM_VFS_ELF) \
 		$(TEST_INITRAMFS_ROOT)/bin/elf-from-vfs

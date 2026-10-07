@@ -27,12 +27,6 @@ static void initramfs_boot_test_core_devices(
     const struct vfs_mount_table *mounts
 );
 
-static bool initramfs_boot_test_bytes_equal(
-    const uint8_t *left,
-    const uint8_t *right,
-    size_t size
-);
-
 // Public functions implementations
 void initramfs_boot_test_run(
     const struct vfs_mount_table *mounts)
@@ -46,11 +40,19 @@ void initramfs_boot_test_run(
     static const char path[] =
         "/init";
 
-    static const uint8_t expected[] = {
-        'M', 'y', 'O', 'S', ' ',
-        'i', 'n', 'i', 't', 'r', 'a', 'm', 'f', 's', ' ',
-        'p', 'l', 'a', 'c', 'e', 'h', 'o', 'l', 'd', 'e', 'r',
-        '\n',
+    /*
+     * This integration test owns only the filesystem-facing contract for
+     * /init. Full ELF structural validation belongs to the ELF parser and
+     * executable-loading tests.
+     */
+    static const uint8_t expected_ident[] = {
+        0x7fU,
+        'E',
+        'L',
+        'F',
+        2U,
+        1U,
+        1U,
     };
 
     struct vfs_node *root =
@@ -97,8 +99,8 @@ void initramfs_boot_test_run(
         ) != VFS_STAT_RESULT_SUCCESS ||
         metadata.type !=
             VFS_NODE_TYPE_REGULAR_FILE ||
-        metadata.size !=
-            sizeof(expected)
+        metadata.size <
+            sizeof(expected_ident)
     ) {
         kernel_panic(
             "Boot initramfs /init metadata mismatch"
@@ -121,14 +123,14 @@ void initramfs_boot_test_run(
         );
     }
 
-    uint8_t buffer[
-        sizeof(expected)
+    uint8_t ident[
+        sizeof(expected_ident)
     ];
 
     memset(
-        buffer,
+        ident,
         0,
-        sizeof(buffer)
+        sizeof(ident)
     );
 
     size_t bytes_read =
@@ -137,20 +139,52 @@ void initramfs_boot_test_run(
     if (
         vfs_file_read(
             file,
-            buffer,
-            sizeof(buffer),
+            ident,
+            sizeof(ident),
             &bytes_read
         ) != VFS_IO_RESULT_SUCCESS ||
         bytes_read !=
-            sizeof(expected) ||
-        !initramfs_boot_test_bytes_equal(
-            buffer,
-            expected,
-            sizeof(expected)
-        )
+            sizeof(ident) ||
+        file->offset !=
+            sizeof(ident)
     ) {
         kernel_panic(
-            "Boot initramfs /init contents mismatch"
+            "Boot initramfs /init ELF identity read failed"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < sizeof(expected_ident);
+        ++index
+    ) {
+        if (
+            ident[index] !=
+            expected_ident[index]
+        ) {
+            kernel_panic(
+                "Boot initramfs /init ELF64 identity mismatch"
+            );
+        }
+    }
+
+    uint64_t seek_result =
+        UINT64_MAX;
+
+    if (
+        vfs_file_seek(
+            file,
+            0,
+            VFS_SEEK_ORIGIN_END,
+            &seek_result
+        ) != VFS_SEEK_RESULT_SUCCESS ||
+        seek_result !=
+            metadata.size ||
+        file->offset !=
+            metadata.size
+    ) {
+        kernel_panic(
+            "Boot initramfs /init seek-to-end mismatch"
         );
     }
 
@@ -160,13 +194,13 @@ void initramfs_boot_test_run(
     if (
         vfs_file_read(
             file,
-            buffer,
-            sizeof(buffer),
+            ident,
+            sizeof(ident),
             &bytes_read
         ) != VFS_IO_RESULT_SUCCESS ||
         bytes_read != 0 ||
         file->offset !=
-            sizeof(expected)
+            metadata.size
     ) {
         kernel_panic(
             "Boot initramfs /init EOF mismatch"
@@ -716,32 +750,4 @@ static void initramfs_boot_test_core_devices(
             "Boot /dev/console ownership cleanup failed"
         );
     }
-}
-
-static bool initramfs_boot_test_bytes_equal(
-    const uint8_t *left,
-    const uint8_t *right,
-    size_t size)
-{
-    if (
-        left == NULL ||
-        right == NULL
-    ) {
-        return false;
-    }
-
-    for (
-        size_t index = 0;
-        index < size;
-        ++index
-    ) {
-        if (
-            left[index] !=
-            right[index]
-        ) {
-            return false;
-        }
-    }
-
-    return true;
 }
