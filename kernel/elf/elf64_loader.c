@@ -16,6 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define ELF64_LOADER_COPY_BUFFER_SIZE 256U
+
 static bool elf64_loader_add_u64(
     uint64_t left,
     uint64_t right,
@@ -274,7 +276,7 @@ static bool elf64_loader_segment_populate(
 {
     if (
         image == NULL ||
-        image->data == NULL ||
+        image->source_read == NULL ||
         memory == NULL ||
         segment == NULL
     ) {
@@ -301,13 +303,46 @@ static bool elf64_loader_segment_populate(
         return true;
     }
 
-    if (!process_memory_write(
-        memory,
-        segment->virtual_address,
-        image->data + (size_t) segment->file_offset,
-        (size_t) segment->file_size
-    )) {
-        return false;
+    uint8_t buffer[
+        ELF64_LOADER_COPY_BUFFER_SIZE
+    ];
+
+    size_t copied = 0;
+    size_t file_size =
+        (size_t) segment->file_size;
+
+    while (copied < file_size) {
+        size_t remaining =
+            file_size - copied;
+
+        size_t chunk_size =
+            remaining <
+                sizeof(buffer)
+                ? remaining
+                : sizeof(buffer);
+
+        if (!elf64_image_read(
+            image,
+            segment->file_offset +
+                (uint64_t) copied,
+            buffer,
+            chunk_size
+        )) {
+            return false;
+        }
+
+        if (!process_memory_write(
+            memory,
+            segment->virtual_address +
+                (uint64_t) copied,
+            buffer,
+            chunk_size
+        )) {
+            return false;
+        }
+
+        copied +=
+            chunk_size;
     }
 
     return true;
@@ -500,7 +535,7 @@ bool elf64_load_image_validate(
 {
     if (
         image == NULL ||
-        image->data == NULL
+        image->source_read == NULL
     ) {
         return false;
     }
@@ -589,7 +624,7 @@ bool elf64_entry_point_validate(
 {
     if (
         image == NULL ||
-        image->data == NULL
+        image->source_read == NULL
     ) {
         return false;
     }

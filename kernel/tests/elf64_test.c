@@ -57,6 +57,15 @@ static void elf64_test_invalid_program_header_table(void);
 static void elf64_test_program_header_access(void);
 static void elf64_test_multiple_program_headers(void);
 
+static bool elf64_test_source_read(
+    const void *context,
+    uint64_t offset,
+    void *buffer,
+    size_t size
+);
+
+static void elf64_test_source_parser(void);
+
 static void elf64_test_write_u16(
     uint8_t *bytes,
     uint16_t value)
@@ -212,9 +221,9 @@ static void elf64_test_valid_image(void)
         );
     }
 
-    if (image.data != bytes) {
+    if (image.source_context != bytes) {
         kernel_panic(
-            "ELF64 image did not retain source buffer"
+            "ELF64 image did not retain byte source"
         );
     }
 
@@ -737,9 +746,164 @@ static void elf64_test_multiple_program_headers(void)
     );
 }
 
+static bool elf64_test_source_read(
+    const void *context,
+    uint64_t offset,
+    void *buffer,
+    size_t size)
+{
+    if (
+        context == NULL ||
+        buffer == NULL
+    ) {
+        return false;
+    }
+
+    const uint8_t *source =
+        (const uint8_t *) context;
+
+    uint8_t *destination =
+        (uint8_t *) buffer;
+
+    for (
+        size_t index = 0;
+        index < size;
+        ++index
+    ) {
+        destination[index] =
+            source[(size_t) offset + index];
+    }
+
+    return true;
+}
+
+static void elf64_test_source_parser(void)
+{
+    uint8_t bytes[
+        ELF64_TEST_IMAGE_SIZE
+    ];
+
+    elf64_test_build_valid_image(
+        bytes
+    );
+
+    struct elf64_source source = {
+        .context =
+            bytes,
+        .size =
+            sizeof(bytes),
+        .read =
+            elf64_test_source_read,
+    };
+
+    struct elf64_image image;
+
+    if (!elf64_parse_source(
+        &source,
+        &image
+    )) {
+        kernel_panic(
+            "Valid ELF64 byte source was rejected"
+        );
+    }
+
+    if (
+        image.source_context !=
+            bytes ||
+        image.source_read !=
+            elf64_test_source_read ||
+        image.size !=
+            sizeof(bytes)
+    ) {
+        kernel_panic(
+            "ELF64 image did not retain source contract"
+        );
+    }
+
+    if (
+        image.entry_point !=
+            ELF64_TEST_ENTRY_POINT ||
+        image.program_header_offset !=
+            ELF64_TEST_PROGRAM_HEADER_OFFSET ||
+        image.program_header_count !=
+            1 ||
+        image.load_segment_count !=
+            1
+    ) {
+        kernel_panic(
+            "ELF64 source parser produced incorrect metadata"
+        );
+    }
+
+    struct elf64_program_header program_header;
+
+    if (!elf64_program_header_get(
+        &image,
+        0,
+        &program_header
+    )) {
+        kernel_panic(
+            "ELF64 source-backed program header could not be decoded"
+        );
+    }
+
+    if (
+        program_header.type !=
+            ELF64_PROGRAM_TYPE_LOAD ||
+        program_header.file_offset !=
+            ELF64_TEST_SEGMENT_FILE_OFFSET ||
+        program_header.virtual_address !=
+            ELF64_TEST_SEGMENT_VIRTUAL_ADDRESS
+    ) {
+        kernel_panic(
+            "ELF64 source-backed program header is incorrect"
+        );
+    }
+
+    uint8_t magic[4];
+
+    if (!elf64_image_read(
+        &image,
+        0,
+        magic,
+        sizeof(magic)
+    )) {
+        kernel_panic(
+            "ELF64 image source could not be read"
+        );
+    }
+
+    if (
+        magic[0] != ELF64_MAGIC_0 ||
+        magic[1] != ELF64_MAGIC_1 ||
+        magic[2] != ELF64_MAGIC_2 ||
+        magic[3] != ELF64_MAGIC_3
+    ) {
+        kernel_panic(
+            "ELF64 image source returned incorrect bytes"
+        );
+    }
+
+    if (elf64_image_read(
+        &image,
+        sizeof(bytes),
+        magic,
+        1
+    )) {
+        kernel_panic(
+            "ELF64 image source accepted out-of-range read"
+        );
+    }
+
+    diagnostics_write(
+        "[elf64] Byte-source parser test passed\n"
+    );
+}
+
 void elf64_test_run(void)
 {
     elf64_test_valid_image();
+    elf64_test_source_parser();
     elf64_test_invalid_inputs();
     elf64_test_invalid_identification();
     elf64_test_invalid_header_fields();

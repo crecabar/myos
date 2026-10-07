@@ -89,7 +89,8 @@ static void elf64_loader_test_unaligned_image_mapping(void);
 static struct elf64_image elf64_loader_test_image(void)
 {
     struct elf64_image image = {
-        .data = NULL,
+        .source_context = NULL,
+        .source_read = NULL,
         .size = ELF64_LOADER_TEST_IMAGE_SIZE,
         .entry_point = ELF64_LOADER_TEST_VADDR,
         .program_header_offset = ELF64_HEADER_SIZE,
