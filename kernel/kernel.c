@@ -1061,7 +1061,9 @@ static _Noreturn void kernel_main_continue(void)
         process_lifecycle_test_run();
         process_elf_lifecycle_test_run();
         scheduler_slot_test_run();
-        user_process_tests_prepare();
+        user_process_tests_prepare(
+            &kernel_mount_table
+        );
     }
 #endif
 
