@@ -12,6 +12,7 @@
 #define MYOS_PROCESS_EXECUTABLE_H
 
 #include "../elf/elf64.h"
+#include "../vfs/mount.h"
 #include "../vfs/vfs.h"
 
 #include "instance.h"
@@ -53,6 +54,40 @@ struct process_executable {
     struct vfs_file *file;
     struct elf64_image image;
 };
+
+/**
+ * Resolves, opens, and parses one ELF64 executable from an explicit VFS
+ * namespace root.
+ *
+ * Both absolute and relative pathnames begin at root. mounts is borrowed and
+ * may be NULL when the namespace has no mount topology.
+ *
+ * The resolved object must be a regular file. The resulting open-file
+ * description is retained privately by executable and is not installed in any
+ * process descriptor table.
+ *
+ * executable must be zero-initialized and must not already own a backing file.
+ *
+ * On success, executable owns the backing file and its image is ready for
+ * process-image construction. On failure, no VFS ownership acquired by this
+ * operation remains held.
+ *
+ * @param root Namespace root directory and pathname starting directory.
+ * @param mounts Borrowed mount topology, or NULL.
+ * @param path Executable pathname bytes.
+ * @param path_length Number of pathname bytes.
+ * @param executable Zero-initialized executable storage.
+ *
+ * @return Detailed executable acquisition result.
+ */
+enum process_executable_result
+process_executable_open_elf64_from_namespace(
+    struct vfs_node *root,
+    const struct vfs_mount_table *mounts,
+    const char *path,
+    size_t path_length,
+    struct process_executable *executable
+);
 
 /**
  * Resolves, opens, and parses one ELF64 executable from a process namespace.

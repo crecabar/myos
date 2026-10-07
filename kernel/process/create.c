@@ -23,11 +23,17 @@
 
 static struct process_instance *process_create_elf64_internal(
     struct process_instance *parent,
+    const struct process_initial_vfs *initial_vfs,
     const struct elf64_image *elf,
     size_t argc,
     const char *const argv[],
     size_t envc,
     const char *const envp[]
+);
+
+static void process_create_rollback_prepublication(
+    struct process_instance *instance,
+    uint64_t id
 );
 
 struct process_instance *process_create_elf64(
@@ -39,6 +45,33 @@ struct process_instance *process_create_elf64(
 {
     return process_create_elf64_internal(
         NULL,
+        NULL,
+        elf,
+        argc,
+        argv,
+        envc,
+        envp
+    );
+}
+
+struct process_instance *process_create_elf64_with_vfs(
+    const struct elf64_image *elf,
+    const struct process_initial_vfs *initial_vfs,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    if (
+        initial_vfs == NULL ||
+        initial_vfs->namespace_root == NULL
+    ) {
+        return NULL;
+    }
+
+    return process_create_elf64_internal(
+        NULL,
+        initial_vfs,
         elf,
         argc,
         argv,
@@ -67,6 +100,7 @@ struct process_instance *process_create_child_elf64(
 
     return process_create_elf64_internal(
         parent,
+        NULL,
         elf,
         argc,
         argv,
@@ -141,6 +175,7 @@ bool process_release_terminated(
 
 static struct process_instance *process_create_elf64_internal(
     struct process_instance *parent,
+    const struct process_initial_vfs *initial_vfs,
     const struct elf64_image *elf,
     size_t argc,
     const char *const argv[],
@@ -188,28 +223,53 @@ static struct process_instance *process_create_elf64_internal(
         return NULL;
     }
 
-    if (!scheduler_add(&instance->process)) {
-        if (!process_instance_discard(
-            instance
+    if (initial_vfs != NULL) {
+        if (!process_namespace_root_set(
+            instance,
+            initial_vfs->namespace_root,
+            initial_vfs->namespace_mounts
         )) {
-            kernel_panic(
-                "Unable to roll back unscheduled process instance"
+            process_create_rollback_prepublication(
+                instance,
+                id
             );
+
+            return NULL;
         }
 
-        kfree(instance);
-
-        if (!process_pid_release(id)) {
-            kernel_panic(
-                "Unable to roll back process identifier allocation"
+        /*
+         * The initial working directory is deliberately the namespace root.
+         * This guarantees containment without accepting an arbitrary VFS node
+         * whose membership in the namespace has not been established.
+         */
+        if (!process_cwd_set(
+            instance,
+            initial_vfs->namespace_root
+        )) {
+            process_create_rollback_prepublication(
+                instance,
+                id
             );
+
+            return NULL;
         }
+    }
+
+    if (!scheduler_add(
+        &instance->process
+    )) {
+        process_create_rollback_prepublication(
+            instance,
+            id
+        );
 
         return NULL;
     }
 
     if (parent != NULL) {
-        instance->parent = parent;
+        instance->parent =
+            parent;
+
         instance->next_sibling =
             parent->first_child;
 
@@ -218,4 +278,33 @@ static struct process_instance *process_create_elf64_internal(
     }
 
     return instance;
+}
+
+static void process_create_rollback_prepublication(
+    struct process_instance *instance,
+    uint64_t id)
+{
+    if (instance == NULL) {
+        kernel_panic(
+            "Process creation rollback received null instance"
+        );
+    }
+
+    if (!process_instance_discard(
+        instance
+    )) {
+        kernel_panic(
+            "Unable to roll back unpublished process instance"
+        );
+    }
+
+    kfree(instance);
+
+    if (!process_pid_release(
+        id
+    )) {
+        kernel_panic(
+            "Unable to roll back unpublished process identifier"
+        );
+    }
 }

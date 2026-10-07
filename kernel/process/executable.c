@@ -10,8 +10,10 @@
 
 #include "executable.h"
 
-#include "path.h"
+#include "cwd.h"
+#include "namespace.h"
 
+#include "../vfs/path.h"
 #include "../core/panic.h"
 
 #include <stddef.h>
@@ -26,8 +28,24 @@ static bool process_executable_source_read(
 );
 
 static enum process_executable_result
-process_executable_map_path_result(
-    enum process_path_result result
+process_executable_open_resolved_elf64(
+    struct vfs_node *node,
+    struct process_executable *executable
+);
+
+static enum process_executable_result
+process_executable_map_vfs_path_result(
+    enum vfs_path_result result
+);
+
+static enum process_executable_result
+process_executable_open_elf64_from_context(
+    struct vfs_node *root,
+    struct vfs_node *start,
+    const struct vfs_mount_table *mounts,
+    const char *path,
+    size_t path_length,
+    struct process_executable *executable
 );
 
 static enum process_executable_result
@@ -51,167 +69,75 @@ enum process_executable_result process_executable_open_elf64(
         instance == NULL ||
         executable == NULL ||
         executable->file != NULL ||
-        executable->image.source_read != NULL
+        executable->image.source_read != NULL ||
+        path == NULL ||
+        path_length == 0 ||
+        path_length > VFS_PATH_MAX
     ) {
         return
             PROCESS_EXECUTABLE_RESULT_INVALID_ARGUMENT;
     }
 
-    struct vfs_node *node =
-        NULL;
-
-    enum process_path_result path_result =
-        process_path_resolve(
-            instance,
-            path,
-            path_length,
-            &node
+    struct vfs_node *root =
+        process_namespace_root_get(
+            instance
         );
 
-    if (
-        path_result !=
-        PROCESS_PATH_RESULT_RESOLVED
-    ) {
+    if (root == NULL) {
         return
-            process_executable_map_path_result(
-                path_result
-            );
+            PROCESS_EXECUTABLE_RESULT_NO_NAMESPACE_ROOT;
     }
 
-    struct vfs_stat metadata;
+    struct vfs_node *start =
+        root;
 
-    enum vfs_stat_result stat_result =
-        vfs_node_stat(
-            node,
-            &metadata
-        );
-
-    if (
-        stat_result !=
-        VFS_STAT_RESULT_SUCCESS
-    ) {
-        if (!vfs_node_release(
-            node
-        )) {
-            kernel_panic(
-                "Executable open failed to release resolved node"
+    if (path[0] != '/') {
+        start =
+            process_cwd_get(
+                instance
             );
+
+        if (start == NULL) {
+            return
+                PROCESS_EXECUTABLE_RESULT_NO_CURRENT_DIRECTORY;
         }
-
-        return
-            process_executable_map_stat_result(
-                stat_result
-            );
-    }
-
-    if (
-        metadata.type !=
-        VFS_NODE_TYPE_REGULAR_FILE
-    ) {
-        if (!vfs_node_release(
-            node
-        )) {
-            kernel_panic(
-                "Executable type rejection failed to release node"
-            );
-        }
-
-        return
-            PROCESS_EXECUTABLE_RESULT_NOT_REGULAR_FILE;
-    }
-
-    /*
-     * elf64_source currently expresses its source size using size_t while VFS
-     * metadata uses uint64_t. Reject any value that cannot round-trip through
-     * the native source-size representation.
-     */
-    size_t source_size =
-        (size_t) metadata.size;
-
-    if (
-        (uint64_t) source_size !=
-        metadata.size
-    ) {
-        if (!vfs_node_release(
-            node
-        )) {
-            kernel_panic(
-                "Executable size rejection failed to release node"
-            );
-        }
-
-        return
-            PROCESS_EXECUTABLE_RESULT_OVERFLOW;
-    }
-
-    struct vfs_file *file =
-        NULL;
-
-    enum vfs_open_result open_result =
-        vfs_node_open(
-            node,
-            VFS_OPEN_ACCESS_READ,
-            &file
-        );
-
-    /*
-     * A successfully opened vfs_file owns its independent node reference, so
-     * the reference returned by pathname resolution is no longer required.
-     */
-    if (!vfs_node_release(
-        node
-    )) {
-        kernel_panic(
-            "Executable open failed to release resolver node"
-        );
-    }
-
-    if (
-        open_result !=
-        VFS_OPEN_RESULT_OPENED
-    ) {
-        return
-            process_executable_map_open_result(
-                open_result
-            );
-    }
-
-    executable->file =
-        file;
-
-    struct elf64_source source = {
-        .context =
-            &executable->file,
-        .size =
-            source_size,
-        .read =
-            process_executable_source_read,
-    };
-
-    if (!elf64_parse_source(
-        &source,
-        &executable->image
-    )) {
-        if (!vfs_file_release(
-            executable->file
-        )) {
-            kernel_panic(
-                "Invalid executable rollback failed to release file"
-            );
-        }
-
-        executable->file =
-            NULL;
-
-        executable->image =
-            (struct elf64_image) {0};
-
-        return
-            PROCESS_EXECUTABLE_RESULT_INVALID_IMAGE;
     }
 
     return
-        PROCESS_EXECUTABLE_RESULT_SUCCESS;
+        process_executable_open_elf64_from_context(
+            root,
+            start,
+            process_namespace_mounts_get(
+                instance
+            ),
+            path,
+            path_length,
+            executable
+        );
+}
+
+enum process_executable_result
+process_executable_open_elf64_from_namespace(
+    struct vfs_node *root,
+    const struct vfs_mount_table *mounts,
+    const char *path,
+    size_t path_length,
+    struct process_executable *executable)
+{
+    if (root == NULL) {
+        return
+            PROCESS_EXECUTABLE_RESULT_INVALID_ARGUMENT;
+    }
+
+    return
+        process_executable_open_elf64_from_context(
+            root,
+            root,
+            mounts,
+            path,
+            path_length,
+            executable
+        );
 }
 
 bool process_executable_close(
@@ -319,39 +245,241 @@ static bool process_executable_source_read(
 }
 
 static enum process_executable_result
-process_executable_map_path_result(
-    enum process_path_result result)
+process_executable_open_elf64_from_context(
+    struct vfs_node *root,
+    struct vfs_node *start,
+    const struct vfs_mount_table *mounts,
+    const char *path,
+    size_t path_length,
+    struct process_executable *executable)
+{
+    if (
+        root == NULL ||
+        start == NULL ||
+        path == NULL ||
+        path_length == 0 ||
+        path_length > VFS_PATH_MAX ||
+        executable == NULL ||
+        executable->file != NULL ||
+        executable->image.source_read != NULL
+    ) {
+        return
+            PROCESS_EXECUTABLE_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_node *node =
+        NULL;
+
+    enum vfs_path_result path_result =
+        vfs_path_resolve(
+            root,
+            start,
+            mounts,
+            path,
+            path_length,
+            &node
+        );
+
+    if (
+        path_result !=
+        VFS_PATH_RESULT_FOUND
+    ) {
+        return
+            process_executable_map_vfs_path_result(
+                path_result
+            );
+    }
+
+    return
+        process_executable_open_resolved_elf64(
+            node,
+            executable
+        );
+}
+
+static enum process_executable_result
+process_executable_open_resolved_elf64(
+    struct vfs_node *node,
+    struct process_executable *executable)
+{
+    if (
+        node == NULL ||
+        executable == NULL ||
+        executable->file != NULL ||
+        executable->image.source_read != NULL
+    ) {
+        if (node != NULL) {
+            (void) vfs_node_release(
+                node
+            );
+        }
+
+        return
+            PROCESS_EXECUTABLE_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_stat metadata;
+
+    enum vfs_stat_result stat_result =
+        vfs_node_stat(
+            node,
+            &metadata
+        );
+
+    if (
+        stat_result !=
+        VFS_STAT_RESULT_SUCCESS
+    ) {
+        if (!vfs_node_release(
+            node
+        )) {
+            kernel_panic(
+                "Executable open failed to release resolved node"
+            );
+        }
+
+        return
+            process_executable_map_stat_result(
+                stat_result
+            );
+    }
+
+    if (
+        metadata.type !=
+        VFS_NODE_TYPE_REGULAR_FILE
+    ) {
+        if (!vfs_node_release(
+            node
+        )) {
+            kernel_panic(
+                "Executable type rejection failed to release node"
+            );
+        }
+
+        return
+            PROCESS_EXECUTABLE_RESULT_NOT_REGULAR_FILE;
+    }
+
+    /*
+     * elf64_source currently expresses its source size using size_t while VFS
+     * metadata uses uint64_t. Reject any value that cannot round-trip through
+     * the native source-size representation.
+     */
+    size_t source_size =
+        (size_t) metadata.size;
+
+    if (
+        (uint64_t) source_size !=
+        metadata.size
+    ) {
+        if (!vfs_node_release(
+            node
+        )) {
+            kernel_panic(
+                "Executable size rejection failed to release node"
+            );
+        }
+
+        return
+            PROCESS_EXECUTABLE_RESULT_OVERFLOW;
+    }
+
+    struct vfs_file *file =
+        NULL;
+
+    enum vfs_open_result open_result =
+        vfs_node_open(
+            node,
+            VFS_OPEN_ACCESS_READ,
+            &file
+        );
+
+    /*
+     * An opened file owns an independent node reference. The pathname
+     * resolver's reference is no longer needed regardless of open result.
+     */
+    if (!vfs_node_release(
+        node
+    )) {
+        kernel_panic(
+            "Executable open failed to release resolver node"
+        );
+    }
+
+    if (
+        open_result !=
+        VFS_OPEN_RESULT_OPENED
+    ) {
+        return
+            process_executable_map_open_result(
+                open_result
+            );
+    }
+
+    executable->file =
+        file;
+
+    struct elf64_source source = {
+        .context =
+            &executable->file,
+        .size =
+            source_size,
+        .read =
+            process_executable_source_read,
+    };
+
+    if (!elf64_parse_source(
+        &source,
+        &executable->image
+    )) {
+        if (!vfs_file_release(
+            executable->file
+        )) {
+            kernel_panic(
+                "Invalid executable rollback failed to release file"
+            );
+        }
+
+        executable->file =
+            NULL;
+
+        executable->image =
+            (struct elf64_image) {0};
+
+        return
+            PROCESS_EXECUTABLE_RESULT_INVALID_IMAGE;
+    }
+
+    return
+        PROCESS_EXECUTABLE_RESULT_SUCCESS;
+}
+
+static enum process_executable_result
+process_executable_map_vfs_path_result(
+    enum vfs_path_result result)
 {
     switch (result) {
-        case PROCESS_PATH_RESULT_RESOLVED:
+        case VFS_PATH_RESULT_FOUND:
             return
                 PROCESS_EXECUTABLE_RESULT_SUCCESS;
 
-        case PROCESS_PATH_RESULT_NOT_FOUND:
+        case VFS_PATH_RESULT_NOT_FOUND:
             return
                 PROCESS_EXECUTABLE_RESULT_NOT_FOUND;
 
-        case PROCESS_PATH_RESULT_INVALID_ARGUMENT:
+        case VFS_PATH_RESULT_INVALID_ARGUMENT:
             return
                 PROCESS_EXECUTABLE_RESULT_INVALID_ARGUMENT;
 
-        case PROCESS_PATH_RESULT_NO_NAMESPACE_ROOT:
-            return
-                PROCESS_EXECUTABLE_RESULT_NO_NAMESPACE_ROOT;
-
-        case PROCESS_PATH_RESULT_NO_CURRENT_DIRECTORY:
-            return
-                PROCESS_EXECUTABLE_RESULT_NO_CURRENT_DIRECTORY;
-
-        case PROCESS_PATH_RESULT_NOT_DIRECTORY:
+        case VFS_PATH_RESULT_NOT_DIRECTORY:
             return
                 PROCESS_EXECUTABLE_RESULT_NOT_DIRECTORY;
 
-        case PROCESS_PATH_RESULT_NOT_SUPPORTED:
+        case VFS_PATH_RESULT_NOT_SUPPORTED:
             return
                 PROCESS_EXECUTABLE_RESULT_NOT_SUPPORTED;
 
-        case PROCESS_PATH_RESULT_RESOURCE_EXHAUSTED:
+        case VFS_PATH_RESULT_RESOURCE_EXHAUSTED:
             return
                 PROCESS_EXECUTABLE_RESULT_RESOURCE_EXHAUSTED;
     }

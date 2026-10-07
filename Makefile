@@ -142,9 +142,10 @@ CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 # Initramfs
 # -----------------------------------------------------------------------------
 
-INITRAMFS_ROOT    := initramfs/root
-INITRAMFS_BUILDER := scripts/build-initramfs.py
-INITRAMFS_IMAGE   := $(BUILD_DIR)/initramfs.cpio
+INITRAMFS_ROOT         := initramfs/root
+INITRAMFS_STAGING_ROOT := $(BUILD_DIR)/initramfs-root
+INITRAMFS_BUILDER      := scripts/build-initramfs.py
+INITRAMFS_IMAGE        := $(BUILD_DIR)/initramfs.cpio
 
 TEST_INITRAMFS_ROOT  := $(BUILD_DIR)/initramfs-test-root
 TEST_INITRAMFS_IMAGE := $(BUILD_DIR)/initramfs-test.cpio
@@ -154,6 +155,66 @@ INITRAMFS_SOURCES := $(shell \
 		-type f \
 		-print 2>/dev/null | sort \
 )
+
+# -----------------------------------------------------------------------------
+# Bootstrap userspace
+# -----------------------------------------------------------------------------
+
+USER_BOOTSTRAP_BUILD_DIR := $(BUILD_DIR)/user-bootstrap
+
+USER_BOOTSTRAP_LINKER_SCRIPT := user/bootstrap/user.ld
+
+USER_BOOTSTRAP_CRT0_SOURCE := user/runtime/crt0.S
+USER_BOOTSTRAP_CRT0_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/crt0.o
+
+USER_INIT_SOURCE := user/bootstrap/init/main.c
+USER_INIT_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/init.o
+USER_INIT_ELF    := $(USER_BOOTSTRAP_BUILD_DIR)/init.elf
+
+USER_BOOTSTRAP_CFLAGS := \
+	--target=$(TARGET) \
+	-ffreestanding \
+	-fno-stack-protector \
+	-fno-common \
+	-fno-pic \
+	-fno-pie \
+	-mno-red-zone \
+	-mgeneral-regs-only \
+	-O0 \
+	-g \
+	-Wall \
+	-Wextra \
+	-Werror \
+	-Wpedantic
+
+$(USER_BOOTSTRAP_BUILD_DIR):
+	mkdir -p $(USER_BOOTSTRAP_BUILD_DIR)
+
+$(USER_BOOTSTRAP_CRT0_OBJECT): \
+	$(USER_BOOTSTRAP_CRT0_SOURCE) \
+	| $(USER_BOOTSTRAP_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(USER_INIT_OBJECT): \
+	$(USER_INIT_SOURCE) \
+	| $(USER_BOOTSTRAP_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(USER_INIT_ELF): \
+	$(USER_BOOTSTRAP_CRT0_OBJECT) \
+	$(USER_INIT_OBJECT) \
+	$(USER_BOOTSTRAP_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-static \
+		--build-id=none \
+		-T $(USER_BOOTSTRAP_LINKER_SCRIPT) \
+		-o $@ \
+		$(USER_BOOTSTRAP_CRT0_OBJECT) \
+		$(USER_INIT_OBJECT)
 
 # -----------------------------------------------------------------------------
 # Userspace test images
@@ -567,20 +628,31 @@ $(BUILD_DIR):
 $(INITRAMFS_IMAGE): \
 	$(INITRAMFS_BUILDER) \
 	$(INITRAMFS_SOURCES) \
+	$(USER_INIT_ELF) \
 	| $(BUILD_DIR)
+	rm -rf $(INITRAMFS_STAGING_ROOT)
+	mkdir -p $(INITRAMFS_STAGING_ROOT)
+	cp -R $(INITRAMFS_ROOT)/. $(INITRAMFS_STAGING_ROOT)/
+	cp \
+		$(USER_INIT_ELF) \
+		$(INITRAMFS_STAGING_ROOT)/init
 	python3 \
 		$(INITRAMFS_BUILDER) \
-		$(INITRAMFS_ROOT) \
+		$(INITRAMFS_STAGING_ROOT) \
 		$@
 
 $(TEST_INITRAMFS_IMAGE): \
 	$(INITRAMFS_BUILDER) \
 	$(INITRAMFS_SOURCES) \
+	$(USER_INIT_ELF) \
 	$(ELF_FROM_VFS_ELF) \
 	| $(BUILD_DIR)
 	rm -rf $(TEST_INITRAMFS_ROOT)
 	mkdir -p $(TEST_INITRAMFS_ROOT)/bin
 	cp -R $(INITRAMFS_ROOT)/. $(TEST_INITRAMFS_ROOT)/
+	cp \
+		$(USER_INIT_ELF) \
+		$(TEST_INITRAMFS_ROOT)/init
 	cp \
 		$(ELF_FROM_VFS_ELF) \
 		$(TEST_INITRAMFS_ROOT)/bin/elf-from-vfs
@@ -702,9 +774,16 @@ TEST_ISO_BOOTX64        := $(TEST_ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
 TEST_ISO_LIMINE_UEFI_CD := $(TEST_ISO_ROOT)/limine-uefi-cd.bin
 TEST_ISO_INITRAMFS := $(TEST_ISO_ROOT)/boot/initramfs.cpio
 
-.PHONY: iso
+.PHONY: iso iso-tests
 
 iso: $(ISO_IMAGE)
+
+iso-tests:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=0 \
+		MYOS_QEMU_TEST_EXIT=0 \
+		$(TEST_ISO_IMAGE)
 
 $(ISO_ROOT):
 	mkdir -p $(ISO_ROOT)/boot
@@ -889,7 +968,7 @@ QEMU_DISPLAY_RESOLUTION := "xres=1280,yres=1024"
 # Keep firmware serial output from resizing the host terminal.
 QEMU_SERIAL_RUNNER := python3 scripts/qemu-serial-console.py
 
-.PHONY: run run-usb run-usb-tests run-usb-diagnostics debug debug-stop run-qemu-tests
+.PHONY: run run-with-tests run-usb run-usb-tests run-usb-diagnostics debug debug-stop run-qemu-tests
 
 run: $(ISO_IMAGE)
 	$(QEMU_SERIAL_RUNNER) $(QEMU) \
@@ -906,6 +985,13 @@ run: $(ISO_IMAGE)
 		-no-reboot \
 		-no-shutdown \
 		-serial stdio
+
+run-with-tests:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=0 \
+		MYOS_QEMU_TEST_EXIT=0 \
+		run
 
 run-qemu-tests: $(TEST_ISO_IMAGE)
 	@set +e; \
@@ -1035,7 +1121,6 @@ debug-diagnostics:
 		MYOS_KERNEL_TESTS=1 \
 		MYOS_RUNTIME_DIAGNOSTICS=1 \
 		debug
-
 
 # -----------------------------------------------------------------------------
 # Snapshot of current repository status

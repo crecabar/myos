@@ -32,6 +32,7 @@
 #include "../process/process.h"
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
+#include "../vfs/mount.h"
 #include "../vfs/vfs.h"
 
 #include <stddef.h>
@@ -2058,6 +2059,373 @@ static void process_elf_lifecycle_test_fork_rollback(
     );
 }
 
+static void process_elf_lifecycle_test_initial_vfs_creation(
+    const struct elf64_image *image,
+    size_t argc,
+    const char *const argv[],
+    size_t envc,
+    const char *const envp[])
+{
+    if (scheduler_test_process_count() != 0) {
+        kernel_panic(
+            "Initial VFS creation test requires empty scheduler"
+        );
+    }
+
+    uint64_t free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats heap_before;
+
+    if (!kernel_heap_stats_get(
+        &heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap baseline before initial VFS creation test"
+        );
+    }
+
+    struct vfs_node root;
+
+    if (!vfs_node_initialize(
+        &root,
+        VFS_NODE_TYPE_DIRECTORY,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Unable to initialize initial VFS root fixture"
+        );
+    }
+
+    struct vfs_mount_table mounts;
+
+    if (!vfs_mount_table_initialize(
+        &mounts
+    )) {
+        kernel_panic(
+            "Unable to initialize initial VFS mount topology fixture"
+        );
+    }
+
+    struct process_initial_vfs initial_vfs = {
+        .namespace_root =
+            &root,
+        .namespace_mounts =
+            &mounts,
+    };
+
+    struct process_instance *instance =
+        process_create_elf64_with_vfs(
+            image,
+            &initial_vfs,
+            argc,
+            argv,
+            envc,
+            envp
+        );
+
+    if (instance == NULL) {
+        kernel_panic(
+            "Unable to create ELF process with initial VFS state"
+        );
+    }
+
+    if (
+        instance->process.state !=
+            PROCESS_STATE_READY ||
+        process_namespace_root_get(
+            instance
+        ) != &root ||
+        process_namespace_mounts_get(
+            instance
+        ) != &mounts ||
+        process_cwd_get(
+            instance
+        ) != &root ||
+        root.reference_count != 3 ||
+        scheduler_test_process_count() != 1
+    ) {
+        kernel_panic(
+            "Initial VFS process publication state is incorrect"
+        );
+    }
+
+    instance->process.state =
+        PROCESS_STATE_TERMINATED;
+
+    instance->process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    instance->process.exit_status =
+        0;
+
+    if (!scheduler_unregister_terminated(
+        &instance->process
+    )) {
+        kernel_panic(
+            "Unable to unregister initial VFS process"
+        );
+    }
+
+    if (!process_release_terminated(
+        instance
+    )) {
+        kernel_panic(
+            "Unable to release initial VFS process"
+        );
+    }
+
+    if (
+        root.reference_count != 1 ||
+        scheduler_test_process_count() != 0
+    ) {
+        kernel_panic(
+            "Initial VFS process teardown retained ownership"
+        );
+    }
+
+    /*
+     * Saturate the scheduler without acquiring process lifecycle resources.
+     * The next process creation can therefore reach scheduler_add() only after
+     * installing its executable image, namespace root and initial CWD.
+     */
+    struct process fillers[
+        SCHEDULER_MAX_PROCESSES
+    ];
+
+    for (
+        size_t index = 0;
+        index < SCHEDULER_MAX_PROCESSES;
+        ++index
+    ) {
+        fillers[index].id =
+            2000 + index;
+
+        fillers[index].state =
+            PROCESS_STATE_READY;
+
+        fillers[index].termination_reason =
+            PROCESS_TERMINATION_NONE;
+
+        fillers[index].exit_status =
+            0;
+
+        fillers[index].memory =
+            NULL;
+
+        fillers[index].layout =
+            NULL;
+
+        fillers[index].instance =
+            NULL;
+
+        fillers[index].image =
+            NULL;
+
+        if (!scheduler_add(
+            &fillers[index]
+        )) {
+            kernel_panic(
+                "Unable to fill scheduler for initial VFS rollback test"
+            );
+        }
+    }
+
+    if (
+        scheduler_test_process_count() !=
+            SCHEDULER_MAX_PROCESSES
+    ) {
+        kernel_panic(
+            "Initial VFS rollback scheduler saturation failed"
+        );
+    }
+
+    uint64_t failed_free_before =
+        physical_free_frame_count();
+
+    struct kernel_heap_stats failed_heap_before;
+
+    if (!kernel_heap_stats_get(
+        &failed_heap_before
+    )) {
+        kernel_panic(
+            "Unable to read heap before failed initial VFS creation"
+        );
+    }
+
+    uint64_t expected_pid;
+
+    if (
+        !process_pid_allocate(
+            &expected_pid
+        ) ||
+        !process_pid_release(
+            expected_pid
+        )
+    ) {
+        kernel_panic(
+            "Unable to probe PID before initial VFS rollback"
+        );
+    }
+
+    if (
+        process_create_elf64_with_vfs(
+            image,
+            &initial_vfs,
+            argc,
+            argv,
+            envc,
+            envp
+        ) != NULL
+    ) {
+        kernel_panic(
+            "Initial VFS process creation succeeded with full scheduler"
+        );
+    }
+
+    if (root.reference_count != 1) {
+        kernel_panic(
+            "Failed initial VFS creation leaked root ownership"
+        );
+    }
+
+    if (
+        scheduler_test_process_count() !=
+            SCHEDULER_MAX_PROCESSES
+    ) {
+        kernel_panic(
+            "Failed initial VFS creation changed scheduler population"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+            failed_free_before
+    ) {
+        kernel_panic(
+            "Failed initial VFS creation leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats failed_heap_after;
+
+    if (!kernel_heap_stats_get(
+        &failed_heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap after failed initial VFS creation"
+        );
+    }
+
+    if (
+        failed_heap_after.allocated_block_count !=
+            failed_heap_before.allocated_block_count ||
+        failed_heap_after.allocated_bytes !=
+            failed_heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Failed initial VFS creation leaked kernel heap allocations"
+        );
+    }
+
+    uint64_t pid_after_failure;
+
+    if (!process_pid_allocate(
+        &pid_after_failure
+    )) {
+        kernel_panic(
+            "Unable to probe PID after initial VFS rollback"
+        );
+    }
+
+    if (
+        pid_after_failure !=
+            expected_pid
+    ) {
+        kernel_panic(
+            "Failed initial VFS creation did not roll back PID"
+        );
+    }
+
+    if (!process_pid_release(
+        pid_after_failure
+    )) {
+        kernel_panic(
+            "Unable to release initial VFS rollback PID probe"
+        );
+    }
+
+    for (
+        size_t index =
+            SCHEDULER_MAX_PROCESSES;
+        index > 0;
+        --index
+    ) {
+        struct process *filler =
+            &fillers[index - 1];
+
+        filler->state =
+            PROCESS_STATE_TERMINATED;
+
+        if (!scheduler_unregister_terminated(
+            filler
+        )) {
+            kernel_panic(
+                "Unable to remove initial VFS rollback scheduler filler"
+            );
+        }
+    }
+
+    if (scheduler_test_process_count() != 0) {
+        kernel_panic(
+            "Initial VFS rollback test left scheduler registrations"
+        );
+    }
+
+    if (!vfs_node_release(
+        &root
+    )) {
+        kernel_panic(
+            "Unable to release initial VFS root fixture"
+        );
+    }
+
+    if (
+        physical_free_frame_count() !=
+            free_before
+    ) {
+        kernel_panic(
+            "Initial VFS creation test leaked physical frames"
+        );
+    }
+
+    struct kernel_heap_stats heap_after;
+
+    if (!kernel_heap_stats_get(
+        &heap_after
+    )) {
+        kernel_panic(
+            "Unable to read heap after initial VFS creation test"
+        );
+    }
+
+    if (
+        heap_after.allocated_block_count !=
+            heap_before.allocated_block_count ||
+        heap_after.allocated_bytes !=
+            heap_before.allocated_bytes
+    ) {
+        kernel_panic(
+            "Initial VFS creation test leaked kernel heap allocations"
+        );
+    }
+
+    diagnostics_write(
+        "[process] Initial VFS process creation and rollback test passed\n"
+    );
+}
+
 void process_elf_lifecycle_test_run(void)
 {
     uint64_t free_before =
@@ -2118,6 +2486,14 @@ void process_elf_lifecycle_test_run(void)
     );
 
     process_elf_lifecycle_test_fork_rollback(
+        &image,
+        2,
+        argv,
+        1,
+        envp
+    );
+
+    process_elf_lifecycle_test_initial_vfs_creation(
         &image,
         2,
         argv,
