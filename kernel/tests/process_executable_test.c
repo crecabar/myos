@@ -42,6 +42,71 @@ void process_executable_test_run(
     size_t root_reference_baseline =
         root->reference_count;
 
+    /*
+     * The system bootstrap must be able to acquire /init before any userspace
+     * process exists. Exercise the explicit-namespace acquisition path without
+     * manufacturing a process instance solely for pathname resolution.
+     */
+    struct process_executable init_executable = {0};
+
+    if (
+        process_executable_open_elf64_from_namespace(
+            root,
+            mounts,
+            "/init",
+            sizeof("/init") - 1U,
+            &init_executable
+        ) !=
+            PROCESS_EXECUTABLE_RESULT_SUCCESS
+    ) {
+        kernel_panic(
+            "Unable to open bootstrap /init executable"
+        );
+    }
+
+    if (
+        init_executable.file == NULL ||
+        init_executable.file->node == NULL ||
+        init_executable.file->node->type !=
+            VFS_NODE_TYPE_REGULAR_FILE ||
+        init_executable.image.source_read == NULL ||
+        init_executable.image.source_context !=
+            &init_executable.file ||
+        init_executable.image.load_segment_count == 0
+    ) {
+        kernel_panic(
+            "Bootstrap /init executable state is invalid"
+        );
+    }
+
+    if (!process_executable_close(
+        &init_executable
+    )) {
+        kernel_panic(
+            "Unable to close bootstrap /init executable"
+        );
+    }
+
+    if (
+        init_executable.file != NULL ||
+        init_executable.image.source_context != NULL ||
+        init_executable.image.source_read != NULL ||
+        init_executable.image.size != 0
+    ) {
+        kernel_panic(
+            "Closed bootstrap /init retained backing state"
+        );
+    }
+
+    if (
+        root->reference_count !=
+            root_reference_baseline
+    ) {
+        kernel_panic(
+            "Bootstrap /init executable acquisition leaked root ownership"
+        );
+    }
+
     struct process_instance instance = {0};
 
     if (!process_namespace_root_set(
