@@ -18,6 +18,7 @@
 #include "user_processes/runtime_malloc.h"
 #include "user_processes/runtime_stdio.h"
 #include "user_processes/runtime_string.h"
+#include "user_processes/runtime_syscalls.h"
 #include "user_processes/scheduler_context.h"
 #include "user_processes/sleep.h"
 #include "user_processes/standard.h"
@@ -99,6 +100,10 @@ static void user_process_runtime_malloc_terminated_handler(
 );
 
 static void user_process_runtime_stdio_terminated_handler(
+    struct process *process
+);
+
+static void user_process_runtime_syscalls_terminated_handler(
     struct process *process
 );
 // End private helpers declarations
@@ -370,6 +375,24 @@ static void user_process_runtime_stdio_terminated_handler(
     user_process_runtime_stdio_test_terminated(
         process
     );
+
+    scheduler_set_terminated_handler(
+        user_process_runtime_syscalls_terminated_handler
+    );
+
+    user_process_runtime_syscalls_test_prepare(
+        user_process_test_mounts
+    );
+}
+
+static void user_process_runtime_syscalls_terminated_handler(
+    struct process *process)
+{
+    if (!user_process_runtime_syscalls_test_terminated(
+        process
+    )) {
+        return;
+    }
 
     scheduler_set_terminated_handler(
         user_process_standard_test_terminated
