@@ -8,6 +8,7 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/file.h"
+#include "../process/path.h"
 #include "../process/user_copy.h"
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
@@ -78,6 +79,15 @@ static syscall_result_t syscall_fd_lseek(
 );
 
 static syscall_result_t syscall_getpid(void);
+
+static syscall_result_t syscall_chdir(
+    uint64_t user_path_address,
+    uint64_t path_length
+);
+
+static enum syscall_error syscall_process_path_map_error(
+    enum process_path_result result
+);
 
 static bool syscall_fd_seek_origin(
     uint64_t syscall_origin,
@@ -330,6 +340,12 @@ syscall_result_t syscall_dispatch(
         case SYSCALL_GETPID:
             return syscall_getpid();
 
+        case SYSCALL_CHDIR:
+            return syscall_chdir(
+                argument0,
+                argument1
+            );
+
         default:
             return syscall_result_error(
                 SYSCALL_ERROR_NOT_IMPLEMENTED
@@ -467,6 +483,102 @@ static syscall_result_t syscall_getpid(void)
     return
         (syscall_result_t)
             instance->process.id;
+}
+
+static enum syscall_error syscall_process_path_map_error(
+    enum process_path_result result)
+{
+    switch (result) {
+        case PROCESS_PATH_RESULT_NOT_FOUND:
+            return
+                SYSCALL_ERROR_NOT_FOUND;
+
+        case PROCESS_PATH_RESULT_INVALID_ARGUMENT:
+        case PROCESS_PATH_RESULT_NO_NAMESPACE_ROOT:
+        case PROCESS_PATH_RESULT_NO_CURRENT_DIRECTORY:
+            return
+                SYSCALL_ERROR_INVALID_ARGUMENT;
+
+        case PROCESS_PATH_RESULT_NOT_DIRECTORY:
+            return
+                SYSCALL_ERROR_NOT_DIRECTORY;
+
+        case PROCESS_PATH_RESULT_NOT_SUPPORTED:
+            return
+                SYSCALL_ERROR_NOT_SUPPORTED;
+
+        case PROCESS_PATH_RESULT_RESOURCE_EXHAUSTED:
+            return
+                SYSCALL_ERROR_RESOURCE_EXHAUSTED;
+
+        case PROCESS_PATH_RESULT_RESOLVED:
+            kernel_panic(
+                "Resolved process path cannot map to syscall error"
+            );
+    }
+
+    kernel_panic(
+        "Unknown process path result"
+    );
+}
+
+static syscall_result_t syscall_chdir(
+    uint64_t user_path_address,
+    uint64_t path_length)
+{
+    if (
+        path_length == 0 ||
+        path_length > SYSCALL_PATH_MAX
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    char path[VFS_PATH_MAX];
+
+    if (!copy_from_user(
+        instance->process.memory,
+        user_path_address,
+        path,
+        (size_t) path_length
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    enum process_path_result result =
+        process_chdir(
+            instance,
+            path,
+            (size_t) path_length
+        );
+
+    if (
+        result !=
+        PROCESS_PATH_RESULT_RESOLVED
+    ) {
+        return syscall_result_error(
+            syscall_process_path_map_error(
+                result
+            )
+        );
+    }
+
+    return 0;
 }
 
 static enum syscall_error syscall_file_map_error(

@@ -27,6 +27,22 @@ syscall_result_t myos_getpid(void)
     );
 }
 
+syscall_result_t myos_chdir(
+    const char *path,
+    size_t path_length)
+{
+    return __myos_syscall6(
+        SYSCALL_CHDIR,
+        (uint64_t)
+            (uintptr_t) path,
+        (uint64_t) path_length,
+        0,
+        0,
+        0,
+        0
+    );
+}
+
 syscall_result_t myos_fork(void)
 {
     return __myos_syscall6(

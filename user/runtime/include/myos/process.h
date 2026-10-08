@@ -13,6 +13,7 @@
 
 #include <myos/abi/syscall.h>
 
+#include <stddef.h>
 #include <stdint.h>
 
 /**
@@ -21,6 +22,21 @@
  * @return Positive process identifier on success, or a negative error.
  */
 syscall_result_t myos_getpid(void);
+
+/**
+ * Changes the calling process current working directory.
+ *
+ * path is an explicit byte sequence and need not be NUL-terminated.
+ *
+ * @param path Pathname bytes.
+ * @param path_length Number of pathname bytes.
+ *
+ * @return Zero on success, or a negative error.
+ */
+syscall_result_t myos_chdir(
+    const char *path,
+    size_t path_length
+);
 
 /**
  * Creates an independent child copy of the current process.

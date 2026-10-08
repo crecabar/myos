@@ -233,18 +233,148 @@ int main(
         return 15;
     }
 
+    /*
+     * Change into the mounted devfs and exercise pathname resolution relative
+     * to the new current directory.
+     */
+    static const char dev_path[] =
+        "/dev";
+
+    result =
+        myos_chdir(
+            dev_path,
+            sizeof(dev_path) - 1U
+        );
+
+    if (result != 0) {
+        return 16;
+    }
+
+    /*
+     * Failed directory changes must leave the existing CWD unchanged.
+     */
+    static const char missing_path[] =
+        "missing";
+
+    result =
+        myos_chdir(
+            missing_path,
+            sizeof(missing_path) - 1U
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_NOT_FOUND
+        )
+    ) {
+        return 17;
+    }
+
+    static const char relative_null_path[] =
+        "null";
+
+    result =
+        myos_chdir(
+            relative_null_path,
+            sizeof(relative_null_path) - 1U
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_NOT_DIRECTORY
+        )
+    ) {
+        return 18;
+    }
+
+    syscall_result_t relative_null_descriptor =
+        myos_fd_open(
+            relative_null_path,
+            sizeof(relative_null_path) - 1U,
+            SYSCALL_OPEN_ACCESS_WRITE
+        );
+
+    if (relative_null_descriptor < 0) {
+        return 19;
+    }
+
+    result =
+        myos_fd_write(
+            (uint64_t) relative_null_descriptor,
+            &write_probe,
+            sizeof(write_probe)
+        );
+
+    if (
+        result !=
+        (syscall_result_t) sizeof(write_probe)
+    ) {
+        return 20;
+    }
+
+    result =
+        myos_fd_close(
+            (uint64_t) relative_null_descriptor
+        );
+
+    if (result != 0) {
+        return 21;
+    }
+
+    /*
+     * Restore the root CWD and prove subsequent relative resolution begins
+     * there again.
+     */
+    static const char root_path[] =
+        "/";
+
+    result =
+        myos_chdir(
+            root_path,
+            sizeof(root_path) - 1U
+        );
+
+    if (result != 0) {
+        return 22;
+    }
+
+    static const char relative_executable_path[] =
+        "bin/runtime-syscalls";
+
+    syscall_result_t relative_descriptor =
+        myos_fd_open(
+            relative_executable_path,
+            sizeof(relative_executable_path) - 1U,
+            SYSCALL_OPEN_ACCESS_READ
+        );
+
+    if (relative_descriptor < 0) {
+        return 23;
+    }
+
+    result =
+        myos_fd_close(
+            (uint64_t) relative_descriptor
+        );
+
+    if (result != 0) {
+        return 24;
+    }
+
     syscall_result_t parent_pid =
         myos_getpid();
 
     if (parent_pid <= 0) {
-        return 16;
+        return 25;
     }
 
     syscall_result_t child_pid =
         myos_fork();
 
     if (child_pid < 0) {
-        return 17;
+        return 26;
     }
 
     if (child_pid == 0) {
@@ -263,11 +393,11 @@ int main(
     }
 
     if (child_pid == parent_pid) {
-        return 18;
+        return 27;
     }
 
     if (myos_getpid() != parent_pid) {
-        return 19;
+        return 28;
     }
 
     struct syscall_wait_status wait_status = {0};
@@ -280,21 +410,21 @@ int main(
         );
 
     if (result != child_pid) {
-        return 20;
+        return 29;
     }
 
     if (
         wait_status.termination_reason !=
         SYSCALL_WAIT_TERMINATION_EXITED
     ) {
-        return 21;
+        return 30;
     }
 
     if (
         wait_status.exit_status !=
         RUNTIME_SYSCALLS_CHILD_EXIT_STATUS
     ) {
-        return 22;
+        return 31;
     }
 
     result =
@@ -310,7 +440,7 @@ int main(
             SYSCALL_ERROR_NO_CHILD
         )
     ) {
-        return 23;
+        return 32;
     }
 
     return 0;
