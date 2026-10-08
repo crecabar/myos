@@ -34,6 +34,8 @@ struct initramfs_node {
 
     struct initramfs_external_entry *first_external_child;
 
+    uint64_t children_generation;
+
     /*
      * Archive-backed names borrow bytes from the CPIO image. Kernel-created
      * directories instead own this optional name allocation.
@@ -52,6 +54,14 @@ struct initramfs_node {
 
 struct initramfs_file {
     struct vfs_file vfs;
+
+    struct initramfs_node *directory;
+
+    struct initramfs_node *next_child;
+
+    struct initramfs_external_entry *next_external_child;
+
+    uint64_t directory_generation;
 };
 
 struct initramfs_external_entry {
@@ -149,6 +159,11 @@ static enum vfs_io_result initramfs_file_read(
     size_t *bytes_read
 );
 
+static enum vfs_directory_read_result initramfs_directory_read(
+    struct vfs_file *file,
+    struct vfs_directory_entry *result
+);
+
 static void initramfs_file_destroy(
     struct vfs_file *file
 );
@@ -186,14 +201,29 @@ static bool initramfs_directory_contains_name(
 );
 
 // Static local variables
-static const struct vfs_file_operations initramfs_file_operations = {
-    .read =
-        initramfs_file_read,
-    .write =
-        NULL,
-    .destroy =
-        initramfs_file_destroy,
-};
+static const struct vfs_file_operations
+    initramfs_regular_file_operations = {
+        .read =
+            initramfs_file_read,
+        .write =
+            NULL,
+        .read_directory =
+            NULL,
+        .destroy =
+            initramfs_file_destroy,
+    };
+
+static const struct vfs_file_operations
+    initramfs_directory_file_operations = {
+        .read =
+            NULL,
+        .write =
+            NULL,
+        .read_directory =
+            initramfs_directory_read,
+        .destroy =
+            initramfs_file_destroy,
+    };
 
 static const struct vfs_node_operations initramfs_node_operations = {
     .open =
@@ -280,6 +310,9 @@ enum initramfs_mount_result initramfs_mount(
 
     filesystem->root.first_external_child =
         NULL;
+
+    filesystem->root.children_generation =
+        0;
 
     filesystem->root.owned_name =
         NULL;
@@ -410,6 +443,14 @@ enum initramfs_namespace_result initramfs_create_directory(
             INITRAMFS_NAMESPACE_RESULT_RESOURCE_EXHAUSTED;
     }
 
+    if (
+        parent_entry->children_generation ==
+            UINT64_MAX
+    ) {
+        return
+            INITRAMFS_NAMESPACE_RESULT_RESOURCE_EXHAUSTED;
+    }
+
     struct initramfs_node *node =
         kmalloc(sizeof(*node));
 
@@ -459,6 +500,9 @@ enum initramfs_namespace_result initramfs_create_directory(
 
     node->first_external_child =
         NULL;
+
+    node->children_generation =
+        0;
 
     node->owned_name =
         owned_name;
@@ -514,6 +558,8 @@ enum initramfs_namespace_result initramfs_create_directory(
 
     parent_entry->first_child =
         node;
+
+    ++parent_entry->children_generation;
 
     ++filesystem->node_count;
 
@@ -610,6 +656,14 @@ enum initramfs_namespace_result initramfs_attach_leaf(
             INITRAMFS_NAMESPACE_RESULT_RESOURCE_EXHAUSTED;
     }
 
+    if (
+        parent_entry->children_generation ==
+            UINT64_MAX
+    ) {
+        return
+            INITRAMFS_NAMESPACE_RESULT_RESOURCE_EXHAUSTED;
+    }
+
     struct initramfs_external_entry *entry =
         kmalloc(sizeof(*entry));
 
@@ -656,6 +710,8 @@ enum initramfs_namespace_result initramfs_attach_leaf(
 
     parent_entry->first_external_child =
         entry;
+
+    ++parent_entry->children_generation;
 
     filesystem->external_entries =
         entry;
@@ -1086,6 +1142,9 @@ static enum initramfs_mount_result initramfs_materialize_entries(
         node->first_external_child =
             NULL;
 
+        node->children_generation =
+            0;
+
         node->owned_name =
             NULL;
 
@@ -1406,18 +1465,10 @@ static enum vfs_open_result initramfs_node_open(
             VFS_OPEN_RESULT_INVALID_ARGUMENT;
     }
 
-    if (
-        node->type !=
-        VFS_NODE_TYPE_REGULAR_FILE
-    ) {
-        return
-            VFS_OPEN_RESULT_NOT_SUPPORTED;
-    }
-
     /*
-     * Initramfs is immutable. Any request carrying write permission is
-     * rejected at open time rather than creating an OFD that can never honor
-     * its advertised access mode.
+     * Initramfs is immutable from ordinary file-I/O users. Namespace
+     * bootstrap mutation is performed through explicit kernel APIs, never
+     * through writable open-file descriptions.
      */
     if (
         (access &
@@ -1429,10 +1480,29 @@ static enum vfs_open_result initramfs_node_open(
 
     if (
         access !=
-        VFS_OPEN_ACCESS_READ
+            VFS_OPEN_ACCESS_READ
     ) {
         return
             VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    const struct vfs_file_operations *operations;
+
+    switch (node->type) {
+        case VFS_NODE_TYPE_REGULAR_FILE:
+            operations =
+                &initramfs_regular_file_operations;
+            break;
+
+        case VFS_NODE_TYPE_DIRECTORY:
+            operations =
+                &initramfs_directory_file_operations;
+            break;
+
+        case VFS_NODE_TYPE_CHARACTER_DEVICE:
+        default:
+            return
+                VFS_OPEN_RESULT_NOT_SUPPORTED;
     }
 
     struct initramfs_file *open_file =
@@ -1443,11 +1513,40 @@ static enum vfs_open_result initramfs_node_open(
             VFS_OPEN_RESULT_RESOURCE_EXHAUSTED;
     }
 
+    open_file->directory =
+        NULL;
+
+    open_file->next_child =
+        NULL;
+
+    open_file->next_external_child =
+        NULL;
+
+    open_file->directory_generation =
+        0;
+
+    if (
+        node->type ==
+            VFS_NODE_TYPE_DIRECTORY
+    ) {
+        open_file->directory =
+            entry;
+
+        open_file->next_child =
+            entry->first_child;
+
+        open_file->next_external_child =
+            entry->first_external_child;
+
+        open_file->directory_generation =
+            entry->children_generation;
+    }
+
     if (!vfs_file_initialize(
         &open_file->vfs,
         node,
         access,
-        &initramfs_file_operations,
+        operations,
         open_file
     )) {
         kfree(
@@ -1561,6 +1660,144 @@ static enum vfs_io_result initramfs_file_read(
 
     return
         VFS_IO_RESULT_SUCCESS;
+}
+
+static enum vfs_directory_read_result initramfs_directory_read(
+    struct vfs_file *file,
+    struct vfs_directory_entry *result)
+{
+    if (
+        file == NULL ||
+        result == NULL ||
+        file->reference_count == 0 ||
+        file->node == NULL ||
+        file->node->reference_count == 0 ||
+        file->node->type !=
+            VFS_NODE_TYPE_DIRECTORY ||
+        file->private_data == NULL
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct initramfs_file *open_file =
+        file->private_data;
+
+    struct initramfs_node *directory =
+        initramfs_node_from_vfs(
+            file->node
+        );
+
+    if (
+        directory == NULL ||
+        &open_file->vfs != file ||
+        open_file->directory != directory
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * Directory streams describe one stable namespace generation.
+     * Bootstrap namespace mutation after open invalidates the stream instead
+     * of silently producing a mixture of old and new contents.
+     */
+    if (
+        open_file->directory_generation !=
+            directory->children_generation
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALIDATED;
+    }
+
+    if (
+        open_file->next_child != NULL
+    ) {
+        struct initramfs_node *child =
+            open_file->next_child;
+
+        if (
+            !initramfs_name_valid(
+                child->name,
+                child->name_length
+            )
+        ) {
+            return
+                VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+        }
+
+        open_file->next_child =
+            child->next_sibling;
+
+        result->type =
+            child->vfs.type;
+
+        result->name_length =
+            child->name_length;
+
+        for (
+            size_t index = 0;
+            index < child->name_length;
+            ++index
+        ) {
+            result->name[index] =
+                child->name[index];
+        }
+
+        result->name[
+            child->name_length
+        ] = '\0';
+
+        return
+            VFS_DIRECTORY_READ_RESULT_ENTRY;
+    }
+
+    if (
+        open_file->next_external_child != NULL
+    ) {
+        struct initramfs_external_entry *external =
+            open_file->next_external_child;
+
+        if (
+            external->node == NULL ||
+            external->node->reference_count == 0 ||
+            !initramfs_name_valid(
+                external->name,
+                external->name_length
+            )
+        ) {
+            return
+                VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+        }
+
+        open_file->next_external_child =
+            external->next_in_directory;
+
+        result->type =
+            external->node->type;
+
+        result->name_length =
+            external->name_length;
+
+        for (
+            size_t index = 0;
+            index < external->name_length;
+            ++index
+        ) {
+            result->name[index] =
+                external->name[index];
+        }
+
+        result->name[
+            external->name_length
+        ] = '\0';
+
+        return
+            VFS_DIRECTORY_READ_RESULT_ENTRY;
+    }
+
+    return
+        VFS_DIRECTORY_READ_RESULT_END;
 }
 
 static void initramfs_file_destroy(
