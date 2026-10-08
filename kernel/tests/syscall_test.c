@@ -72,6 +72,11 @@ _Static_assert(
 );
 
 _Static_assert(
+    SYSCALL_GETPID == 13,
+    "SYSCALL_GETPID ABI number changed"
+);
+
+_Static_assert(
     SYSCALL_OPEN_ACCESS_READ == 1 &&
     SYSCALL_OPEN_ACCESS_WRITE == 2,
     "Syscall open access ABI changed"
@@ -480,6 +485,31 @@ void syscall_test_run(void)
     ) {
         kernel_panic(
             "FD_LSEEK accepted missing current process"
+        );
+    }
+
+    /*
+     * GETPID requires one valid current process instance.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_GETPID,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "GETPID accepted missing current process"
         );
     }
 

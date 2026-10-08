@@ -14,6 +14,19 @@
 
 #include <stdint.h>
 
+syscall_result_t myos_getpid(void)
+{
+    return __myos_syscall6(
+        SYSCALL_GETPID,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+    );
+}
+
 syscall_result_t myos_fork(void)
 {
     return __myos_syscall6(

@@ -16,6 +16,13 @@
 #include <stdint.h>
 
 /**
+ * Returns the identifier of the calling process.
+ *
+ * @return Positive process identifier on success, or a negative error.
+ */
+syscall_result_t myos_getpid(void);
+
+/**
  * Creates an independent child copy of the current process.
  *
  * On success the parent receives the child PID and the child receives zero.

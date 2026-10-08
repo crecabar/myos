@@ -55,6 +55,7 @@
 #define SYSCALL_FD_WRITE   10
 #define SYSCALL_FD_LSEEK   11
 #define SYSCALL_FD_FSTAT   12
+#define SYSCALL_GETPID     13
 
 #define SYSCALL_WAITPID_NOHANG (1 << 0)
 

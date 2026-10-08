@@ -233,16 +233,41 @@ int main(
         return 15;
     }
 
+    syscall_result_t parent_pid =
+        myos_getpid();
+
+    if (parent_pid <= 0) {
+        return 16;
+    }
+
     syscall_result_t child_pid =
         myos_fork();
 
     if (child_pid < 0) {
-        return 16;
+        return 17;
     }
 
     if (child_pid == 0) {
+        syscall_result_t child_self_pid =
+            myos_getpid();
+
+        if (
+            child_self_pid <= 0 ||
+            child_self_pid == parent_pid
+        ) {
+            return 41;
+        }
+
         return
             RUNTIME_SYSCALLS_CHILD_EXIT_STATUS;
+    }
+
+    if (child_pid == parent_pid) {
+        return 18;
+    }
+
+    if (myos_getpid() != parent_pid) {
+        return 19;
     }
 
     struct syscall_wait_status wait_status = {0};
@@ -255,21 +280,21 @@ int main(
         );
 
     if (result != child_pid) {
-        return 17;
+        return 20;
     }
 
     if (
         wait_status.termination_reason !=
         SYSCALL_WAIT_TERMINATION_EXITED
     ) {
-        return 18;
+        return 21;
     }
 
     if (
         wait_status.exit_status !=
         RUNTIME_SYSCALLS_CHILD_EXIT_STATUS
     ) {
-        return 19;
+        return 22;
     }
 
     result =
@@ -285,7 +310,7 @@ int main(
             SYSCALL_ERROR_NO_CHILD
         )
     ) {
-        return 20;
+        return 23;
     }
 
     return 0;

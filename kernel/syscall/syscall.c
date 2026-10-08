@@ -77,6 +77,8 @@ static syscall_result_t syscall_fd_lseek(
     uint64_t origin
 );
 
+static syscall_result_t syscall_getpid(void);
+
 static bool syscall_fd_seek_origin(
     uint64_t syscall_origin,
     enum vfs_seek_origin *vfs_origin
@@ -325,6 +327,9 @@ syscall_result_t syscall_dispatch(
                 argument2
             );
 
+        case SYSCALL_GETPID:
+            return syscall_getpid();
+
         default:
             return syscall_result_error(
                 SYSCALL_ERROR_NOT_IMPLEMENTED
@@ -427,6 +432,41 @@ static struct process_instance *syscall_current_instance(void)
 
     return
         process->instance;
+}
+
+static syscall_result_t syscall_getpid(void)
+{
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.id == 0
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    /*
+     * Successful syscall results occupy the non-negative int64_t domain.
+     *
+     * PIDs are currently stored as uint64_t internally, so reject an
+     * identifier that cannot be represented by the published syscall result
+     * contract rather than allowing it to alias the negative error domain.
+     */
+    if (
+        instance->process.id >
+        (uint64_t) INT64_MAX
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    return
+        (syscall_result_t)
+            instance->process.id;
 }
 
 static enum syscall_error syscall_file_map_error(
