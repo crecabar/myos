@@ -57,6 +57,39 @@ syscall_result_t myos_getcwd(
 );
 
 /**
+ * Replaces the calling process image with one ELF executable.
+ *
+ * path is an explicit byte sequence and need not be NUL-terminated.
+ *
+ * argv and envp contain userspace pointers to NUL-terminated strings. Their
+ * element counts are supplied explicitly and therefore the vectors themselves
+ * require no trailing NULL pointer.
+ *
+ * On success this function does not return: execution resumes at the entry
+ * point of the replacement executable with a newly constructed initial stack.
+ *
+ * Process identity, file descriptors, namespace root and current working
+ * directory remain associated with the calling process.
+ *
+ * @param path Executable pathname bytes.
+ * @param path_length Number of pathname bytes.
+ * @param argv Argument string vector.
+ * @param argc Number of argv entries.
+ * @param envp Environment string vector.
+ * @param envc Number of envp entries.
+ *
+ * @return A negative syscall error when replacement cannot be performed.
+ */
+syscall_result_t myos_execve(
+    const char *path,
+    size_t path_length,
+    const char *const argv[],
+    size_t argc,
+    const char *const envp[],
+    size_t envc
+);
+
+/**
  * Creates an independent child copy of the current process.
  *
  * On success the parent receives the child PID and the child receives zero.

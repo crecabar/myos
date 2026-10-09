@@ -533,5 +533,118 @@ int main(
         return 32;
     }
 
-    return 0;
+    /*
+     * Failed execve operations must return to the original image without
+     * changing process identity.
+     */
+    static const char exec_path[] =
+        "bin/exec-target";
+
+    static const char missing_exec_path[] =
+        "/bin/missing-exec-target";
+
+    static const char exec_argument0[] =
+        "exec-target";
+
+    static const char exec_argument1[] =
+        "replacement";
+
+    static const char *const exec_argv[] = {
+        exec_argument0,
+        exec_argument1,
+    };
+
+    static const char exec_environment0[] =
+        "EXEC=1";
+
+    static const char *const exec_envp[] = {
+        exec_environment0,
+    };
+
+    /*
+     * A non-empty argv vector requires a readable userspace vector address.
+     * The executable pathname itself is valid so this failure specifically
+     * exercises argv import.
+     */
+    result =
+        myos_execve(
+            exec_path,
+            sizeof(exec_path) - 1U,
+            NULL,
+            1,
+            exec_envp,
+            sizeof(exec_envp) /
+                sizeof(exec_envp[0])
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        )
+    ) {
+        return 43;
+    }
+
+    if (myos_getpid() != parent_pid) {
+        return 44;
+    }
+
+    /*
+     * A missing executable must fail before replacing the current image.
+     */
+    result =
+        myos_execve(
+            missing_exec_path,
+            sizeof(missing_exec_path) - 1U,
+            exec_argv,
+            sizeof(exec_argv) /
+                sizeof(exec_argv[0]),
+            exec_envp,
+            sizeof(exec_envp) /
+                sizeof(exec_envp[0])
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_NOT_FOUND
+        )
+    ) {
+        return 45;
+    }
+
+    if (myos_getpid() != parent_pid) {
+        return 46;
+    }
+
+    /*
+     * This executable comes from the test initramfs through the normal
+     * process namespace/VFS path. exec_path is relative and the current
+     * directory is "/", so this also exercises CWD-relative executable
+     * resolution.
+     *
+     * On success execve does not return here: IRETQ must enter
+     * exec_target.elf using the replacement argc/argv/envp.
+     */
+    result =
+        myos_execve(
+            exec_path,
+            sizeof(exec_path) - 1U,
+            exec_argv,
+            sizeof(exec_argv) /
+                sizeof(exec_argv[0]),
+            exec_envp,
+            sizeof(exec_envp) /
+                sizeof(exec_envp[0])
+        );
+
+    /*
+     * Any return from a successful executable lookup means image replacement
+     * failed. Preserve result only to make the call observable to the
+     * compiler; every returning path is a regression failure.
+     */
+    (void) result;
+
+    return 47;
 }

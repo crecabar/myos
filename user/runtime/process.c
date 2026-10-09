@@ -59,6 +59,28 @@ syscall_result_t myos_getcwd(
     );
 }
 
+syscall_result_t myos_execve(
+    const char *path,
+    size_t path_length,
+    const char *const argv[],
+    size_t argc,
+    const char *const envp[],
+    size_t envc)
+{
+    return __myos_syscall6(
+        SYSCALL_EXECVE,
+        (uint64_t)
+            (uintptr_t) path,
+        (uint64_t) path_length,
+        (uint64_t)
+            (uintptr_t) argv,
+        (uint64_t) argc,
+        (uint64_t)
+            (uintptr_t) envp,
+        (uint64_t) envc
+    );
+}
+
 syscall_result_t myos_fork(void)
 {
     return __myos_syscall6(

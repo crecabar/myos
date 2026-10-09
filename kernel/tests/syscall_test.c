@@ -7,6 +7,7 @@
 
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../process/exec.h"
 #include "../syscall/syscall.h"
 
 #include <stdint.h>
@@ -87,6 +88,18 @@ _Static_assert(
 );
 
 _Static_assert(
+    SYSCALL_EXECVE == 16,
+    "SYSCALL_EXECVE ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_EXEC_VECTOR_MAX == 64 &&
+    SYSCALL_EXEC_STRING_MAX == 1024 &&
+    SYSCALL_EXEC_TOTAL_STRING_BYTES_MAX == 8192,
+    "execve ABI limits changed"
+);
+
+_Static_assert(
     SYSCALL_OPEN_ACCESS_READ == 1 &&
     SYSCALL_OPEN_ACCESS_WRITE == 2,
     "Syscall open access ABI changed"
@@ -147,7 +160,10 @@ void syscall_test_run(void)
         ) != -10 ||
         syscall_result_error(
             SYSCALL_ERROR_OVERFLOW
-        ) != -11
+        ) != -11 ||
+        syscall_result_error(
+            SYSCALL_ERROR_EXEC_FORMAT
+        ) != -12
     ) {
         kernel_panic(
             "Syscall error encoding is unstable"
@@ -622,6 +638,79 @@ void syscall_test_run(void)
     ) {
         kernel_panic(
             "GETCWD accepted missing current process"
+        );
+    }
+
+    struct process_exec_candidate exec_candidate = {
+        .prepared = false,
+    };
+
+    result =
+        syscall_execve_prepare(
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &exec_candidate
+        );
+
+    if (
+        result !=
+            syscall_result_error(
+                SYSCALL_ERROR_INVALID_ARGUMENT
+            ) ||
+        exec_candidate.prepared
+    ) {
+        kernel_panic(
+            "EXECVE accepted empty pathname"
+        );
+    }
+
+    result =
+        syscall_execve_prepare(
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            &exec_candidate
+        );
+
+    if (
+        result !=
+            syscall_result_error(
+                SYSCALL_ERROR_INVALID_ARGUMENT
+            ) ||
+        exec_candidate.prepared
+    ) {
+        kernel_panic(
+            "EXECVE accepted missing current process"
+        );
+    }
+
+    result =
+        syscall_execve_prepare(
+            0,
+            1,
+            0,
+            SYSCALL_EXEC_VECTOR_MAX + 1ULL,
+            0,
+            0,
+            &exec_candidate
+        );
+
+    if (
+        result !=
+            syscall_result_error(
+                SYSCALL_ERROR_OVERFLOW
+            ) ||
+        exec_candidate.prepared
+    ) {
+        kernel_panic(
+            "EXECVE accepted oversized argv vector"
         );
     }
 

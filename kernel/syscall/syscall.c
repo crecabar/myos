@@ -7,6 +7,11 @@
 
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../elf/elf64_loader.h"
+#include "../memory/heap.h"
+#include "../memory/memory.h"
+#include "../process/exec.h"
+#include "../process/executable.h"
 #include "../process/file.h"
 #include "../process/path.h"
 #include "../process/user_copy.h"
@@ -23,6 +28,21 @@
 _Static_assert(
     SYSCALL_PATH_MAX <= VFS_PATH_MAX,
     "Syscall path limit exceeds VFS path capacity"
+);
+
+_Static_assert(
+    SYSCALL_EXEC_TOTAL_STRING_BYTES_MAX +
+        (
+            (
+                SYSCALL_EXEC_VECTOR_MAX * 2U +
+                3U
+            ) *
+            sizeof(uint64_t)
+        ) +
+        30U <=
+        PROCESS_LAYOUT_STACK_PAGES *
+            MEMORY_FRAME_SIZE,
+    "execve ABI limits exceed initial userspace stack capacity"
 );
 
 // Private functions and helpers declarations
@@ -88,6 +108,34 @@ static syscall_result_t syscall_chdir(
 static syscall_result_t syscall_getcwd(
     uint64_t user_buffer_address,
     uint64_t capacity
+);
+
+struct syscall_exec_vector {
+    const char **strings;
+    size_t count;
+};
+
+static syscall_result_t syscall_exec_vector_import(
+    const struct process_memory *memory,
+    uint64_t user_vector_address,
+    uint64_t count,
+    size_t *total_string_bytes,
+    struct syscall_exec_vector *vector
+);
+
+static syscall_result_t syscall_exec_string_import(
+    const struct process_memory *memory,
+    uint64_t user_string_address,
+    size_t *total_string_bytes,
+    const char **result
+);
+
+static void syscall_exec_vector_release(
+    struct syscall_exec_vector *vector
+);
+
+static enum syscall_error syscall_exec_executable_map_error(
+    enum process_executable_result result
 );
 
 static enum syscall_error syscall_process_getcwd_map_error(
@@ -280,6 +328,218 @@ enum syscall_waitpid_action syscall_waitpid_prepare(
         (syscall_result_t) wait_status.pid;
 
     return SYSCALL_WAITPID_ACTION_RETURN;
+}
+
+syscall_result_t syscall_execve_prepare(
+    uint64_t user_path_address,
+    uint64_t path_length,
+    uint64_t user_argv_address,
+    uint64_t argc,
+    uint64_t user_envp_address,
+    uint64_t envc,
+    struct process_exec_candidate *candidate)
+{
+    if (
+        candidate == NULL ||
+        candidate->prepared
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    if (
+        path_length == 0 ||
+        path_length > SYSCALL_PATH_MAX
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    if (
+        argc > SYSCALL_EXEC_VECTOR_MAX ||
+        envc > SYSCALL_EXEC_VECTOR_MAX
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL ||
+        instance->process.state !=
+            PROCESS_STATE_RUNNING ||
+        instance->process.image !=
+            &instance->image ||
+        instance->process.memory !=
+            &instance->image.memory ||
+        instance->process.layout !=
+            &instance->image.layout
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    char path[
+        VFS_PATH_MAX
+    ];
+
+    if (!copy_from_user(
+        instance->process.memory,
+        user_path_address,
+        path,
+        (size_t) path_length
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    struct syscall_exec_vector arguments = {
+        .strings = NULL,
+        .count = 0,
+    };
+
+    struct syscall_exec_vector environment = {
+        .strings = NULL,
+        .count = 0,
+    };
+
+    size_t total_string_bytes =
+        0;
+
+    syscall_result_t result =
+        syscall_exec_vector_import(
+            instance->process.memory,
+            user_argv_address,
+            argc,
+            &total_string_bytes,
+            &arguments
+        );
+
+    if (syscall_result_is_error(
+        result
+    )) {
+        return
+            result;
+    }
+
+    result =
+        syscall_exec_vector_import(
+            instance->process.memory,
+            user_envp_address,
+            envc,
+            &total_string_bytes,
+            &environment
+        );
+
+    if (syscall_result_is_error(
+        result
+    )) {
+        syscall_exec_vector_release(
+            &arguments
+        );
+
+        return
+            result;
+    }
+
+    struct process_executable executable = {0};
+
+    enum process_executable_result executable_result =
+        process_executable_open_elf64(
+            instance,
+            path,
+            (size_t) path_length,
+            &executable
+        );
+
+    if (
+        executable_result !=
+        PROCESS_EXECUTABLE_RESULT_SUCCESS
+    ) {
+        syscall_exec_vector_release(
+            &environment
+        );
+
+        syscall_exec_vector_release(
+            &arguments
+        );
+
+        return syscall_result_error(
+            syscall_exec_executable_map_error(
+                executable_result
+            )
+        );
+    }
+
+    /*
+     * Parsing validates the ELF container. Candidate construction additionally
+     * requires a semantically valid executable entry point and PT_LOAD layout.
+     */
+    if (!elf64_entry_point_validate(
+        &executable.image
+    )) {
+        if (!process_executable_close(
+            &executable
+        )) {
+            kernel_panic(
+                "Unable to close invalid execve executable"
+            );
+        }
+
+        syscall_exec_vector_release(
+            &environment
+        );
+
+        syscall_exec_vector_release(
+            &arguments
+        );
+
+        return syscall_result_error(
+            SYSCALL_ERROR_EXEC_FORMAT
+        );
+    }
+
+    bool prepared =
+        process_exec_candidate_prepare_elf64(
+            candidate,
+            &executable.image,
+            arguments.count,
+            arguments.strings,
+            environment.count,
+            environment.strings
+        );
+
+    if (!process_executable_close(
+        &executable
+    )) {
+        kernel_panic(
+            "Unable to close execve executable after materialization"
+        );
+    }
+
+    syscall_exec_vector_release(
+        &environment
+    );
+
+    syscall_exec_vector_release(
+        &arguments
+    );
+
+    if (!prepared) {
+        return syscall_result_error(
+            SYSCALL_ERROR_RESOURCE_EXHAUSTED
+        );
+    }
+
+    return 0;
 }
 
 syscall_result_t syscall_dispatch(
@@ -685,6 +945,330 @@ static syscall_result_t syscall_getcwd(
     return
         (syscall_result_t)
             path_length;
+}
+
+static syscall_result_t syscall_exec_vector_import(
+    const struct process_memory *memory,
+    uint64_t user_vector_address,
+    uint64_t count,
+    size_t *total_string_bytes,
+    struct syscall_exec_vector *vector)
+{
+    if (
+        memory == NULL ||
+        total_string_bytes == NULL ||
+        vector == NULL ||
+        vector->strings != NULL ||
+        vector->count != 0
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    if (count > SYSCALL_EXEC_VECTOR_MAX) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    if (count == 0) {
+        return 0;
+    }
+
+    size_t element_count =
+        (size_t) count;
+
+    size_t vector_size =
+        element_count *
+        sizeof(uint64_t);
+
+    if (!user_copy_range_readable(
+        memory,
+        user_vector_address,
+        vector_size
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    const char **strings =
+        kmalloc(
+            element_count *
+            sizeof(*strings)
+        );
+
+    if (strings == NULL) {
+        return syscall_result_error(
+            SYSCALL_ERROR_RESOURCE_EXHAUSTED
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < element_count;
+        ++index
+    ) {
+        strings[index] =
+            NULL;
+    }
+
+    vector->strings =
+        strings;
+
+    vector->count =
+        element_count;
+
+    for (
+        size_t index = 0;
+        index < element_count;
+        ++index
+    ) {
+        uint64_t user_string_address =
+            0;
+
+        uint64_t pointer_address =
+            user_vector_address +
+            (uint64_t) index *
+            sizeof(uint64_t);
+
+        if (!copy_from_user(
+            memory,
+            pointer_address,
+            &user_string_address,
+            sizeof(user_string_address)
+        )) {
+            syscall_exec_vector_release(
+                vector
+            );
+
+            return syscall_result_error(
+                SYSCALL_ERROR_BAD_ADDRESS
+            );
+        }
+
+        syscall_result_t result =
+            syscall_exec_string_import(
+                memory,
+                user_string_address,
+                total_string_bytes,
+                &vector->strings[index]
+            );
+
+        if (syscall_result_is_error(
+            result
+        )) {
+            syscall_exec_vector_release(
+                vector
+            );
+
+            return
+                result;
+        }
+    }
+
+    return 0;
+}
+
+static syscall_result_t syscall_exec_string_import(
+    const struct process_memory *memory,
+    uint64_t user_string_address,
+    size_t *total_string_bytes,
+    const char **result)
+{
+    if (
+        memory == NULL ||
+        total_string_bytes == NULL ||
+        result == NULL ||
+        *result != NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    size_t string_size =
+        0;
+
+    bool terminated =
+        false;
+
+    while (
+        string_size <
+        SYSCALL_EXEC_STRING_MAX
+    ) {
+        if (
+            user_string_address >
+            UINT64_MAX -
+                (uint64_t) string_size
+        ) {
+            return syscall_result_error(
+                SYSCALL_ERROR_BAD_ADDRESS
+            );
+        }
+
+        uint8_t byte =
+            0;
+
+        if (!copy_from_user(
+            memory,
+            user_string_address +
+                (uint64_t) string_size,
+            &byte,
+            sizeof(byte)
+        )) {
+            return syscall_result_error(
+                SYSCALL_ERROR_BAD_ADDRESS
+            );
+        }
+
+        ++string_size;
+
+        if (byte == '\0') {
+            terminated =
+                true;
+
+            break;
+        }
+    }
+
+    if (!terminated) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    if (
+        *total_string_bytes >
+        SYSCALL_EXEC_TOTAL_STRING_BYTES_MAX -
+            string_size
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    char *string =
+        kmalloc(
+            string_size
+        );
+
+    if (string == NULL) {
+        return syscall_result_error(
+            SYSCALL_ERROR_RESOURCE_EXHAUSTED
+        );
+    }
+
+    if (!copy_from_user(
+        memory,
+        user_string_address,
+        string,
+        string_size
+    )) {
+        kfree(
+            string
+        );
+
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    *total_string_bytes +=
+        string_size;
+
+    *result =
+        string;
+
+    return 0;
+}
+
+static void syscall_exec_vector_release(
+    struct syscall_exec_vector *vector)
+{
+    if (vector == NULL) {
+        return;
+    }
+
+    if (vector->strings != NULL) {
+        for (
+            size_t index = 0;
+            index < vector->count;
+            ++index
+        ) {
+            if (
+                vector->strings[index] !=
+                NULL
+            ) {
+                kfree(
+                    (void *)
+                    vector->strings[index]
+                );
+            }
+        }
+
+        kfree(
+            (void *)
+            vector->strings
+        );
+    }
+
+    vector->strings =
+        NULL;
+
+    vector->count =
+        0;
+}
+
+static enum syscall_error syscall_exec_executable_map_error(
+    enum process_executable_result result)
+{
+    switch (result) {
+        case PROCESS_EXECUTABLE_RESULT_INVALID_ARGUMENT:
+        case PROCESS_EXECUTABLE_RESULT_NO_NAMESPACE_ROOT:
+        case PROCESS_EXECUTABLE_RESULT_NO_CURRENT_DIRECTORY:
+            return
+                SYSCALL_ERROR_INVALID_ARGUMENT;
+
+        case PROCESS_EXECUTABLE_RESULT_NOT_FOUND:
+            return
+                SYSCALL_ERROR_NOT_FOUND;
+
+        case PROCESS_EXECUTABLE_RESULT_NOT_DIRECTORY:
+            return
+                SYSCALL_ERROR_NOT_DIRECTORY;
+
+        case PROCESS_EXECUTABLE_RESULT_NOT_REGULAR_FILE:
+        case PROCESS_EXECUTABLE_RESULT_NOT_SUPPORTED:
+            return
+                SYSCALL_ERROR_NOT_SUPPORTED;
+
+        case PROCESS_EXECUTABLE_RESULT_ACCESS_DENIED:
+            return
+                SYSCALL_ERROR_ACCESS_DENIED;
+
+        case PROCESS_EXECUTABLE_RESULT_RESOURCE_EXHAUSTED:
+            return
+                SYSCALL_ERROR_RESOURCE_EXHAUSTED;
+
+        case PROCESS_EXECUTABLE_RESULT_OVERFLOW:
+            return
+                SYSCALL_ERROR_OVERFLOW;
+
+        case PROCESS_EXECUTABLE_RESULT_INVALID_IMAGE:
+            return
+                SYSCALL_ERROR_EXEC_FORMAT;
+
+        case PROCESS_EXECUTABLE_RESULT_SUCCESS:
+            kernel_panic(
+                "Successful executable result cannot map to syscall error"
+            );
+    }
+
+    kernel_panic(
+        "Unknown executable result"
+    );
 }
 
 static enum syscall_error syscall_process_getcwd_map_error(

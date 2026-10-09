@@ -10,6 +10,7 @@
 #include "ps2_mouse.h"
 #include "../../core/panic.h"
 #include "../../diagnostics/diagnostics.h"
+#include "../../process/exec.h"
 #include "../../process/fork.h"
 #include "../../process/process.h"
 #include "../../process/wait.h"
@@ -974,6 +975,125 @@ void syscall_handler(struct interrupt_context *context)
                 (uint64_t) syscall_result_error(
                     SYSCALL_ERROR_INVALID_ARGUMENT
                 );
+        }
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_EXECVE) {
+        if ((context->cs & 0x3) != 3) {
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        struct process_exec_candidate candidate = {
+            .prepared = false,
+        };
+
+        syscall_result_t result =
+            syscall_execve_prepare(
+                context->rdi,
+                context->rsi,
+                context->rdx,
+                context->r10,
+                context->r8,
+                context->r9,
+                &candidate
+            );
+
+        if (syscall_result_is_error(
+            result
+        )) {
+            if (candidate.prepared) {
+                kernel_panic(
+                    "Failed execve left prepared candidate"
+                );
+            }
+
+            context->rax =
+                (uint64_t) result;
+
+            return;
+        }
+
+        if (!candidate.prepared) {
+            kernel_panic(
+                "Successful execve preparation produced no candidate"
+            );
+        }
+
+        struct process *process =
+            scheduler_current();
+
+        if (
+            process == NULL ||
+            process->state !=
+                PROCESS_STATE_RUNNING ||
+            process->instance == NULL ||
+            process->instance->process.instance !=
+                process->instance
+        ) {
+            if (!process_exec_candidate_discard(
+                &candidate
+            )) {
+                kernel_panic(
+                    "Unable to discard execve candidate after lost process"
+                );
+            }
+
+            kernel_panic(
+                "execve lost current process after preparation"
+            );
+        }
+
+        if (!process_exec_candidate_commit_current(
+            process,
+            &candidate
+        )) {
+            if (
+                candidate.prepared &&
+                !process_exec_candidate_discard(
+                    &candidate
+                )
+            ) {
+                kernel_panic(
+                    "Unable to discard failed execve candidate"
+                );
+            }
+
+            /*
+             * A prepared candidate and a validated running process should
+             * always satisfy the commit preconditions. A failure here means
+             * the kernel's exec transaction became internally inconsistent;
+             * it is not a userspace validation error.
+             */
+            kernel_panic(
+                "Unable to commit prepared execve candidate"
+            );
+        }
+
+        if (candidate.prepared) {
+            kernel_panic(
+                "Committed execve candidate remained prepared"
+            );
+        }
+
+        /*
+         * process_exec_candidate_commit_current() replaced process->context
+         * and activated its new address space. Rewrite this active interrupt
+         * frame so IRETQ enters the replacement ELF rather than returning to
+         * the old int 0x80 caller.
+         */
+        if (!scheduler_load_current_context(
+            context
+        )) {
+            kernel_panic(
+                "Unable to load replacement execve context"
+            );
         }
 
         return;

@@ -867,6 +867,7 @@ $(TEST_INITRAMFS_IMAGE): \
 	$(INITRAMFS_SOURCES) \
 	$(USER_INIT_ELF) \
 	$(ELF_FROM_VFS_ELF) \
+	$(EXEC_TARGET_ELF) \
 	$(RUNTIME_STRING_ELF) \
 	$(RUNTIME_MALLOC_ELF) \
 	$(RUNTIME_STDIO_ELF) \
@@ -881,6 +882,9 @@ $(TEST_INITRAMFS_IMAGE): \
 	cp \
 		$(ELF_FROM_VFS_ELF) \
 		$(TEST_INITRAMFS_ROOT)/bin/elf-from-vfs
+	cp \
+		$(EXEC_TARGET_ELF) \
+		$(TEST_INITRAMFS_ROOT)/bin/exec-target
 	cp \
 		$(RUNTIME_STRING_ELF) \
 		$(TEST_INITRAMFS_ROOT)/bin/runtime-string
