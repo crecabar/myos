@@ -57,6 +57,7 @@
 #define SYSCALL_FD_FSTAT   12
 #define SYSCALL_GETPID     13
 #define SYSCALL_CHDIR      14
+#define SYSCALL_GETCWD     15
 
 #define SYSCALL_WAITPID_NOHANG (1 << 0)
 

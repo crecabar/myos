@@ -43,6 +43,22 @@ syscall_result_t myos_chdir(
     );
 }
 
+syscall_result_t myos_getcwd(
+    char *buffer,
+    size_t capacity)
+{
+    return __myos_syscall6(
+        SYSCALL_GETCWD,
+        (uint64_t)
+            (uintptr_t) buffer,
+        (uint64_t) capacity,
+        0,
+        0,
+        0,
+        0
+    );
+}
+
 syscall_result_t myos_fork(void)
 {
     return __myos_syscall6(

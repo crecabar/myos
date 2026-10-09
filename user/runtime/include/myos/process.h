@@ -39,6 +39,24 @@ syscall_result_t myos_chdir(
 );
 
 /**
+ * Copies the calling process current working directory pathname.
+ *
+ * capacity includes space for the terminating NUL byte.
+ *
+ * On success, buffer contains one NUL-terminated absolute pathname and the
+ * return value is its length excluding the terminating NUL.
+ *
+ * @param buffer Writable userspace pathname destination.
+ * @param capacity Number of bytes available in buffer.
+ *
+ * @return Pathname length excluding NUL on success, or a negative error.
+ */
+syscall_result_t myos_getcwd(
+    char *buffer,
+    size_t capacity
+);
+
+/**
  * Creates an independent child copy of the current process.
  *
  * On success the parent receives the child PID and the child receives zero.

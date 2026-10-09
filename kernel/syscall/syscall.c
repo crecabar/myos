@@ -85,6 +85,15 @@ static syscall_result_t syscall_chdir(
     uint64_t path_length
 );
 
+static syscall_result_t syscall_getcwd(
+    uint64_t user_buffer_address,
+    uint64_t capacity
+);
+
+static enum syscall_error syscall_process_getcwd_map_error(
+    enum process_getcwd_result result
+);
+
 static enum syscall_error syscall_process_path_map_error(
     enum process_path_result result
 );
@@ -346,6 +355,12 @@ syscall_result_t syscall_dispatch(
                 argument1
             );
 
+        case SYSCALL_GETCWD:
+            return syscall_getcwd(
+                argument0,
+                argument1
+            );
+
         default:
             return syscall_result_error(
                 SYSCALL_ERROR_NOT_IMPLEMENTED
@@ -579,6 +594,145 @@ static syscall_result_t syscall_chdir(
     }
 
     return 0;
+}
+
+static syscall_result_t syscall_getcwd(
+    uint64_t user_buffer_address,
+    uint64_t capacity)
+{
+    if (capacity == 0) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    /*
+     * The ring-0 transition stack is currently 16 KiB. Keep the pathname
+     * staging buffer kernel-owned so no userspace bytes are published until
+     * reconstruction has completed successfully.
+     */
+    char path[
+        VFS_PATH_MAX + 1U
+    ];
+
+    size_t path_length =
+        0;
+
+    enum process_getcwd_result result =
+        process_getcwd(
+            instance,
+            path,
+            sizeof(path),
+            &path_length
+        );
+
+    if (
+        result !=
+        PROCESS_GETCWD_RESULT_SUCCESS
+    ) {
+        return syscall_result_error(
+            syscall_process_getcwd_map_error(
+                result
+            )
+        );
+    }
+
+    if (path_length > VFS_PATH_MAX) {
+        kernel_panic(
+            "getcwd produced pathname beyond VFS limit"
+        );
+    }
+
+    size_t output_size =
+        path_length + 1U;
+
+    if (
+        capacity <
+        (uint64_t) output_size
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        );
+    }
+
+    /*
+     * copy_to_user() validates the complete destination range before writing
+     * any byte, so a bad userspace pointer cannot expose a partial pathname.
+     */
+    if (!copy_to_user(
+        instance->process.memory,
+        user_buffer_address,
+        path,
+        output_size
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    return
+        (syscall_result_t)
+            path_length;
+}
+
+static enum syscall_error syscall_process_getcwd_map_error(
+    enum process_getcwd_result result)
+{
+    switch (result) {
+        case PROCESS_GETCWD_RESULT_INVALID_ARGUMENT:
+        case PROCESS_GETCWD_RESULT_NO_NAMESPACE_ROOT:
+        case PROCESS_GETCWD_RESULT_NO_CURRENT_DIRECTORY:
+            return
+                SYSCALL_ERROR_INVALID_ARGUMENT;
+
+        /*
+         * An invalidated directory stream means no stable namespace-visible
+         * pathname could be recovered. Treat it like a disappeared pathname
+         * rather than publishing a stale result.
+         */
+        case PROCESS_GETCWD_RESULT_NOT_FOUND:
+        case PROCESS_GETCWD_RESULT_INVALIDATED:
+            return
+                SYSCALL_ERROR_NOT_FOUND;
+
+        case PROCESS_GETCWD_RESULT_NOT_SUPPORTED:
+            return
+                SYSCALL_ERROR_NOT_SUPPORTED;
+
+        case PROCESS_GETCWD_RESULT_ACCESS_DENIED:
+            return
+                SYSCALL_ERROR_ACCESS_DENIED;
+
+        case PROCESS_GETCWD_RESULT_RESOURCE_EXHAUSTED:
+            return
+                SYSCALL_ERROR_RESOURCE_EXHAUSTED;
+
+        case PROCESS_GETCWD_RESULT_BUFFER_TOO_SMALL:
+        case PROCESS_GETCWD_RESULT_PATH_TOO_LONG:
+            return
+                SYSCALL_ERROR_OVERFLOW;
+
+        case PROCESS_GETCWD_RESULT_SUCCESS:
+            kernel_panic(
+                "Successful getcwd result cannot map to syscall error"
+            );
+    }
+
+    kernel_panic(
+        "Unknown process getcwd result"
+    );
 }
 
 static enum syscall_error syscall_file_map_error(

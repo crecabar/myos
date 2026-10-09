@@ -82,6 +82,11 @@ _Static_assert(
 );
 
 _Static_assert(
+    SYSCALL_GETCWD == 15,
+    "SYSCALL_GETCWD ABI number changed"
+);
+
+_Static_assert(
     SYSCALL_OPEN_ACCESS_READ == 1 &&
     SYSCALL_OPEN_ACCESS_WRITE == 2,
     "Syscall open access ABI changed"
@@ -565,6 +570,58 @@ void syscall_test_run(void)
     ) {
         kernel_panic(
             "CHDIR accepted missing current process"
+        );
+    }
+
+    /*
+     * GETCWD requires non-zero destination capacity before process state is
+     * consulted.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_GETCWD,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "GETCWD accepted zero destination capacity"
+        );
+    }
+
+    /*
+     * A structurally valid destination request still requires a current
+     * process instance.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_GETCWD,
+            0,
+            sizeof("/"),
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "GETCWD accepted missing current process"
         );
     }
 

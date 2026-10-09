@@ -250,6 +250,57 @@ int main(
         return 16;
     }
 
+    char cwd[16] = {0};
+
+    result =
+        myos_getcwd(
+            cwd,
+            sizeof("/dev")
+        );
+
+    if (
+        result !=
+            (syscall_result_t)
+                (sizeof("/dev") - 1U) ||
+        cwd[0] != '/' ||
+        cwd[1] != 'd' ||
+        cwd[2] != 'e' ||
+        cwd[3] != 'v' ||
+        cwd[4] != '\0'
+    ) {
+        return 33;
+    }
+
+    result =
+        myos_getcwd(
+            cwd,
+            sizeof("/dev") - 1U
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_OVERFLOW
+        )
+    ) {
+        return 34;
+    }
+
+    result =
+        myos_getcwd(
+            NULL,
+            sizeof("/dev")
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        )
+    ) {
+        return 35;
+    }
+
     /*
      * Failed directory changes must leave the existing CWD unchanged.
      */
@@ -287,6 +338,29 @@ int main(
         )
     ) {
         return 18;
+    }
+
+    /*
+     * Failed chdir operations above must not have changed the current
+     * directory.
+     */
+    result =
+        myos_getcwd(
+            cwd,
+            sizeof("/dev")
+        );
+
+    if (
+        result !=
+            (syscall_result_t)
+                (sizeof("/dev") - 1U) ||
+        cwd[0] != '/' ||
+        cwd[1] != 'd' ||
+        cwd[2] != 'e' ||
+        cwd[3] != 'v' ||
+        cwd[4] != '\0'
+    ) {
+        return 36;
     }
 
     syscall_result_t relative_null_descriptor =
@@ -338,6 +412,22 @@ int main(
 
     if (result != 0) {
         return 22;
+    }
+
+    result =
+        myos_getcwd(
+            cwd,
+            sizeof("/")
+        );
+
+    if (
+        result !=
+            (syscall_result_t)
+                (sizeof("/") - 1U) ||
+        cwd[0] != '/' ||
+        cwd[1] != '\0'
+    ) {
+        return 37;
     }
 
     static const char relative_executable_path[] =
