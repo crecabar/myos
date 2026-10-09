@@ -17,39 +17,11 @@ LIMINE_EFI          := $(LIMINE_DIR)/BOOTX64.EFI
 LIMINE_UEFI_CD      := $(LIMINE_DIR)/limine-uefi-cd.bin
 LIMINE_FETCH_SCRIPT := scripts/fetch-limine.sh
 
-LIMINE_PROTOCOL_DIR          := vendor/limine-protocol
-LIMINE_HEADER                := $(LIMINE_PROTOCOL_DIR)/limine.h
-LIMINE_PROTOCOL_FETCH_SCRIPT := scripts/fetch-limine-protocol.sh
-
-CFLAGS := \
-	--target=$(TARGET) \
-	-ffreestanding \
-	-fno-stack-protector \
-	-fno-common \
-	-mno-red-zone \
-	-mgeneral-regs-only \
-	-mcmodel=kernel \
-	-O0 \
-	-g \
-	-I$(LIMINE_PROTOCOL_DIR) \
-	-I$(MYOS_INCLUDE_DIR) \
-	-DMYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS) \
-	-DMYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS) \
-	-DMYOS_QEMU_TEST_EXIT=$(MYOS_QEMU_TEST_EXIT) \
-	-DMYOS_QEMU_TEST_EXIT_PORT=$(QEMU_TEST_EXIT_PORT) \
-	-DMYOS_QEMU_TEST_EXIT_SUCCESS_VALUE=$(QEMU_TEST_EXIT_SUCCESS_VALUE) \
-	-DMYOS_QEMU_TEST_EXIT_FAILURE_VALUE=$(QEMU_TEST_EXIT_FAILURE_VALUE) \
-	-Wall \
-	-Wextra \
-	-Werror \
-	-Wpedantic
-
 # -----------------------------------------------------------------------------
 # Build paths
 # -----------------------------------------------------------------------------
 
 BUILD_DIR := build
-CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 
 # -----------------------------------------------------------------------------
 # Bootstrap userspace
@@ -92,13 +64,6 @@ limine: $(LIMINE_EFI) $(LIMINE_UEFI_CD)
 
 $(LIMINE_EFI) $(LIMINE_UEFI_CD): $(LIMINE_FETCH_SCRIPT)
 	./$(LIMINE_FETCH_SCRIPT)
-
-.PHONY: limine-protocol
-
-limine-protocol: $(LIMINE_HEADER)
-
-$(LIMINE_HEADER): $(LIMINE_PROTOCOL_FETCH_SCRIPT)
-	./$(LIMINE_PROTOCOL_FETCH_SCRIPT)
 
 # -----------------------------------------------------------------------------
 # ISO image

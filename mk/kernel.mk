@@ -2,9 +2,36 @@
 # Kernel
 # -----------------------------------------------------------------------------
 
-CONFIG_STAMP := $(BUILD_DIR)/config.stamp
-
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
+
+LIMINE_PROTOCOL_DIR          := vendor/limine-protocol
+LIMINE_HEADER                := $(LIMINE_PROTOCOL_DIR)/limine.h
+LIMINE_PROTOCOL_FETCH_SCRIPT := scripts/fetch-limine-protocol.sh
+
+CFLAGS := \
+	--target=$(TARGET) \
+	-ffreestanding \
+	-fno-stack-protector \
+	-fno-common \
+	-mno-red-zone \
+	-mgeneral-regs-only \
+	-mcmodel=kernel \
+	-O0 \
+	-g \
+	-I$(LIMINE_PROTOCOL_DIR) \
+	-I$(MYOS_INCLUDE_DIR) \
+	-DMYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS) \
+	-DMYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS) \
+	-DMYOS_QEMU_TEST_EXIT=$(MYOS_QEMU_TEST_EXIT) \
+	-DMYOS_QEMU_TEST_EXIT_PORT=$(QEMU_TEST_EXIT_PORT) \
+	-DMYOS_QEMU_TEST_EXIT_SUCCESS_VALUE=$(QEMU_TEST_EXIT_SUCCESS_VALUE) \
+	-DMYOS_QEMU_TEST_EXIT_FAILURE_VALUE=$(QEMU_TEST_EXIT_FAILURE_VALUE) \
+	-Wall \
+	-Wextra \
+	-Werror \
+	-Wpedantic
+
+CONFIG_STAMP := $(BUILD_DIR)/config.stamp
 
 # Kernel production sources. Files below tests/ are intentionally excluded.
 KERNEL_PRODUCTION_C_SOURCES := $(shell \
@@ -203,3 +230,11 @@ $(KERNEL_ELF): $(KERNEL_OBJS) $(LINKER_SCRIPT)
 	$(LD_LLD) $(LDFLAGS) -o $@ $(KERNEL_OBJS)
 
 -include $(KERNEL_DEPS)
+
+# Limine protocol
+.PHONY: limine-protocol
+
+limine-protocol: $(LIMINE_HEADER)
+
+$(LIMINE_HEADER): $(LIMINE_PROTOCOL_FETCH_SCRIPT)
+	./$(LIMINE_PROTOCOL_FETCH_SCRIPT)
