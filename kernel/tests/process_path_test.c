@@ -32,6 +32,9 @@ struct process_path_test_directory {
     struct vfs_node *parent;
     const struct process_path_test_entry *entries;
     size_t entry_count;
+
+    struct vfs_file file;
+    size_t cursor;
 };
 
 struct process_path_test_tree {
@@ -58,6 +61,17 @@ static enum vfs_lookup_result process_path_test_lookup(
     const char *name,
     size_t name_length,
     struct vfs_node **result
+);
+
+static enum vfs_open_result process_path_test_open(
+    struct vfs_node *node,
+    enum vfs_open_access access,
+    struct vfs_file **result
+);
+
+static enum vfs_directory_read_result process_path_test_read_directory(
+    struct vfs_file *file,
+    struct vfs_directory_entry *result
 );
 
 static struct vfs_node *process_path_test_parent(
@@ -100,6 +114,14 @@ static void process_path_test_expect_failure(
     enum process_path_result expected
 );
 
+static void process_path_test_expect_getcwd(
+    struct process_path_test_tree *tree,
+    struct process_instance *instance,
+    const char *expected,
+    size_t expected_length,
+    size_t capacity
+);
+
 static void process_path_test_resolution(void);
 
 static void process_path_test_mount_topology(void);
@@ -108,8 +130,24 @@ static void process_path_test_chdir(void);
 
 static void process_path_test_errors(void);
 
+static void process_path_test_getcwd(void);
+
+static const struct vfs_file_operations
+    process_path_test_directory_file_operations = {
+        .read =
+            NULL,
+        .write =
+            NULL,
+        .read_directory =
+            process_path_test_read_directory,
+        .destroy =
+            NULL,
+    };
+
 static const struct vfs_node_operations
     process_path_test_directory_operations = {
+        .open =
+            process_path_test_open,
         .lookup =
             process_path_test_lookup,
         .parent =
@@ -123,11 +161,145 @@ void process_path_test_run(void)
     process_path_test_resolution();
     process_path_test_mount_topology();
     process_path_test_chdir();
+    process_path_test_getcwd();
     process_path_test_errors();
 
     diagnostics_write(
-        "[process] Pathname context and chdir tests passed\n"
+        "[process] Pathname context, chdir, and getcwd tests passed\n"
     );
+}
+
+static enum vfs_open_result process_path_test_open(
+    struct vfs_node *node,
+    enum vfs_open_access access,
+    struct vfs_file **result)
+{
+    if (
+        node == NULL ||
+        result == NULL ||
+        node->type !=
+            VFS_NODE_TYPE_DIRECTORY ||
+        node->private_data == NULL
+    ) {
+        return
+            VFS_OPEN_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        access !=
+            VFS_OPEN_ACCESS_READ
+    ) {
+        return
+            VFS_OPEN_RESULT_ACCESS_DENIED;
+    }
+
+    struct process_path_test_directory *directory =
+        node->private_data;
+
+    if (
+        directory->file.reference_count != 0
+    ) {
+        return
+            VFS_OPEN_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    directory->cursor =
+        0;
+
+    if (!vfs_file_initialize(
+        &directory->file,
+        node,
+        access,
+        &process_path_test_directory_file_operations,
+        directory
+    )) {
+        return
+            VFS_OPEN_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    *result =
+        &directory->file;
+
+    return
+        VFS_OPEN_RESULT_OPENED;
+}
+
+static enum vfs_directory_read_result process_path_test_read_directory(
+    struct vfs_file *file,
+    struct vfs_directory_entry *result)
+{
+    if (
+        file == NULL ||
+        result == NULL ||
+        file->reference_count == 0 ||
+        file->node == NULL ||
+        file->node->type !=
+            VFS_NODE_TYPE_DIRECTORY ||
+        file->private_data == NULL
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct process_path_test_directory *directory =
+        file->private_data;
+
+    if (
+        &directory->file != file ||
+        directory->cursor >
+            directory->entry_count
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        directory->cursor ==
+            directory->entry_count
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_END;
+    }
+
+    const struct process_path_test_entry *entry =
+        &directory->entries[
+            directory->cursor
+        ];
+
+    if (
+        entry->name == NULL ||
+        entry->node == NULL ||
+        entry->name_length == 0 ||
+        entry->name_length >
+            VFS_NAME_MAX
+    ) {
+        return
+            VFS_DIRECTORY_READ_RESULT_INVALID_ARGUMENT;
+    }
+
+    result->type =
+        entry->node->type;
+
+    result->name_length =
+        entry->name_length;
+
+    for (
+        size_t index = 0;
+        index < entry->name_length;
+        ++index
+    ) {
+        result->name[index] =
+            entry->name[index];
+    }
+
+    result->name[
+        entry->name_length
+    ] = '\0';
+
+    ++directory->cursor;
+
+    return
+        VFS_DIRECTORY_READ_RESULT_ENTRY;
 }
 
 static enum vfs_lookup_result process_path_test_lookup(
@@ -488,6 +660,71 @@ static void process_path_test_expect_failure(
     );
 }
 
+static void process_path_test_expect_getcwd(
+    struct process_path_test_tree *tree,
+    struct process_instance *instance,
+    const char *expected,
+    size_t expected_length,
+    size_t capacity)
+{
+    if (
+        tree == NULL ||
+        instance == NULL ||
+        expected == NULL ||
+        capacity == 0 ||
+        capacity >
+            VFS_PATH_MAX + 1U
+    ) {
+        kernel_panic(
+            "Invalid process getcwd test expectation"
+        );
+    }
+
+    char buffer[
+        VFS_PATH_MAX + 1U
+    ];
+
+    for (
+        size_t index = 0;
+        index < sizeof(buffer);
+        ++index
+    ) {
+        buffer[index] =
+            (char) 0x5A;
+    }
+
+    size_t path_length =
+        SIZE_MAX;
+
+    if (
+        process_getcwd(
+            instance,
+            buffer,
+            capacity,
+            &path_length
+        ) !=
+            PROCESS_GETCWD_RESULT_SUCCESS ||
+        path_length !=
+            expected_length ||
+        !process_path_test_name_equal(
+            buffer,
+            path_length,
+            expected,
+            expected_length
+        ) ||
+        buffer[path_length] != '\0'
+    ) {
+        kernel_panic(
+            "Process getcwd returned incorrect pathname"
+        );
+    }
+
+    process_path_test_expect_steady_refs(
+        tree,
+        instance
+    );
+}
+
 static void process_path_test_resolution(void)
 {
     struct process_path_test_tree tree;
@@ -752,6 +989,43 @@ static void process_path_test_mount_topology(void)
         );
     }
 
+    if (!process_cwd_set(
+        &instance,
+        &mounted_root
+    )) {
+        kernel_panic(
+            "Unable to install mounted process CWD"
+        );
+    }
+
+    char cwd_buffer[
+        VFS_PATH_MAX + 1U
+    ];
+
+    size_t cwd_length =
+        SIZE_MAX;
+
+    if (
+        process_getcwd(
+            &instance,
+            cwd_buffer,
+            sizeof(cwd_buffer),
+            &cwd_length
+        ) !=
+            PROCESS_GETCWD_RESULT_SUCCESS ||
+        cwd_length !=
+            sizeof("/dev") - 1U ||
+        cwd_buffer[0] != '/' ||
+        cwd_buffer[1] != 'd' ||
+        cwd_buffer[2] != 'e' ||
+        cwd_buffer[3] != 'v' ||
+        cwd_buffer[4] != '\0'
+    ) {
+        kernel_panic(
+            "getcwd did not reconstruct mounted /dev pathname"
+        );
+    }
+
     /*
      * The namespace owns the root, while the mount table independently owns
      * its mountpoint and mounted-root references.
@@ -759,11 +1033,22 @@ static void process_path_test_mount_topology(void)
     if (
         root.reference_count != 2 ||
         mountpoint.reference_count != 2 ||
-        mounted_root.reference_count != 2 ||
+        mounted_root.reference_count != 3 ||
         null_device.reference_count != 1
     ) {
         kernel_panic(
             "Process mount pathname leaked VFS references"
+        );
+    }
+
+    if (
+        !process_cwd_release(
+            &instance
+        ) ||
+        mounted_root.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to release mounted process CWD"
         );
     }
 
@@ -778,6 +1063,80 @@ static void process_path_test_mount_topology(void)
     ) {
         kernel_panic(
             "Unable to release process mount namespace"
+        );
+    }
+
+    /*
+     * A covered mountpoint may itself be the process namespace root. In that
+     * case the mounted root is the namespace-visible root and must reconstruct
+     * as "/" rather than escaping through the covered directory's parent.
+     */
+    struct process_instance covered_root_instance = {0};
+
+    if (
+        !process_namespace_root_set(
+            &covered_root_instance,
+            &mountpoint,
+            &mounts
+        ) ||
+        !process_cwd_set(
+            &covered_root_instance,
+            &mounted_root
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize covered-root getcwd fixture"
+        );
+    }
+
+    char covered_root_buffer[
+        sizeof("/")
+    ];
+
+    size_t covered_root_length =
+        SIZE_MAX;
+
+    if (
+        process_getcwd(
+            &covered_root_instance,
+            covered_root_buffer,
+            sizeof(covered_root_buffer),
+            &covered_root_length
+        ) !=
+            PROCESS_GETCWD_RESULT_SUCCESS ||
+        covered_root_length !=
+            sizeof("/") - 1U ||
+        covered_root_buffer[0] != '/' ||
+        covered_root_buffer[1] != '\0'
+    ) {
+        kernel_panic(
+            "getcwd did not honor mounted namespace root"
+        );
+    }
+
+    if (
+        root.reference_count != 1 ||
+        mountpoint.reference_count != 3 ||
+        mounted_root.reference_count != 3 ||
+        null_device.reference_count != 1
+    ) {
+        kernel_panic(
+            "Covered-root getcwd leaked VFS references"
+        );
+    }
+
+    if (
+        !process_cwd_release(
+            &covered_root_instance
+        ) ||
+        !process_namespace_root_release(
+            &covered_root_instance
+        ) ||
+        mountpoint.reference_count != 2 ||
+        mounted_root.reference_count != 2
+    ) {
+        kernel_panic(
+            "Unable to release covered-root getcwd fixture"
         );
     }
 
@@ -997,6 +1356,192 @@ static void process_path_test_chdir(void)
     )) {
         kernel_panic(
             "Unable to release chdir test namespace root"
+        );
+    }
+
+    process_path_test_expect_steady_refs(
+        &tree,
+        &instance
+    );
+
+    process_path_test_tree_release(
+        &tree
+    );
+}
+
+static void process_path_test_getcwd(void)
+{
+    struct process_path_test_tree tree;
+    struct process_instance instance = {0};
+
+    process_path_test_tree_initialize(
+        &tree
+    );
+
+    char buffer[
+        VFS_PATH_MAX + 1U
+    ];
+
+    size_t path_length =
+        SIZE_MAX;
+
+    /*
+     * A current pathname cannot be reconstructed before the namespace root
+     * and current directory exist.
+     */
+    if (
+        process_getcwd(
+            &instance,
+            buffer,
+            sizeof(buffer),
+            &path_length
+        ) !=
+            PROCESS_GETCWD_RESULT_NO_NAMESPACE_ROOT ||
+        path_length != SIZE_MAX
+    ) {
+        kernel_panic(
+            "getcwd accepted missing namespace root"
+        );
+    }
+
+    if (!process_namespace_root_set(
+        &instance,
+        &tree.root,
+        NULL
+    )) {
+        kernel_panic(
+            "Unable to initialize getcwd namespace root"
+        );
+    }
+
+    if (
+        process_getcwd(
+            &instance,
+            buffer,
+            sizeof(buffer),
+            &path_length
+        ) !=
+            PROCESS_GETCWD_RESULT_NO_CURRENT_DIRECTORY ||
+        path_length != SIZE_MAX
+    ) {
+        kernel_panic(
+            "getcwd accepted missing current directory"
+        );
+    }
+
+    if (!process_cwd_set(
+        &instance,
+        &tree.root
+    )) {
+        kernel_panic(
+            "Unable to initialize getcwd root CWD"
+        );
+    }
+
+    process_path_test_expect_getcwd(
+        &tree,
+        &instance,
+        "/",
+        sizeof("/") - 1U,
+        sizeof("/")
+    );
+
+    if (!process_cwd_set(
+        &instance,
+        &tree.home
+    )) {
+        kernel_panic(
+            "Unable to install /home getcwd CWD"
+        );
+    }
+
+    process_path_test_expect_getcwd(
+        &tree,
+        &instance,
+        "/home",
+        sizeof("/home") - 1U,
+        sizeof("/home")
+    );
+
+    if (!process_cwd_set(
+        &instance,
+        &tree.docs
+    )) {
+        kernel_panic(
+            "Unable to install /home/docs getcwd CWD"
+        );
+    }
+
+    process_path_test_expect_getcwd(
+        &tree,
+        &instance,
+        "/home/docs",
+        sizeof("/home/docs") - 1U,
+        sizeof("/home/docs")
+    );
+
+    /*
+     * One byte less than the exact pathname-plus-NUL capacity must fail
+     * without publishing path_length.
+     */
+    path_length =
+        SIZE_MAX;
+
+    if (
+        process_getcwd(
+            &instance,
+            buffer,
+            sizeof("/home/docs") - 1U,
+            &path_length
+        ) !=
+            PROCESS_GETCWD_RESULT_BUFFER_TOO_SMALL ||
+        path_length != SIZE_MAX
+    ) {
+        kernel_panic(
+            "getcwd accepted undersized pathname buffer"
+        );
+    }
+
+    /*
+     * The root pathname itself requires two bytes: '/' plus terminating NUL.
+     */
+    if (!process_cwd_set(
+        &instance,
+        &tree.root
+    )) {
+        kernel_panic(
+            "Unable to restore root getcwd CWD"
+        );
+    }
+
+    path_length =
+        SIZE_MAX;
+
+    if (
+        process_getcwd(
+            &instance,
+            buffer,
+            1,
+            &path_length
+        ) !=
+            PROCESS_GETCWD_RESULT_BUFFER_TOO_SMALL ||
+        path_length != SIZE_MAX
+    ) {
+        kernel_panic(
+            "getcwd accepted one-byte root buffer"
+        );
+    }
+
+    if (
+        !process_cwd_release(
+            &instance
+        ) ||
+        !process_namespace_root_release(
+            &instance
+        )
+    ) {
+        kernel_panic(
+            "Unable to release getcwd process pathname context"
         );
     }
 

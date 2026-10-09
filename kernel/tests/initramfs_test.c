@@ -754,9 +754,7 @@ static void initramfs_test_file_io(void)
     }
 
     /*
-     * Directories are namespace objects only in this first implementation.
-     * Directory stream semantics will be introduced separately when userspace
-     * requires them.
+     * Initramfs directories expose ordinary read-only VFS directory streams.
      */
     struct vfs_file *directory_file =
         NULL;
@@ -766,11 +764,53 @@ static void initramfs_test_file_io(void)
             root,
             VFS_OPEN_ACCESS_READ,
             &directory_file
-        ) != VFS_OPEN_RESULT_NOT_SUPPORTED ||
-        directory_file != NULL
+        ) != VFS_OPEN_RESULT_OPENED ||
+        directory_file == NULL
     ) {
         kernel_panic(
-            "Initramfs accepted directory open"
+            "Initramfs failed to open root directory"
+        );
+    }
+
+    struct vfs_directory_entry directory_entry = {0};
+
+    if (
+        vfs_file_read_directory(
+            directory_file,
+            &directory_entry
+        ) !=
+            VFS_DIRECTORY_READ_RESULT_ENTRY ||
+        directory_entry.type !=
+            VFS_NODE_TYPE_DIRECTORY ||
+        directory_entry.name_length !=
+            sizeof("etc") - 1U ||
+        directory_entry.name[0] != 'e' ||
+        directory_entry.name[1] != 't' ||
+        directory_entry.name[2] != 'c' ||
+        directory_entry.name[3] != '\0'
+    ) {
+        kernel_panic(
+            "Initramfs root directory enumeration mismatch"
+        );
+    }
+
+    if (
+        vfs_file_read_directory(
+            directory_file,
+            &directory_entry
+        ) !=
+            VFS_DIRECTORY_READ_RESULT_END
+    ) {
+        kernel_panic(
+            "Initramfs root directory stream did not terminate"
+        );
+    }
+
+    if (!vfs_file_release(
+        directory_file
+    )) {
+        kernel_panic(
+            "Unable to close initramfs root directory"
         );
     }
 
@@ -1579,6 +1619,23 @@ static void initramfs_test_bootstrap_namespace(void)
         );
     }
 
+    struct vfs_file *root_directory_file =
+        NULL;
+
+    if (
+        vfs_node_open(
+            root,
+            VFS_OPEN_ACCESS_READ,
+            &root_directory_file
+        ) !=
+            VFS_OPEN_RESULT_OPENED ||
+        root_directory_file == NULL
+    ) {
+        kernel_panic(
+            "Unable to open bootstrap initramfs root directory"
+        );
+    }
+
     struct vfs_node *dev =
         NULL;
 
@@ -1598,6 +1655,66 @@ static void initramfs_test_bootstrap_namespace(void)
     ) {
         kernel_panic(
             "Initramfs bootstrap directory creation failed"
+        );
+    }
+
+    struct vfs_directory_entry directory_entry = {0};
+
+    if (
+        vfs_file_read_directory(
+            root_directory_file,
+            &directory_entry
+        ) !=
+            VFS_DIRECTORY_READ_RESULT_INVALIDATED
+    ) {
+        kernel_panic(
+            "Initramfs root directory stream survived namespace mutation"
+        );
+    }
+
+    if (!vfs_file_release(
+        root_directory_file
+    )) {
+        kernel_panic(
+            "Unable to close invalidated initramfs root stream"
+        );
+    }
+
+    root_directory_file =
+        NULL;
+
+    if (
+        vfs_node_open(
+            root,
+            VFS_OPEN_ACCESS_READ,
+            &root_directory_file
+        ) !=
+            VFS_OPEN_RESULT_OPENED ||
+        root_directory_file == NULL ||
+        vfs_file_read_directory(
+            root_directory_file,
+            &directory_entry
+        ) !=
+            VFS_DIRECTORY_READ_RESULT_ENTRY ||
+        directory_entry.type !=
+            VFS_NODE_TYPE_DIRECTORY ||
+        directory_entry.name_length !=
+            sizeof("dev") - 1U ||
+        directory_entry.name[0] != 'd' ||
+        directory_entry.name[1] != 'e' ||
+        directory_entry.name[2] != 'v' ||
+        directory_entry.name[3] != '\0' ||
+        vfs_file_read_directory(
+            root_directory_file,
+            &directory_entry
+        ) !=
+            VFS_DIRECTORY_READ_RESULT_END ||
+        !vfs_file_release(
+            root_directory_file
+        )
+    ) {
+        kernel_panic(
+            "Initramfs kernel-created directory enumeration failed"
         );
     }
 
@@ -1666,6 +1783,23 @@ static void initramfs_test_bootstrap_namespace(void)
         );
     }
 
+    struct vfs_file *dev_directory_file =
+        NULL;
+
+    if (
+        vfs_node_open(
+            dev,
+            VFS_OPEN_ACCESS_READ,
+            &dev_directory_file
+        ) !=
+            VFS_OPEN_RESULT_OPENED ||
+        dev_directory_file == NULL
+    ) {
+        kernel_panic(
+            "Unable to open bootstrap /dev directory"
+        );
+    }
+
     if (
         initramfs_attach_leaf(
             filesystem,
@@ -1679,6 +1813,65 @@ static void initramfs_test_bootstrap_namespace(void)
     ) {
         kernel_panic(
             "Initramfs external bootstrap attachment failed"
+        );
+    }
+
+    if (
+        vfs_file_read_directory(
+            dev_directory_file,
+            &directory_entry
+        ) !=
+            VFS_DIRECTORY_READ_RESULT_INVALIDATED
+    ) {
+        kernel_panic(
+            "Initramfs /dev stream survived external-leaf mutation"
+        );
+    }
+
+    if (!vfs_file_release(
+        dev_directory_file
+    )) {
+        kernel_panic(
+            "Unable to close invalidated bootstrap /dev stream"
+        );
+    }
+
+    dev_directory_file =
+        NULL;
+
+    if (
+        vfs_node_open(
+            dev,
+            VFS_OPEN_ACCESS_READ,
+            &dev_directory_file
+        ) !=
+            VFS_OPEN_RESULT_OPENED ||
+        dev_directory_file == NULL ||
+        vfs_file_read_directory(
+            dev_directory_file,
+            &directory_entry
+        ) !=
+            VFS_DIRECTORY_READ_RESULT_ENTRY ||
+        directory_entry.type !=
+            VFS_NODE_TYPE_CHARACTER_DEVICE ||
+        directory_entry.name_length !=
+            sizeof("null") - 1U ||
+        directory_entry.name[0] != 'n' ||
+        directory_entry.name[1] != 'u' ||
+        directory_entry.name[2] != 'l' ||
+        directory_entry.name[3] != 'l' ||
+        directory_entry.name[4] != '\0' ||
+        vfs_file_read_directory(
+            dev_directory_file,
+            &directory_entry
+        ) !=
+            VFS_DIRECTORY_READ_RESULT_END ||
+        !vfs_file_release(
+            dev_directory_file
+        )
+    ) {
+        kernel_panic(
+            "Initramfs external-leaf directory enumeration failed"
         );
     }
 

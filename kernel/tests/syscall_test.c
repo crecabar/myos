@@ -7,6 +7,7 @@
 
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
+#include "../process/exec.h"
 #include "../syscall/syscall.h"
 
 #include <stdint.h>
@@ -72,6 +73,33 @@ _Static_assert(
 );
 
 _Static_assert(
+    SYSCALL_GETPID == 13,
+    "SYSCALL_GETPID ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_CHDIR == 14,
+    "SYSCALL_CHDIR ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_GETCWD == 15,
+    "SYSCALL_GETCWD ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_EXECVE == 16,
+    "SYSCALL_EXECVE ABI number changed"
+);
+
+_Static_assert(
+    SYSCALL_EXEC_VECTOR_MAX == 64 &&
+    SYSCALL_EXEC_STRING_MAX == 1024 &&
+    SYSCALL_EXEC_TOTAL_STRING_BYTES_MAX == 8192,
+    "execve ABI limits changed"
+);
+
+_Static_assert(
     SYSCALL_OPEN_ACCESS_READ == 1 &&
     SYSCALL_OPEN_ACCESS_WRITE == 2,
     "Syscall open access ABI changed"
@@ -132,7 +160,10 @@ void syscall_test_run(void)
         ) != -10 ||
         syscall_result_error(
             SYSCALL_ERROR_OVERFLOW
-        ) != -11
+        ) != -11 ||
+        syscall_result_error(
+            SYSCALL_ERROR_EXEC_FORMAT
+        ) != -12
     ) {
         kernel_panic(
             "Syscall error encoding is unstable"
@@ -480,6 +511,206 @@ void syscall_test_run(void)
     ) {
         kernel_panic(
             "FD_LSEEK accepted missing current process"
+        );
+    }
+
+    /*
+     * GETPID requires one valid current process instance.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_GETPID,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "GETPID accepted missing current process"
+        );
+    }
+
+    /*
+     * CHDIR rejects an empty pathname before consulting process state.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_CHDIR,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "CHDIR accepted empty pathname"
+        );
+    }
+
+    /*
+     * A non-empty pathname still requires a valid current process instance.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_CHDIR,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "CHDIR accepted missing current process"
+        );
+    }
+
+    /*
+     * GETCWD requires non-zero destination capacity before process state is
+     * consulted.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_GETCWD,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "GETCWD accepted zero destination capacity"
+        );
+    }
+
+    /*
+     * A structurally valid destination request still requires a current
+     * process instance.
+     */
+    result =
+        syscall_dispatch(
+            SYSCALL_GETCWD,
+            0,
+            sizeof("/"),
+            0,
+            0,
+            0,
+            0
+        );
+
+    if (
+        result !=
+        syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "GETCWD accepted missing current process"
+        );
+    }
+
+    struct process_exec_candidate exec_candidate = {
+        .prepared = false,
+    };
+
+    result =
+        syscall_execve_prepare(
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &exec_candidate
+        );
+
+    if (
+        result !=
+            syscall_result_error(
+                SYSCALL_ERROR_INVALID_ARGUMENT
+            ) ||
+        exec_candidate.prepared
+    ) {
+        kernel_panic(
+            "EXECVE accepted empty pathname"
+        );
+    }
+
+    result =
+        syscall_execve_prepare(
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            &exec_candidate
+        );
+
+    if (
+        result !=
+            syscall_result_error(
+                SYSCALL_ERROR_INVALID_ARGUMENT
+            ) ||
+        exec_candidate.prepared
+    ) {
+        kernel_panic(
+            "EXECVE accepted missing current process"
+        );
+    }
+
+    result =
+        syscall_execve_prepare(
+            0,
+            1,
+            0,
+            SYSCALL_EXEC_VECTOR_MAX + 1ULL,
+            0,
+            0,
+            &exec_candidate
+        );
+
+    if (
+        result !=
+            syscall_result_error(
+                SYSCALL_ERROR_OVERFLOW
+            ) ||
+        exec_candidate.prepared
+    ) {
+        kernel_panic(
+            "EXECVE accepted oversized argv vector"
         );
     }
 
