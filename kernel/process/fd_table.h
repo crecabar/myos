@@ -68,6 +68,27 @@ bool process_fd_table_install(
 );
 
 /**
+ * Installs one open-file reference at a specific descriptor.
+ *
+ * The destination slot must be empty. The table retains one reference
+ * to file; the caller retains ownership of its existing reference.
+ *
+ * On failure, the table and file reference count remain unchanged.
+ *
+ * @param table Descriptor table.
+ * @param descriptor Destination descriptor.
+ * @param file Live open-file description to install.
+ *
+ * @return true on success; false for invalid input, an occupied or
+ *         out-of-range descriptor, or a failed file retain.
+ */
+bool process_fd_table_install_at(
+    struct process_fd_table *table,
+    size_t descriptor,
+    struct vfs_file *file
+);
+
+/**
  * Returns the file referenced by one descriptor.
  *
  * The returned pointer is borrowed. No reference count is changed.

@@ -57,6 +57,18 @@ syscall_result_t myos_getcwd(
 );
 
 /**
+ * Queries the identity of the running MyOS kernel.
+ *
+ * On success, identity receives five NUL-terminated ABI fields.
+ * Currently unavailable fields contain empty strings.
+ *
+ * @return Zero on success, or a negative syscall error.
+ */
+syscall_result_t myos_uname(
+    struct syscall_utsname *identity
+);
+
+/**
  * Replaces the calling process image with one ELF executable.
  *
  * path is an explicit byte sequence and need not be NUL-terminated.

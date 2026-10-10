@@ -59,6 +59,20 @@ syscall_result_t myos_getcwd(
     );
 }
 
+syscall_result_t myos_uname(
+    struct syscall_utsname *identity)
+{
+    return __myos_syscall6(
+        SYSCALL_UNAME,
+        (uint64_t) (uintptr_t) identity,
+        0,
+        0,
+        0,
+        0,
+        0
+    );
+}
+
 syscall_result_t myos_execve(
     const char *path,
     size_t path_length,

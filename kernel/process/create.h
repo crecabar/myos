@@ -36,6 +36,15 @@ struct process_initial_vfs {
     struct vfs_node *namespace_root;
 
     const struct vfs_mount_table *namespace_mounts;
+
+    /*
+     * When true, open stdin, stdout and stderr before scheduler
+     * publication. The namespace must expose the required devices.
+     *
+     * False preserves the empty descriptor-table contract for
+     * minimal namespaces and synthetic process fixtures.
+     */
+    bool provision_standard_descriptors;
 };
 
 /**

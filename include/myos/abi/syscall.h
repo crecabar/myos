@@ -59,6 +59,7 @@
 #define SYSCALL_CHDIR      14
 #define SYSCALL_GETCWD     15
 #define SYSCALL_EXECVE     16
+#define SYSCALL_UNAME      17
 
 #define SYSCALL_WAITPID_NOHANG (1 << 0)
 
@@ -174,6 +175,51 @@ _Static_assert(
 _Static_assert(
     offsetof(struct syscall_file_stat, size) == 8,
     "syscall file stat size offset changed"
+);
+
+#define SYSCALL_UTS_FIELD_CAPACITY 65U
+
+struct syscall_utsname {
+    char sysname[SYSCALL_UTS_FIELD_CAPACITY];
+    char nodename[SYSCALL_UTS_FIELD_CAPACITY];
+    char release[SYSCALL_UTS_FIELD_CAPACITY];
+    char version[SYSCALL_UTS_FIELD_CAPACITY];
+    char machine[SYSCALL_UTS_FIELD_CAPACITY];
+};
+
+_Static_assert(
+    sizeof(struct syscall_utsname) == 325U,
+    "syscall utsname ABI layout changed"
+);
+
+_Static_assert(
+    _Alignof(struct syscall_utsname) == 1U,
+    "syscall utsname ABI alignment changed"
+);
+
+_Static_assert(
+    offsetof(struct syscall_utsname, sysname) == 0U,
+    "sysname offset changed"
+);
+
+_Static_assert(
+    offsetof(struct syscall_utsname, nodename) == 65U,
+    "nodename offset changed"
+);
+
+_Static_assert(
+    offsetof(struct syscall_utsname, release) == 130U,
+    "release offset changed"
+);
+
+_Static_assert(
+    offsetof(struct syscall_utsname, version) == 195U,
+    "version offset changed"
+);
+
+_Static_assert(
+    offsetof(struct syscall_utsname, machine) == 260U,
+    "machine offset changed"
 );
 
 #endif

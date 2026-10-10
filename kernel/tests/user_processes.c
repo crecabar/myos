@@ -10,6 +10,7 @@
 
 #include "user_processes.h"
 #include "user_processes/block.h"
+#include "user_processes/commands.h"
 #include "user_processes/elf_isolation.h"
 #include "user_processes/elf_protection.h"
 #include "user_processes/exec.h"
@@ -104,6 +105,10 @@ static void user_process_runtime_stdio_terminated_handler(
 );
 
 static void user_process_runtime_syscalls_terminated_handler(
+    struct process *process
+);
+
+static void user_process_commands_terminated_handler(
     struct process *process
 );
 // End private helpers declarations
@@ -389,6 +394,24 @@ static void user_process_runtime_syscalls_terminated_handler(
     struct process *process)
 {
     if (!user_process_runtime_syscalls_test_terminated(
+        process
+    )) {
+        return;
+    }
+
+    scheduler_set_terminated_handler(
+        user_process_commands_terminated_handler
+    );
+
+    user_process_commands_test_prepare(
+        user_process_test_mounts
+    );
+}
+
+static void user_process_commands_terminated_handler(
+    struct process *process)
+{
+    if (!user_process_commands_test_terminated(
         process
     )) {
         return;
