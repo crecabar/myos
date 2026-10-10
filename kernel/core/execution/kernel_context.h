@@ -78,6 +78,19 @@ bool kernel_context_start(struct kernel_context *context);
 bool kernel_context_wait(struct kernel_context *context);
 
 /**
+ * Suspends the running worker and returns control to its supervisor.
+ *
+ * On successful resumption, execution continues immediately after
+ * kernel_context_switch(), and this function returns true.
+ *
+ * Requires execution on the worker's own stack, with interrupts
+ * disabled and the supervisor's context still alive.
+ *
+ * This is a cooperative, single-CPU primitive.
+ */
+bool kernel_context_yield_wait(struct kernel_context *context);
+
+/**
  * Makes a waiting context runnable again.
  */
 bool kernel_context_wake(struct kernel_context *context);

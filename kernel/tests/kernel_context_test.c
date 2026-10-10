@@ -24,6 +24,20 @@ unsigned char test_stack[KERNEL_CONTEXT_MIN_STACK_SIZE];
 static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char execution_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char yield_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+struct kernel_context_yield_probe {
+    struct kernel_context *context;
+    uintptr_t stack_bottom;
+    uintptr_t stack_top;
+    uintptr_t before_rsp;
+    uintptr_t after_rsp;
+    unsigned int entry_calls;
+    unsigned int stage;
+    bool resumed;
+};
+
 struct kernel_context_execution_probe {
     uintptr_t stack_bottom;
     uintptr_t stack_top;
@@ -691,6 +705,142 @@ static void kernel_context_test_lifecycle_invalid(void)
     }
 }
 
+static void kernel_context_test_yield_entry(void *argument)
+{
+    struct kernel_context_yield_probe *probe = argument;
+    volatile uint64_t marker = 0x123456789ABCDEF0ULL;
+
+    if (
+        probe == NULL ||
+        probe->context == NULL ||
+        probe->stage != 0U
+    ) {
+        kernel_panic("Kernel yield entry contract failed");
+    }
+
+    ++probe->entry_calls;
+    probe->before_rsp = kernel_context_test_rsp();
+
+    if (
+        probe->before_rsp < probe->stack_bottom ||
+        probe->before_rsp >= probe->stack_top
+    ) {
+        kernel_panic("Kernel yield worker used wrong stack");
+    }
+
+    probe->stage = 1U;
+
+    if (!kernel_context_yield_wait(probe->context)) {
+        kernel_panic("Kernel yield failed");
+    }
+
+    /*
+     * This code must execute only after the supervisor
+     * has explicitly woken and restarted the worker.
+     */
+    probe->after_rsp = kernel_context_test_rsp();
+
+    if (
+        probe->stage != 2U ||
+        marker != 0x123456789ABCDEF0ULL ||
+        probe->entry_calls != 1U ||
+        probe->after_rsp < probe->stack_bottom ||
+        probe->after_rsp >= probe->stack_top
+    ) {
+        kernel_panic("Kernel yield continuation was not preserved");
+    }
+
+    probe->resumed = true;
+    probe->stage = 3U;
+}
+
+static void kernel_context_test_yield_resume(void)
+{
+    struct kernel_context context;
+    struct kernel_switch_context supervisor = {0};
+
+    struct kernel_context_yield_probe probe = {
+        .context = &context,
+        .stack_bottom = (uintptr_t) yield_stack,
+        .stack_top =
+            (uintptr_t) yield_stack + sizeof(yield_stack),
+    };
+
+    if (
+        !kernel_context_init(
+            &context,
+            yield_stack,
+            sizeof(yield_stack),
+            kernel_context_test_yield_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &context,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &context,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel yield setup failed");
+    }
+
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    /*
+     * First dispatch: worker reaches yield_wait()
+     * and returns control to this supervisor.
+     */
+    if (!kernel_context_start(&context)) {
+        kernel_panic("Kernel yield initial start failed");
+    }
+
+    kernel_context_switch(&supervisor, &context.cpu);
+
+    if (
+        context.state != KERNEL_CONTEXT_WAITING ||
+        probe.stage != 1U ||
+        probe.entry_calls != 1U ||
+        probe.resumed ||
+        context.cpu.rsp < context.stack_bottom ||
+        context.cpu.rsp >= context.stack_top
+    ) {
+        kernel_panic("Kernel yield did not suspend correctly");
+    }
+
+    /*
+     * The supervisor controls wakeup and dispatch.
+     * The worker must not resume before this point.
+     */
+    probe.stage = 2U;
+
+    if (
+        !kernel_context_wake(&context) ||
+        context.state != KERNEL_CONTEXT_READY ||
+        !kernel_context_start(&context)
+    ) {
+        kernel_panic("Kernel yield restart failed");
+    }
+
+    kernel_context_switch(&supervisor, &context.cpu);
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        context.state != KERNEL_CONTEXT_TERMINATED ||
+        probe.stage != 3U ||
+        !probe.resumed ||
+        probe.entry_calls != 1U
+    ) {
+        kernel_panic("Kernel yield resume lifecycle failed");
+    }
+}
+
 void kernel_context_test_run(void)
 {
     kernel_context_test_valid();
@@ -706,6 +856,8 @@ void kernel_context_test_run(void)
     kernel_context_test_supervisor();
 
     kernel_context_test_execution();
+
+    kernel_context_test_yield_resume();
 
     kernel_context_test_lifecycle();
     kernel_context_test_lifecycle_invalid();

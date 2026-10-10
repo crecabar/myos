@@ -5,6 +5,8 @@
 
 #include "kernel_context.h"
 
+#include "../panic.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -133,6 +135,46 @@ bool kernel_context_wait(struct kernel_context *context)
     }
 
     context->state = KERNEL_CONTEXT_WAITING;
+
+    return true;
+}
+
+bool kernel_context_yield_wait(struct kernel_context *context)
+{
+    if (
+        context == NULL ||
+        context->state != KERNEL_CONTEXT_RUNNING ||
+        !context->prepared ||
+        context->supervisor == NULL ||
+        context->cpu.rsp == 0
+    ) {
+        return false;
+    }
+
+    if (!kernel_context_wait(context)) {
+        return false;
+    }
+
+    /*
+     * The worker continues here only after the supervisor
+     * has made it READY and subsequently RUNNING again.
+     */
+    kernel_context_switch(
+        &context->cpu,
+        context->supervisor
+    );
+
+    /*
+     * A resumed worker must have been explicitly selected
+     * through kernel_context_start().
+     */
+    if (context->state != KERNEL_CONTEXT_RUNNING) {
+        /*
+         * A context-switch contract violation cannot safely
+         * be reported as an ordinary recoverable error.
+         */
+        kernel_panic("Kernel context resumed in invalid state");
+    }
 
     return true;
 }
