@@ -509,7 +509,9 @@ static void kernel_context_test_execution(void)
      * The test owns this transition until a lifecycle
      * API has been introduced.
      */
-    context.state = KERNEL_CONTEXT_RUNNING;
+    if (!kernel_context_start(&context)) {
+        kernel_panic("Unable to start prepared kernel context");
+    }
 
     kernel_context_switch(
         &supervisor,
@@ -539,6 +541,156 @@ static void kernel_context_test_execution(void)
     }
 }
 
+static void kernel_context_test_lifecycle(void)
+{
+    struct kernel_context context;
+    struct kernel_switch_context supervisor = {0};
+
+    if (!kernel_context_init(
+        &context,
+        test_stack,
+        sizeof(test_stack),
+        kernel_context_test_entry,
+        NULL
+    )) {
+        kernel_panic("Kernel lifecycle setup failed");
+    }
+
+    /*
+     * A descriptor is not executable until its stack
+     * and supervisor have been prepared.
+     */
+    if (
+        kernel_context_start(&context) ||
+        context.state != KERNEL_CONTEXT_READY
+    ) {
+        kernel_panic("Unprepared kernel context started");
+    }
+
+    if (
+        !kernel_context_prepare(
+            &context,
+            kernel_context_test_trampoline
+        ) ||
+        kernel_context_start(&context) ||
+        !kernel_context_bind_supervisor(
+            &context,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel lifecycle preparation failed");
+    }
+
+    if (
+        !kernel_context_start(&context) ||
+        context.state != KERNEL_CONTEXT_RUNNING ||
+        !kernel_context_wait(&context) ||
+        context.state != KERNEL_CONTEXT_WAITING ||
+        !kernel_context_wake(&context) ||
+        context.state != KERNEL_CONTEXT_READY ||
+        !kernel_context_start(&context) ||
+        context.state != KERNEL_CONTEXT_RUNNING ||
+        !kernel_context_terminate(&context) ||
+        context.state != KERNEL_CONTEXT_TERMINATED
+    ) {
+        kernel_panic("Kernel lifecycle transition failed");
+    }
+
+    if (
+        kernel_context_start(&context) ||
+        kernel_context_wait(&context) ||
+        kernel_context_wake(&context) ||
+        kernel_context_terminate(&context) ||
+        context.state != KERNEL_CONTEXT_TERMINATED
+    ) {
+        kernel_panic("Terminated kernel context was reactivated");
+    }
+}
+
+static void kernel_context_test_lifecycle_invalid(void)
+{
+    struct kernel_context context;
+    struct kernel_switch_context supervisor = {0};
+
+    if (
+        !kernel_context_init(
+            &context,
+            test_stack,
+            sizeof(test_stack),
+            kernel_context_test_entry,
+            NULL
+        ) ||
+        !kernel_context_prepare(
+            &context,
+            kernel_context_test_trampoline
+        ) ||
+        !kernel_context_bind_supervisor(
+            &context,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel invalid lifecycle setup failed");
+    }
+
+    if (
+        kernel_context_wait(NULL) ||
+        kernel_context_wake(NULL) ||
+        kernel_context_start(NULL) ||
+        kernel_context_terminate(NULL)
+    ) {
+        kernel_panic("Kernel lifecycle accepted null context");
+    }
+
+    if (
+        kernel_context_wait(&context) ||
+        kernel_context_wake(&context) ||
+        kernel_context_terminate(&context) ||
+        context.state != KERNEL_CONTEXT_READY
+    ) {
+        kernel_panic("Kernel lifecycle accepted invalid READY transition");
+    }
+
+    if (!kernel_context_start(&context)) {
+        kernel_panic("Kernel lifecycle could not enter RUNNING");
+    }
+
+    if (
+        kernel_context_start(&context) ||
+        kernel_context_wake(&context) ||
+        context.state != KERNEL_CONTEXT_RUNNING
+    ) {
+        kernel_panic("Kernel lifecycle accepted invalid RUNNING transition");
+    }
+
+    if (!kernel_context_wait(&context)) {
+        kernel_panic("Kernel lifecycle could not enter WAITING");
+    }
+
+    if (
+        kernel_context_start(&context) ||
+        kernel_context_wait(&context) ||
+        kernel_context_terminate(&context) ||
+        context.state != KERNEL_CONTEXT_WAITING
+    ) {
+        kernel_panic("Kernel lifecycle accepted invalid WAITING transition");
+    }
+
+    if (
+        !kernel_context_wake(&context) ||
+        !kernel_context_start(&context) ||
+        !kernel_context_terminate(&context)
+    ) {
+        kernel_panic("Kernel lifecycle could not terminate");
+    }
+
+    if (
+        kernel_context_terminate(&context) ||
+        context.state != KERNEL_CONTEXT_TERMINATED
+    ) {
+        kernel_panic("Kernel lifecycle accepted double termination");
+    }
+}
+
 void kernel_context_test_run(void)
 {
     kernel_context_test_valid();
@@ -554,6 +706,9 @@ void kernel_context_test_run(void)
     kernel_context_test_supervisor();
 
     kernel_context_test_execution();
+
+    kernel_context_test_lifecycle();
+    kernel_context_test_lifecycle_invalid();
 
     diagnostics_write(
         "[kernel-context] Descriptor tests passed\n"

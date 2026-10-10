@@ -36,7 +36,9 @@ _Noreturn void kernel_context_trampoline(
      * A normally returning entry completes the context.
      * It cannot be scheduled again.
      */
-    context->state = KERNEL_CONTEXT_TERMINATED;
+    if (!kernel_context_terminate(context)) {
+        kernel_panic("Unable to terminate kernel context");
+    }
 
     kernel_context_switch(
         &context->cpu,

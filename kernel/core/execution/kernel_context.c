@@ -105,3 +105,62 @@ bool kernel_context_bind_supervisor(
 
     return true;
 }
+
+bool kernel_context_start(struct kernel_context *context)
+{
+    if (
+        context == NULL ||
+        context->state != KERNEL_CONTEXT_READY ||
+        !context->prepared ||
+        context->supervisor == NULL ||
+        context->cpu.rsp == 0
+    ) {
+        return false;
+    }
+
+    context->state = KERNEL_CONTEXT_RUNNING;
+
+    return true;
+}
+
+bool kernel_context_wait(struct kernel_context *context)
+{
+    if (
+        context == NULL ||
+        context->state != KERNEL_CONTEXT_RUNNING
+    ) {
+        return false;
+    }
+
+    context->state = KERNEL_CONTEXT_WAITING;
+
+    return true;
+}
+
+bool kernel_context_wake(struct kernel_context *context)
+{
+    if (
+        context == NULL ||
+        context->state != KERNEL_CONTEXT_WAITING
+    ) {
+        return false;
+    }
+
+    context->state = KERNEL_CONTEXT_READY;
+
+    return true;
+}
+
+bool kernel_context_terminate(struct kernel_context *context)
+{
+    if (
+        context == NULL ||
+        context->state != KERNEL_CONTEXT_RUNNING
+    ) {
+        return false;
+    }
+
+    context->state = KERNEL_CONTEXT_TERMINATED;
+
+    return true;
+}

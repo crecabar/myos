@@ -66,6 +66,28 @@ bool kernel_context_bind_supervisor(
 );
 
 /**
+ * Moves a prepared, supervised context from READY to RUNNING.
+ * Does not perform a CPU context switch.
+ */
+bool kernel_context_start(struct kernel_context *context);
+
+/**
+ * Moves the running context to WAITING.
+ * Does not suspend the CPU context by itself.
+ */
+bool kernel_context_wait(struct kernel_context *context);
+
+/**
+ * Makes a waiting context runnable again.
+ */
+bool kernel_context_wake(struct kernel_context *context);
+
+/**
+ * Marks a running context permanently terminated.
+ */
+bool kernel_context_terminate(struct kernel_context *context);
+
+/**
  * Architecture bootstrap entry. Never returns.
  */
 _Noreturn void kernel_context_bootstrap(void);
