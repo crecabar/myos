@@ -92,6 +92,36 @@ command_test_cat_stdin_arguments[] = {
     "-",
 };
 
+static const char *const
+command_test_uname_sysname_arguments[] = {
+    "/bin/uname",
+    "-s",
+};
+
+static const char *const
+command_test_uname_release_arguments[] = {
+    "/bin/uname",
+    "-r",
+};
+
+static const char *const
+command_test_uname_machine_arguments[] = {
+    "/bin/uname",
+    "-m",
+};
+
+static const char *const
+command_test_uname_all_arguments[] = {
+    "/bin/uname",
+    "-a",
+};
+
+static const char *const
+command_test_uname_invalid_arguments[] = {
+    "/bin/uname",
+    "-z",
+};
+
 #define COMMAND_CAT_LARGE_LENGTH 2305U
 
 static const char command_cat_binary_input[] = {
@@ -283,6 +313,81 @@ command_test_cases[] = {
         .expected_stdout = "MyOS cat fixture\n",
         .expected_stdout_length =
             sizeof("MyOS cat fixture\n") - 1U,
+    },
+    {
+        .name = "uname-default",
+        .path = "/bin/uname",
+        .path_length = sizeof("/bin/uname") - 1U,
+        .expected_exit_status = 0,
+        .capture_stdout = true,
+        .expected_stdout = "MyOS\n",
+        .expected_stdout_length = sizeof("MyOS\n") - 1U,
+    },
+    {
+        .name = "uname-sysname",
+        .path = "/bin/uname",
+        .path_length = sizeof("/bin/uname") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_uname_sysname_arguments) /
+            sizeof(command_test_uname_sysname_arguments[0]),
+        .arguments = command_test_uname_sysname_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "MyOS\n",
+        .expected_stdout_length = sizeof("MyOS\n") - 1U,
+    },
+    {
+        .name = "uname-release",
+        .path = "/bin/uname",
+        .path_length = sizeof("/bin/uname") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_uname_release_arguments) /
+            sizeof(command_test_uname_release_arguments[0]),
+        .arguments = command_test_uname_release_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "0.2.0\n",
+        .expected_stdout_length = sizeof("0.2.0\n") - 1U,
+    },
+    {
+        .name = "uname-machine",
+        .path = "/bin/uname",
+        .path_length = sizeof("/bin/uname") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_uname_machine_arguments) /
+            sizeof(command_test_uname_machine_arguments[0]),
+        .arguments = command_test_uname_machine_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "x86_64\n",
+        .expected_stdout_length = sizeof("x86_64\n") - 1U,
+    },
+    {
+        .name = "uname-all",
+        .path = "/bin/uname",
+        .path_length = sizeof("/bin/uname") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_uname_all_arguments) /
+            sizeof(command_test_uname_all_arguments[0]),
+        .arguments = command_test_uname_all_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "MyOS 0.2.0 x86_64\n",
+        .expected_stdout_length =
+            sizeof("MyOS 0.2.0 x86_64\n") - 1U,
+    },
+    {
+        .name = "uname-invalid-option",
+        .path = "/bin/uname",
+        .path_length = sizeof("/bin/uname") - 1U,
+        .expected_exit_status = 1,
+        .argument_count =
+            sizeof(command_test_uname_invalid_arguments) /
+            sizeof(command_test_uname_invalid_arguments[0]),
+        .arguments = command_test_uname_invalid_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "",
+        .expected_stdout_length = 0U,
     },
 };
 

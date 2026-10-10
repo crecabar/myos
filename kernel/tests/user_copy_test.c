@@ -12,6 +12,8 @@
 #include "../process/memory.h"
 #include "../process/user_copy.h"
 
+#include <myos/abi/syscall.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -539,7 +541,13 @@ static void user_copy_test_all_or_nothing(void)
         }
     }
 
-    uint8_t kernel_source[32];
+    /*
+     * Exercise an all-or-nothing transfer using the actual
+     * published uname ABI size (325 bytes).
+     */
+    uint8_t kernel_source[
+        sizeof(struct syscall_utsname)
+    ];
 
     for (
         size_t index = 0;
