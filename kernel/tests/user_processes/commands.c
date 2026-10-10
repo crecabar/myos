@@ -26,6 +26,8 @@
 #include <stdint.h>
 
 struct command_test_case {
+    const char *name;
+
     const char *path;
     size_t path_length;
     uint64_t expected_exit_status;
@@ -64,6 +66,32 @@ command_test_cat_missing_arguments[] = {
     "/missing-cat-file",
 };
 
+static const char *const
+command_test_cat_concat_arguments[] = {
+    "/bin/cat",
+    "/cat-fixture.txt",
+    "/cat-fixture.txt",
+};
+
+static const char *const
+command_test_cat_recovery_arguments[] = {
+    "/bin/cat",
+    "/missing-cat-file",
+    "/cat-fixture.txt",
+};
+
+static const char *const
+command_test_cat_relative_arguments[] = {
+    "/bin/cat",
+    "cat-fixture.txt",
+};
+
+static const char *const
+command_test_cat_stdin_arguments[] = {
+    "/bin/cat",
+    "-",
+};
+
 #define COMMAND_CAT_LARGE_LENGTH 2305U
 
 static const char command_cat_binary_input[] = {
@@ -78,6 +106,7 @@ static char command_cat_large_input[
 static const struct command_test_case
 command_test_cases[] = {
     {
+        .name = "true-exit",
         .path = "/bin/true",
         .path_length = sizeof("/bin/true") - 1U,
         .expected_exit_status = 0,
@@ -85,6 +114,7 @@ command_test_cases[] = {
         .arguments = NULL,
     },
     {
+        .name = "false-exit",
         .path = "/bin/false",
         .path_length = sizeof("/bin/false") - 1U,
         .expected_exit_status = 1,
@@ -92,6 +122,7 @@ command_test_cases[] = {
         .arguments = NULL,
     },
     {
+        .name = "echo-arguments",
         .path = "/bin/echo",
         .path_length = sizeof("/bin/echo") - 1U,
         .expected_exit_status = 0,
@@ -101,6 +132,7 @@ command_test_cases[] = {
         .arguments = command_test_echo_arguments,
     },
     {
+        .name = "pwd-root",
         .path = "/bin/pwd",
         .path_length = sizeof("/bin/pwd") - 1U,
         .expected_exit_status = 0,
@@ -112,6 +144,7 @@ command_test_cases[] = {
         .expected_stdout_length = sizeof("/\n") - 1U,
     },
     {
+        .name = "pwd-bin",
         .path = "/bin/pwd",
         .path_length = sizeof("/bin/pwd") - 1U,
         .expected_exit_status = 0,
@@ -123,6 +156,7 @@ command_test_cases[] = {
         .expected_stdout_length = sizeof("/bin\n") - 1U,
     },
     {
+        .name = "cat-stdin-empty",
         .path = "/bin/cat",
         .path_length = sizeof("/bin/cat") - 1U,
         .expected_exit_status = 0,
@@ -133,6 +167,7 @@ command_test_cases[] = {
         .expected_stdout_length = 0U,
     },
     {
+        .name = "cat-stdin-binary",
         .path = "/bin/cat",
         .path_length = sizeof("/bin/cat") - 1U,
         .expected_exit_status = 0,
@@ -145,6 +180,7 @@ command_test_cases[] = {
             sizeof(command_cat_binary_input),
     },
     {
+        .name = "cat-stdin-large",
         .path = "/bin/cat",
         .path_length = sizeof("/bin/cat") - 1U,
         .expected_exit_status = 0,
@@ -157,6 +193,24 @@ command_test_cases[] = {
             sizeof(command_cat_large_input),
     },
     {
+        .name = "cat-dash",
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_cat_stdin_arguments) /
+            sizeof(command_test_cat_stdin_arguments[0]),
+        .arguments = command_test_cat_stdin_arguments,
+        .capture_stdout = true,
+        .stdin_data = command_cat_binary_input,
+        .stdin_length = sizeof(command_cat_binary_input),
+        .minimum_stdin_reads = 2U,
+        .expected_stdout = command_cat_binary_input,
+        .expected_stdout_length =
+            sizeof(command_cat_binary_input),
+    },
+    {
+        .name = "cat-file",
         .path = "/bin/cat",
         .path_length = sizeof("/bin/cat") - 1U,
         .expected_exit_status = 0,
@@ -170,6 +224,7 @@ command_test_cases[] = {
             sizeof("MyOS cat fixture\n") - 1U,
     },
     {
+        .name = "cat-missing",
         .path = "/bin/cat",
         .path_length = sizeof("/bin/cat") - 1U,
         .expected_exit_status = 1,
@@ -180,6 +235,54 @@ command_test_cases[] = {
         .capture_stdout = true,
         .expected_stdout = "",
         .expected_stdout_length = 0U,
+    },
+    {
+        .name = "cat-concat",
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_cat_concat_arguments) /
+            sizeof(command_test_cat_concat_arguments[0]),
+        .arguments = command_test_cat_concat_arguments,
+        .capture_stdout = true,
+        .expected_stdout =
+            "MyOS cat fixture\n"
+            "MyOS cat fixture\n",
+        .expected_stdout_length =
+            sizeof(
+                "MyOS cat fixture\n"
+                "MyOS cat fixture\n"
+            ) - 1U,
+    },
+    {
+        .name = "cat-recovery",
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 1,
+        .argument_count =
+            sizeof(command_test_cat_recovery_arguments) /
+            sizeof(command_test_cat_recovery_arguments[0]),
+        .arguments = command_test_cat_recovery_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "MyOS cat fixture\n",
+        .expected_stdout_length =
+            sizeof("MyOS cat fixture\n") - 1U,
+    },
+    {
+        .name = "cat-relative",
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_cat_relative_arguments) /
+            sizeof(command_test_cat_relative_arguments[0]),
+        .arguments = command_test_cat_relative_arguments,
+        .capture_stdout = true,
+        .initial_cwd = "/",
+        .expected_stdout = "MyOS cat fixture\n",
+        .expected_stdout_length =
+            sizeof("MyOS cat fixture\n") - 1U,
     },
 };
 
@@ -254,6 +357,10 @@ static bool command_input_active;
 
 static size_t command_input_read_calls;
 
+static size_t command_input_data_reads;
+
+static size_t command_input_eof_reads;
+
 static struct vfs_node command_input_node;
 
 static struct vfs_file command_input_file;
@@ -305,6 +412,12 @@ static enum vfs_io_result command_input_read(
                 test_case->stdin_data[
                     (size_t) offset + index
                 ];
+    }
+
+    if (length == 0U) {
+        ++command_input_eof_reads;
+    } else {
+        ++command_input_data_reads;
     }
 
     *bytes_read = length;
@@ -401,8 +514,9 @@ bool user_process_commands_test_terminated(
             test_case->expected_exit_status
     ) {
         diagnostics_printf(
-            "[userland] Command regression failed: "
+            "[userland] %s failed: "
             "PID=%u reason=%u status=%u\n",
+            test_case->name,
             process->id,
             (uint64_t) process->termination_reason,
             process->exit_status
@@ -450,7 +564,8 @@ bool user_process_commands_test_terminated(
     }
 
     diagnostics_printf(
-        "[userland] %s exited with expected status\n",
+        "[userland] %s (%s) exited with expected status\n",
+        test_case->name,
         test_case->path
     );
 
@@ -734,8 +849,8 @@ static void command_test_validate_capture(void)
     }
 
     diagnostics_printf(
-        "[userland] %s stdout content verified: cwd=%s\n",
-        test_case->path,
+        "[userland] %s stdout verified: cwd=%s\n",
+        test_case->name,
         test_case->initial_cwd != NULL
             ? test_case->initial_cwd
             : "(default)"
@@ -800,6 +915,8 @@ static void command_test_install_input(void)
     }
 
     command_input_read_calls = 0;
+    command_input_data_reads = 0;
+    command_input_eof_reads = 0;
 
     if (!vfs_node_initialize(
         &command_input_node,
@@ -877,11 +994,26 @@ static void command_test_validate_input(void)
         );
     }
 
+    if (
+        command_input_data_reads == 0U ||
+        command_input_eof_reads != 1U ||
+        command_input_read_calls !=
+            command_input_data_reads +
+            command_input_eof_reads
+    ) {
+        kernel_panic(
+            "Command stdin read accounting mismatch"
+        );
+    }
+
     diagnostics_printf(
-        "[userland] %s stdin verified: bytes=%u reads=%u\n",
-        test_case->path,
+        "[userland] %s stdin verified: "
+        "bytes=%u reads=%u data=%u eof=%u\n",
+        test_case->name,
         (uint64_t) test_case->stdin_length,
-        (uint64_t) command_input_read_calls
+        (uint64_t) command_input_read_calls,
+        (uint64_t) command_input_data_reads,
+        (uint64_t) command_input_eof_reads
     );
 }
 
@@ -924,4 +1056,6 @@ static void command_test_release_input(void)
 
     command_input_active = false;
     command_input_read_calls = 0;
+    command_input_data_reads = 0;
+    command_input_eof_reads = 0;
 }
