@@ -69,6 +69,35 @@ bool process_fd_table_install(
     return false;
 }
 
+bool process_fd_table_install_at(
+    struct process_fd_table *table,
+    size_t descriptor,
+    struct vfs_file *file)
+{
+    if (
+        table == NULL ||
+        file == NULL ||
+        descriptor >= PROCESS_FD_TABLE_CAPACITY
+    ) {
+        return false;
+    }
+
+    if (table->entries[descriptor] != NULL) {
+        return false;
+    }
+
+    if (!vfs_file_retain(
+        file
+    )) {
+        return false;
+    }
+
+    table->entries[descriptor] =
+        file;
+
+    return true;
+}
+
 struct vfs_file *process_fd_table_get(
     const struct process_fd_table *table,
     size_t descriptor)

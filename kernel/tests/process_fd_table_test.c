@@ -21,6 +21,8 @@ static void process_fd_table_test_file_destroy(
 
 static void process_fd_table_test_allocation_and_reuse(void);
 
+static void process_fd_table_test_install_at(void);
+
 static void process_fd_table_test_clone(void);
 
 static void process_fd_table_test_capacity(void);
@@ -30,6 +32,7 @@ static void process_fd_table_test_clone_rollback(void);
 void process_fd_table_test_run(void)
 {
     process_fd_table_test_allocation_and_reuse();
+    process_fd_table_test_install_at();
     process_fd_table_test_clone();
     process_fd_table_test_clone_rollback();
     process_fd_table_test_capacity();
@@ -201,6 +204,230 @@ static void process_fd_table_test_allocation_and_reuse(void)
     ) {
         kernel_panic(
             "FD allocation fixture cleanup failed"
+        );
+    }
+}
+
+static void process_fd_table_test_install_at(void)
+{
+    struct vfs_node node;
+    struct vfs_file file;
+
+    struct process_fd_table source;
+    struct process_fd_table destination;
+
+    if (
+        !vfs_node_initialize(
+            &node,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_file_initialize(
+            &file,
+            &node,
+            VFS_OPEN_ACCESS_READ |
+                VFS_OPEN_ACCESS_WRITE,
+            NULL,
+            NULL
+        ) ||
+        !process_fd_table_initialize(
+            &source
+        ) ||
+        !process_fd_table_initialize(
+            &destination
+        )
+    ) {
+        kernel_panic(
+            "Unable to initialize explicit FD installation fixture"
+        );
+    }
+
+    /*
+     * Invalid input must leave the table and file ownership unchanged.
+     */
+    if (
+        process_fd_table_install_at(
+            NULL,
+            0,
+            &file
+        ) ||
+        process_fd_table_install_at(
+            &source,
+            0,
+            NULL
+        ) ||
+        process_fd_table_install_at(
+            &source,
+            PROCESS_FD_TABLE_CAPACITY,
+            &file
+        ) ||
+        file.reference_count != 1
+    ) {
+        kernel_panic(
+            "Explicit FD installation accepted invalid input"
+        );
+    }
+
+    /*
+     * Install the three conventional descriptors without depending on
+     * lowest-available descriptor allocation.
+     */
+    if (
+        !process_fd_table_install_at(
+            &source,
+            2,
+            &file
+        ) ||
+        !process_fd_table_install_at(
+            &source,
+            0,
+            &file
+        ) ||
+        !process_fd_table_install_at(
+            &source,
+            1,
+            &file
+        )
+    ) {
+        kernel_panic(
+            "Unable to install standard descriptor positions"
+        );
+    }
+
+    if (
+        process_fd_table_get(
+            &source,
+            0
+        ) != &file ||
+        process_fd_table_get(
+            &source,
+            1
+        ) != &file ||
+        process_fd_table_get(
+            &source,
+            2
+        ) != &file ||
+        file.reference_count != 4
+    ) {
+        kernel_panic(
+            "Explicit FD installation ownership mismatch"
+        );
+    }
+
+    /*
+     * An occupied slot must not be overwritten or acquire another
+     * reference.
+     */
+    if (
+        process_fd_table_install_at(
+            &source,
+            1,
+            &file
+        ) ||
+        process_fd_table_get(
+            &source,
+            1
+        ) != &file ||
+        file.reference_count != 4
+    ) {
+        kernel_panic(
+            "Explicit FD installation replaced occupied descriptor"
+        );
+    }
+
+    /*
+     * Automatic allocation must still select the lowest free slot.
+     */
+    size_t descriptor =
+        SIZE_MAX;
+
+    if (
+        !process_fd_table_install(
+            &source,
+            &file,
+            &descriptor
+        ) ||
+        descriptor != 3 ||
+        file.reference_count != 5
+    ) {
+        kernel_panic(
+            "Automatic FD allocation failed after explicit installation"
+        );
+    }
+
+    /*
+     * Clone preserves descriptor positions and shares open-file
+     * descriptions through independent ownership references.
+     */
+    if (!process_fd_table_clone(
+        &destination,
+        &source
+    )) {
+        kernel_panic(
+            "Unable to clone explicit descriptor table"
+        );
+    }
+
+    for (size_t index = 0; index < 4; ++index) {
+        if (
+            process_fd_table_get(
+                &destination,
+                index
+            ) != &file
+        ) {
+            kernel_panic(
+                "FD clone did not preserve descriptor positions"
+            );
+        }
+    }
+
+    if (file.reference_count != 9) {
+        kernel_panic(
+            "FD clone reference ownership mismatch"
+        );
+    }
+
+    /*
+     * Releasing one table must not invalidate descriptors owned by the
+     * other table.
+     */
+    if (
+        !process_fd_table_release_all(
+            &source
+        ) ||
+        file.reference_count != 5 ||
+        process_fd_table_get(
+            &destination,
+            1
+        ) != &file
+    ) {
+        kernel_panic(
+            "Source FD release invalidated cloned descriptors"
+        );
+    }
+
+    if (
+        !process_fd_table_release_all(
+            &destination
+        ) ||
+        file.reference_count != 1
+    ) {
+        kernel_panic(
+            "Explicit descriptor fixture leaked file references"
+        );
+    }
+
+    if (
+        !vfs_file_release(
+            &file
+        ) ||
+        !vfs_node_release(
+            &node
+        )
+    ) {
+        kernel_panic(
+            "Explicit descriptor fixture cleanup failed"
         );
     }
 }
