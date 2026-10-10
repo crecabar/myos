@@ -5,16 +5,60 @@
 
 #include "kernel_context_test.h"
 
+#include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/kernel_switch.h"
 #include "../core/execution/kernel_context.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char test_stack[KERNEL_CONTEXT_MIN_STACK_SIZE];
+
+#define KERNEL_CONTEXT_EXEC_STACK_SIZE 8192U
+#define KERNEL_CONTEXT_RFLAGS_IF (1ULL << 9)
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char execution_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+struct kernel_context_execution_probe {
+    uintptr_t stack_bottom;
+    uintptr_t stack_top;
+    uintptr_t observed_rsp;
+    unsigned int calls;
+};
+
+static uint64_t kernel_context_test_rflags(void)
+{
+    uint64_t flags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(flags)
+        :
+        : "memory"
+    );
+
+    return flags;
+}
+
+static uintptr_t kernel_context_test_rsp(void)
+{
+    uintptr_t rsp;
+
+    __asm__ volatile (
+        "movq %%rsp, %0"
+        : "=r"(rsp)
+        :
+        : "memory"
+    );
+
+    return rsp;
+}
 
 static void kernel_context_test_entry(void *argument)
 {
@@ -392,6 +436,109 @@ static void kernel_context_test_supervisor(void)
     }
 }
 
+static void kernel_context_test_execution_entry(void *argument)
+{
+    struct kernel_context_execution_probe *probe = argument;
+
+    if (probe == NULL) {
+        kernel_panic("Kernel context execution argument missing");
+    }
+
+    uintptr_t rsp = kernel_context_test_rsp();
+
+    if (
+        rsp < probe->stack_bottom ||
+        rsp >= probe->stack_top
+    ) {
+        kernel_panic("Kernel context used incorrect execution stack");
+    }
+
+    if (
+        (kernel_context_test_rflags() &
+            KERNEL_CONTEXT_RFLAGS_IF) != 0
+    ) {
+        kernel_panic("Kernel context enabled interrupts");
+    }
+
+    probe->observed_rsp = rsp;
+    ++probe->calls;
+}
+
+static void kernel_context_test_execution(void)
+{
+    struct kernel_context context;
+    struct kernel_switch_context supervisor = {0};
+
+    struct kernel_context_execution_probe probe = {
+        .stack_bottom = (uintptr_t) execution_stack,
+        .stack_top =
+            (uintptr_t) execution_stack +
+            sizeof(execution_stack),
+    };
+
+    for (size_t index = 0; index < 16U; ++index) {
+        execution_stack[index] = 0xA5;
+    }
+
+    if (
+        !kernel_context_init(
+            &context,
+            execution_stack,
+            sizeof(execution_stack),
+            kernel_context_test_execution_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &context,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &context,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel context execution setup failed");
+    }
+
+    uintptr_t original_rsp = kernel_context_test_rsp();
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    /*
+     * The test owns this transition until a lifecycle
+     * API has been introduced.
+     */
+    context.state = KERNEL_CONTEXT_RUNNING;
+
+    kernel_context_switch(
+        &supervisor,
+        &context.cpu
+    );
+
+    uintptr_t restored_rsp = kernel_context_test_rsp();
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        context.state != KERNEL_CONTEXT_TERMINATED ||
+        probe.calls != 1U ||
+        probe.observed_rsp < probe.stack_bottom ||
+        probe.observed_rsp >= probe.stack_top ||
+        restored_rsp != original_rsp
+    ) {
+        kernel_panic("Kernel context execution lifecycle failed");
+    }
+
+    for (size_t index = 0; index < 16U; ++index) {
+        if (execution_stack[index] != 0xA5) {
+            kernel_panic("Kernel context execution stack overflow");
+        }
+    }
+}
+
 void kernel_context_test_run(void)
 {
     kernel_context_test_valid();
@@ -405,6 +552,8 @@ void kernel_context_test_run(void)
     kernel_context_test_prepare_bounds();
 
     kernel_context_test_supervisor();
+
+    kernel_context_test_execution();
 
     diagnostics_write(
         "[kernel-context] Descriptor tests passed\n"
