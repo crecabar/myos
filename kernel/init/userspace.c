@@ -75,6 +75,8 @@ bool userspace_init_start(
             root,
         .namespace_mounts =
             mounts,
+        .provision_standard_descriptors =
+            true,
     };
 
     struct process_instance *instance =

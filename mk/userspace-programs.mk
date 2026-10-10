@@ -4,7 +4,7 @@
 
 USER_PROGRAM_BUILD_DIR := $(BUILD_DIR)/user-programs
 
-USER_PROGRAM_NAMES := true false
+USER_PROGRAM_NAMES := true false echo
 
 USER_PROGRAM_OBJECTS := $(addprefix $(USER_PROGRAM_BUILD_DIR)/,$(addsuffix .o,$(USER_PROGRAM_NAMES)))
 

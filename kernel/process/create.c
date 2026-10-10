@@ -12,6 +12,7 @@
 
 #include "cwd.h"
 #include "fd_table.h"
+#include "file.h"
 #include "namespace.h"
 #include "pid.h"
 
@@ -34,6 +35,10 @@ static struct process_instance *process_create_elf64_internal(
 static void process_create_rollback_prepublication(
     struct process_instance *instance,
     uint64_t id
+);
+
+static bool process_create_standard_descriptors(
+    struct process_instance *instance
 );
 
 struct process_instance *process_create_elf64(
@@ -253,6 +258,27 @@ static struct process_instance *process_create_elf64_internal(
 
             return NULL;
         }
+
+        /*
+         * Standard descriptors belong to the initial process
+         * environment and must exist before scheduler publication.
+         *
+         * Processes created without an initial namespace retain
+         * their existing descriptor initialization contract.
+         */
+        if (
+            initial_vfs->provision_standard_descriptors &&
+            !process_create_standard_descriptors(
+                instance
+            )
+        ) {
+            process_create_rollback_prepublication(
+                instance,
+                id
+            );
+
+            return NULL;
+        }
     }
 
     if (!scheduler_add(
@@ -307,4 +333,62 @@ static void process_create_rollback_prepublication(
             "Unable to roll back unpublished process identifier"
         );
     }
+}
+
+static bool process_create_standard_descriptors(
+    struct process_instance *instance)
+{
+    if (instance == NULL) {
+        return false;
+    }
+
+    struct {
+        const char *path;
+        size_t path_length;
+        enum vfs_open_access access;
+    } standard_descriptors[] = {
+        {
+            "/dev/null",
+            sizeof("/dev/null") - 1U,
+            VFS_OPEN_ACCESS_READ,
+        },
+        {
+            "/dev/console",
+            sizeof("/dev/console") - 1U,
+            VFS_OPEN_ACCESS_WRITE,
+        },
+        {
+            "/dev/console",
+            sizeof("/dev/console") - 1U,
+            VFS_OPEN_ACCESS_WRITE,
+        },
+    };
+
+    for (
+        size_t descriptor = 0;
+        descriptor <
+            sizeof(standard_descriptors) /
+            sizeof(standard_descriptors[0]);
+        ++descriptor
+    ) {
+        size_t installed_descriptor = SIZE_MAX;
+
+        enum process_file_result result =
+            process_file_open(
+                instance,
+                standard_descriptors[descriptor].path,
+                standard_descriptors[descriptor].path_length,
+                standard_descriptors[descriptor].access,
+                &installed_descriptor
+            );
+
+        if (
+            result != PROCESS_FILE_RESULT_SUCCESS ||
+            installed_descriptor != descriptor
+        ) {
+            return false;
+        }
+    }
+
+    return true;
 }

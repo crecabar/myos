@@ -14,6 +14,7 @@
 #include "../../diagnostics/diagnostics.h"
 #include "../../process/create.h"
 #include "../../process/executable.h"
+#include "../../process/fd_table.h"
 #include "../../process/instance.h"
 #include "../../process/process.h"
 #include "../../scheduler/scheduler.h"
@@ -27,19 +28,42 @@ struct command_test_case {
     const char *path;
     size_t path_length;
     uint64_t expected_exit_status;
+
+    size_t argument_count;
+    const char *const *arguments;
+};
+
+static const char *const command_test_echo_arguments[] = {
+    "/bin/echo",
+    "Hola",
+    "desde",
+    "MyOS",
 };
 
 static const struct command_test_case
 command_test_cases[] = {
     {
-        "/bin/true",
-        sizeof("/bin/true") - 1U,
-        0,
+        .path = "/bin/true",
+        .path_length = sizeof("/bin/true") - 1U,
+        .expected_exit_status = 0,
+        .argument_count = 0,
+        .arguments = NULL,
     },
     {
-        "/bin/false",
-        sizeof("/bin/false") - 1U,
-        1,
+        .path = "/bin/false",
+        .path_length = sizeof("/bin/false") - 1U,
+        .expected_exit_status = 1,
+        .argument_count = 0,
+        .arguments = NULL,
+    },
+    {
+        .path = "/bin/echo",
+        .path_length = sizeof("/bin/echo") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_echo_arguments) /
+            sizeof(command_test_echo_arguments[0]),
+        .arguments = command_test_echo_arguments,
     },
 };
 
@@ -203,17 +227,26 @@ static void command_test_start_current(void)
     struct process_initial_vfs initial_vfs = {
         .namespace_root = root,
         .namespace_mounts = command_test_mounts,
+        .provision_standard_descriptors = true,
     };
 
-    const char *argv[] = {
+    const char *const default_argv[] = {
         test_case->path,
     };
+
+    size_t argc = 1U;
+    const char *const *argv = default_argv;
+
+    if (test_case->arguments != NULL) {
+        argc = test_case->argument_count;
+        argv = test_case->arguments;
+    }
 
     command_test_instance =
         process_create_elf64_with_vfs(
             &executable.image,
             &initial_vfs,
-            1,
+            argc,
             argv,
             0,
             NULL
@@ -232,6 +265,36 @@ static void command_test_start_current(void)
     }
 
     command_test_pid = command_test_instance->process.id;
+
+    /*
+     * The initial process environment must provide the
+     * conventional descriptors before its first instruction.
+     */
+    struct process_fd_table *descriptors =
+        &command_test_instance->file_descriptors;
+
+    struct vfs_file *stdin_file =
+        process_fd_table_get(descriptors, 0);
+
+    struct vfs_file *stdout_file =
+        process_fd_table_get(descriptors, 1);
+
+    struct vfs_file *stderr_file =
+        process_fd_table_get(descriptors, 2);
+
+    if (
+        stdin_file == NULL ||
+        stdout_file == NULL ||
+        stderr_file == NULL ||
+        stdin_file->access != VFS_OPEN_ACCESS_READ ||
+        stdout_file->access != VFS_OPEN_ACCESS_WRITE ||
+        stderr_file->access != VFS_OPEN_ACCESS_WRITE ||
+        stdout_file == stderr_file
+    ) {
+        kernel_panic(
+            "Userspace command received invalid standard descriptors"
+        );
+    }
 
     if (!process_executable_close(&executable)) {
         kernel_panic(
