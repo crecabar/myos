@@ -244,17 +244,60 @@ static void kernel_heap_test_reuse(void)
 
 static void kernel_heap_test_coalescing(void)
 {
-    void *first =
-        kmalloc(256);
+    /*
+     * Fill existing heap space until a new backing page is
+     * allocated. The first allocation on that page becomes
+     * the beginning of our controlled coalescing fixture.
+     *
+     * Keep all intermediate allocations live so first-fit
+     * cannot reuse their space.
+     */
+    void *allocations[64];
+    size_t allocation_count = 0;
 
-    void *second =
-        kmalloc(256);
+    uint64_t frames_before =
+        physical_free_frame_count();
 
-    void *guard =
-        kmalloc(256);
+    void *first = NULL;
+
+    while (
+        allocation_count <
+        sizeof(allocations) / sizeof(allocations[0])
+    ) {
+        void *allocation = kmalloc(256);
+
+        if (allocation == NULL) {
+            kernel_panic(
+                "Kernel heap coalescing fixture allocation failed"
+            );
+        }
+
+        allocations[allocation_count++] = allocation;
+
+        if (
+            physical_free_frame_count() <
+            frames_before
+        ) {
+            first = allocation;
+            break;
+        }
+    }
+
+    if (first == NULL) {
+        kernel_panic(
+            "Kernel heap coalescing fixture did not grow"
+        );
+    }
+
+    /*
+     * No previously existing free block could satisfy a
+     * 256-byte allocation when the new page was created.
+     * The following allocations therefore use that page.
+     */
+    void *second = kmalloc(256);
+    void *guard = kmalloc(256);
 
     if (
-        first == NULL ||
         second == NULL ||
         guard == NULL
     ) {
@@ -263,11 +306,14 @@ static void kernel_heap_test_coalescing(void)
         );
     }
 
+    /*
+     * Keep guard allocated to prevent the released pair
+     * from merging with the remaining free space.
+     */
     kfree(first);
     kfree(second);
 
-    void *merged =
-        kmalloc(400);
+    void *merged = kmalloc(400);
 
     if (merged == NULL) {
         kernel_panic(
@@ -283,6 +329,19 @@ static void kernel_heap_test_coalescing(void)
 
     kfree(merged);
     kfree(guard);
+
+    /*
+     * The first allocation was already released as part of
+     * the coalescing test. Release only the preceding filler
+     * allocations.
+     */
+    while (allocation_count > 1) {
+        --allocation_count;
+
+        kfree(
+            allocations[allocation_count - 1]
+        );
+    }
 }
 
 static void kernel_heap_test_lifetime_statistics(void)
