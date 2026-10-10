@@ -73,6 +73,7 @@
 #include "tests/kernel_context_test.h"
 #include "tests/kernel_heap_test.h"
 #include "tests/kernel_stack_test.h"
+#include "tests/kernel_switch_test.h"
 #include "tests/process_cwd_test.h"
 #include "tests/process_elf_lifecycle_test.h"
 #include "tests/process_executable_test.h"
@@ -1042,6 +1043,7 @@ static _Noreturn void kernel_main_continue(void)
         boot_config_test_run();
         kernel_context_test_run();
         kernel_stack_test_run();
+        kernel_switch_test_run();
         device_test_run();
         character_device_test_run();
         block_device_test_run();

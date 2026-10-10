@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
+
+#ifndef MYOS_ARCH_X86_64_KERNEL_SWITCH_H
+#define MYOS_ARCH_X86_64_KERNEL_SWITCH_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+/*
+ * Cooperative Ring 0 execution context.
+ *
+ * RSP identifies a suspended call stack whose next
+ * instruction is reached through RET.
+ *
+ * This is not an interrupt frame.
+ */
+struct kernel_switch_context {
+    uint64_t rsp;
+    uint64_t rbx;
+    uint64_t rbp;
+    uint64_t r12;
+    uint64_t r13;
+    uint64_t r14;
+    uint64_t r15;
+};
+
+_Static_assert(
+    sizeof(struct kernel_switch_context) == 56,
+    "Kernel switch context layout mismatch"
+);
+
+_Static_assert(
+    offsetof(struct kernel_switch_context, rsp) == 0,
+    "Kernel switch RSP offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct kernel_switch_context, rbx) == 8,
+    "Kernel switch RBX offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct kernel_switch_context, rbp) == 16,
+    "Kernel switch RBP offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct kernel_switch_context, r12) == 24,
+    "Kernel switch R12 offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct kernel_switch_context, r13) == 32,
+    "Kernel switch R13 offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct kernel_switch_context, r14) == 40,
+    "Kernel switch R14 offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct kernel_switch_context, r15) == 48,
+    "Kernel switch R15 offset mismatch"
+);
+
+/**
+ * Saves the current cooperative context and resumes another.
+ *
+ * Both contexts must belong to the same CPU and kernel
+ * address space. The target must already have a valid
+ * resumable stack frame.
+ *
+ * Preconditions:
+ * - Ring 0 execution.
+ * - Maskable interrupts disabled.
+ * - No concurrent access to either descriptor.
+ * - No blocking or preemption inside the transition.
+ *
+ * Returns when a subsequent switch resumes the caller.
+ */
+void kernel_context_switch(
+    struct kernel_switch_context *current,
+    const struct kernel_switch_context *next
+);
+
+#endif
