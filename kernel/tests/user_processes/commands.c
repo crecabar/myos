@@ -160,6 +160,19 @@ command_test_cases[] = {
             sizeof(command_test_echo_arguments) /
             sizeof(command_test_echo_arguments[0]),
         .arguments = command_test_echo_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "Hola desde MyOS\n",
+        .expected_stdout_length =
+            sizeof("Hola desde MyOS\n") - 1U,
+    },
+    {
+        .name = "echo-empty",
+        .path = "/bin/echo",
+        .path_length = sizeof("/bin/echo") - 1U,
+        .expected_exit_status = 0,
+        .capture_stdout = true,
+        .expected_stdout = "\n",
+        .expected_stdout_length = sizeof("\n") - 1U,
     },
     {
         .name = "pwd-root",
