@@ -151,28 +151,40 @@ bool kernel_context_yield_wait(struct kernel_context *context)
         return false;
     }
 
+    uintptr_t current_rsp;
+
+    __asm__ volatile (
+        "movq %%rsp, %0"
+        : "=r"(current_rsp)
+        :
+        : "memory"
+    );
+
+    /*
+     * Only the worker executing on its own stack may
+     * suspend this context.
+     */
+    if (!kernel_context_contains_stack_pointer(
+        context,
+        current_rsp
+    )) {
+        return false;
+    }
+
     if (!kernel_context_wait(context)) {
         return false;
     }
 
-    /*
-     * The worker continues here only after the supervisor
-     * has made it READY and subsequently RUNNING again.
-     */
     kernel_context_switch(
         &context->cpu,
         context->supervisor
     );
 
     /*
-     * A resumed worker must have been explicitly selected
-     * through kernel_context_start().
+     * A resumed worker must have been explicitly
+     * transitioned back to RUNNING.
      */
     if (context->state != KERNEL_CONTEXT_RUNNING) {
-        /*
-         * A context-switch contract violation cannot safely
-         * be reported as an ordinary recoverable error.
-         */
         kernel_panic("Kernel context resumed in invalid state");
     }
 
@@ -205,4 +217,22 @@ bool kernel_context_terminate(struct kernel_context *context)
     context->state = KERNEL_CONTEXT_TERMINATED;
 
     return true;
+}
+
+bool kernel_context_contains_stack_pointer(
+    const struct kernel_context *context,
+    uintptr_t stack_pointer)
+{
+    if (
+        context == NULL ||
+        context->stack_bottom == 0 ||
+        context->stack_top <= context->stack_bottom
+    ) {
+        return false;
+    }
+
+    return (
+        stack_pointer >= context->stack_bottom &&
+        stack_pointer < context->stack_top
+    );
 }

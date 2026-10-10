@@ -27,6 +27,20 @@ unsigned char execution_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char yield_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char isolation_stack_a[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char isolation_stack_b[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+struct kernel_context_isolation_probe {
+    struct kernel_context *self;
+    struct kernel_context *other;
+    unsigned int entry_calls;
+    unsigned int stage;
+    bool wrong_yield_rejected;
+};
+
 struct kernel_context_yield_probe {
     struct kernel_context *context;
     uintptr_t stack_bottom;
@@ -841,6 +855,292 @@ static void kernel_context_test_yield_resume(void)
     }
 }
 
+static void kernel_context_test_stack_ownership(void)
+{
+    struct kernel_context context;
+
+    if (!kernel_context_init(
+        &context,
+        test_stack,
+        sizeof(test_stack),
+        kernel_context_test_entry,
+        NULL
+    )) {
+        kernel_panic("Kernel stack ownership setup failed");
+    }
+
+    uintptr_t bottom = context.stack_bottom;
+    uintptr_t top = context.stack_top;
+
+    if (
+        !kernel_context_contains_stack_pointer(
+            &context, bottom
+        ) ||
+        !kernel_context_contains_stack_pointer(
+            &context, top - 1U
+        ) ||
+        kernel_context_contains_stack_pointer(
+            &context, bottom - 1U
+        ) ||
+        kernel_context_contains_stack_pointer(
+            &context, top
+        ) ||
+        kernel_context_contains_stack_pointer(
+            NULL, bottom
+        )
+    ) {
+        kernel_panic("Kernel stack ownership contract failed");
+    }
+
+    struct kernel_context invalid = {0};
+
+    if (kernel_context_contains_stack_pointer(
+        &invalid, bottom
+    )) {
+        kernel_panic("Invalid context accepted stack pointer");
+    }
+}
+
+static void kernel_context_test_yield_wrong_stack(void)
+{
+    struct kernel_context context;
+    struct kernel_switch_context supervisor = {0};
+
+    if (
+        !kernel_context_init(
+            &context,
+            yield_stack,
+            sizeof(yield_stack),
+            kernel_context_test_entry,
+            NULL
+        ) ||
+        !kernel_context_prepare(
+            &context,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &context,
+            &supervisor
+        ) ||
+        !kernel_context_start(&context)
+    ) {
+        kernel_panic("Kernel wrong-stack yield setup failed");
+    }
+
+    uintptr_t saved_rsp = context.cpu.rsp;
+
+    /*
+     * We are executing on the test supervisor's stack,
+     * not on yield_stack.
+     *
+     * The worker is logically RUNNING, but this caller
+     * must not be allowed to suspend its descriptor.
+     */
+    if (
+        kernel_context_yield_wait(&context) ||
+        context.state != KERNEL_CONTEXT_RUNNING ||
+        context.cpu.rsp != saved_rsp
+    ) {
+        kernel_panic("Kernel context accepted wrong-stack yield");
+    }
+
+    /*
+     * Restore the descriptor's logical state.
+     * No actual execution occurred.
+     */
+    if (!kernel_context_terminate(&context)) {
+        kernel_panic("Kernel wrong-stack test cleanup failed");
+    }
+}
+
+static void kernel_context_test_isolation_entry_a(void *argument)
+{
+    struct kernel_context_isolation_probe *probe = argument;
+
+    if (
+        probe == NULL ||
+        probe->self == NULL ||
+        probe->other == NULL
+    ) {
+        kernel_panic("Kernel isolation A argument invalid");
+    }
+
+    ++probe->entry_calls;
+
+    if (probe->stage != 0U) {
+        kernel_panic("Kernel isolation A restarted unexpectedly");
+    }
+
+    uintptr_t other_rsp = probe->other->cpu.rsp;
+    enum kernel_context_state other_state = probe->other->state;
+
+    /*
+     * Worker A is executing on isolation_stack_a.
+     * It must not suspend worker B's descriptor.
+     */
+    if (
+        kernel_context_yield_wait(probe->other) ||
+        probe->other->state != other_state ||
+        probe->other->cpu.rsp != other_rsp
+    ) {
+        kernel_panic("Kernel isolation accepted foreign context yield");
+    }
+
+    probe->wrong_yield_rejected = true;
+    probe->stage = 1U;
+
+    if (!kernel_context_yield_wait(probe->self)) {
+        kernel_panic("Kernel isolation A suspension failed");
+    }
+
+    if (probe->stage != 2U || probe->entry_calls != 1U) {
+        kernel_panic("Kernel isolation A continuation invalid");
+    }
+
+    probe->stage = 3U;
+}
+
+static void kernel_context_test_isolation_entry_b(void *argument)
+{
+    struct kernel_context_isolation_probe *probe = argument;
+
+    if (
+        probe == NULL ||
+        probe->stage != 0U
+    ) {
+        kernel_panic("Kernel isolation B argument invalid");
+    }
+
+    ++probe->entry_calls;
+    probe->stage = 1U;
+}
+
+static void kernel_context_test_worker_isolation(void)
+{
+    struct kernel_context context_a;
+    struct kernel_context context_b;
+    struct kernel_switch_context supervisor = {0};
+
+    struct kernel_context_isolation_probe probe_a = {
+        .self = &context_a,
+        .other = &context_b,
+    };
+
+    struct kernel_context_isolation_probe probe_b = {
+        .self = &context_b,
+        .other = &context_a,
+    };
+
+    if (
+        !kernel_context_init(
+            &context_a,
+            isolation_stack_a,
+            sizeof(isolation_stack_a),
+            kernel_context_test_isolation_entry_a,
+            &probe_a
+        ) ||
+        !kernel_context_init(
+            &context_b,
+            isolation_stack_b,
+            sizeof(isolation_stack_b),
+            kernel_context_test_isolation_entry_b,
+            &probe_b
+        ) ||
+        !kernel_context_prepare(
+            &context_a,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_prepare(
+            &context_b,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &context_a, &supervisor
+        ) ||
+        !kernel_context_bind_supervisor(
+            &context_b, &supervisor
+        )
+    ) {
+        kernel_panic("Kernel worker isolation setup failed");
+    }
+
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    /*
+     * Both descriptors are logically RUNNING for this
+     * negative test. Only A executes initially.
+     *
+     * The deliberate state arrangement tests stack
+     * ownership independently of the scheduling policy.
+     */
+    if (
+        !kernel_context_start(&context_b) ||
+        !kernel_context_start(&context_a)
+    ) {
+        kernel_panic("Kernel worker isolation start failed");
+    }
+
+    /*
+     * A rejects a request to suspend B, then suspends
+     * itself and returns to the supervisor.
+     */
+    kernel_context_switch(&supervisor, &context_a.cpu);
+
+    if (
+        context_a.state != KERNEL_CONTEXT_WAITING ||
+        context_b.state != KERNEL_CONTEXT_RUNNING ||
+        !probe_a.wrong_yield_rejected ||
+        probe_a.stage != 1U ||
+        probe_a.entry_calls != 1U ||
+        probe_b.entry_calls != 0U
+    ) {
+        kernel_panic("Kernel worker isolation first dispatch failed");
+    }
+
+    /*
+     * B's initial frame must remain executable.
+     */
+    kernel_context_switch(&supervisor, &context_b.cpu);
+
+    if (
+        context_b.state != KERNEL_CONTEXT_TERMINATED ||
+        probe_b.entry_calls != 1U ||
+        probe_b.stage != 1U
+    ) {
+        kernel_panic("Kernel worker isolation B completion failed");
+    }
+
+    probe_a.stage = 2U;
+
+    if (
+        !kernel_context_wake(&context_a) ||
+        !kernel_context_start(&context_a)
+    ) {
+        kernel_panic("Kernel worker isolation A wake failed");
+    }
+
+    /*
+     * A resumes immediately after its own yield.
+     */
+    kernel_context_switch(&supervisor, &context_a.cpu);
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        context_a.state != KERNEL_CONTEXT_TERMINATED ||
+        context_b.state != KERNEL_CONTEXT_TERMINATED ||
+        probe_a.stage != 3U ||
+        probe_a.entry_calls != 1U ||
+        probe_b.entry_calls != 1U
+    ) {
+        kernel_panic("Kernel worker isolation lifecycle failed");
+    }
+}
+
 void kernel_context_test_run(void)
 {
     kernel_context_test_valid();
@@ -858,6 +1158,10 @@ void kernel_context_test_run(void)
     kernel_context_test_execution();
 
     kernel_context_test_yield_resume();
+    kernel_context_test_yield_wrong_stack();
+    kernel_context_test_worker_isolation();
+
+    kernel_context_test_stack_ownership();
 
     kernel_context_test_lifecycle();
     kernel_context_test_lifecycle_invalid();

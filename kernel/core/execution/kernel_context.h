@@ -101,6 +101,17 @@ bool kernel_context_wake(struct kernel_context *context);
 bool kernel_context_terminate(struct kernel_context *context);
 
 /**
+ * Checks whether a stack pointer belongs to the context stack.
+ *
+ * This function does not determine whether the context is
+ * currently executing.
+ */
+bool kernel_context_contains_stack_pointer(
+    const struct kernel_context *context,
+    uintptr_t stack_pointer
+);
+
+/**
  * Architecture bootstrap entry. Never returns.
  */
 _Noreturn void kernel_context_bootstrap(void);
