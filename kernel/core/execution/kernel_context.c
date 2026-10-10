@@ -44,8 +44,64 @@ bool kernel_context_init(
         .stack_top = top,
         .entry = entry,
         .argument = argument,
+        .cpu = {0},
+        .supervisor = NULL,
         .state = KERNEL_CONTEXT_READY,
+        .prepared = false,
     };
+
+    return true;
+}
+
+bool kernel_context_prepare(
+    struct kernel_context *context,
+    void (*trampoline)(void))
+{
+    if (
+        context == NULL ||
+        trampoline == NULL ||
+        context->state != KERNEL_CONTEXT_READY ||
+        context->prepared
+    ) {
+        return false;
+    }
+
+    if (!kernel_switch_prepare(
+        &context->cpu,
+        context->stack_bottom,
+        context->stack_top,
+        trampoline
+    )) {
+        return false;
+    }
+
+    /*
+     * R12 transports the descriptor to the first-entry
+     * trampoline. It is restored by kernel_context_switch().
+     */
+    context->cpu.r12 = (uint64_t) (uintptr_t) context;
+
+    context->prepared = true;
+
+    return true;
+}
+
+bool kernel_context_bind_supervisor(
+    struct kernel_context *context,
+    struct kernel_switch_context *supervisor)
+{
+    if (
+        context == NULL ||
+        supervisor == NULL ||
+        !context->prepared ||
+        context->state != KERNEL_CONTEXT_READY ||
+        context->supervisor != NULL ||
+        supervisor == &context->cpu
+    ) {
+        return false;
+    }
+
+    context->supervisor = supervisor;
 
     return true;
 }

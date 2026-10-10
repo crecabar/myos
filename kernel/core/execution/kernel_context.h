@@ -6,6 +6,8 @@
 #ifndef MYOS_CORE_EXECUTION_KERNEL_CONTEXT_H
 #define MYOS_CORE_EXECUTION_KERNEL_CONTEXT_H
 
+#include "../../arch/x86_64/kernel_switch.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -18,6 +20,7 @@ enum kernel_context_state {
     KERNEL_CONTEXT_READY,
     KERNEL_CONTEXT_RUNNING,
     KERNEL_CONTEXT_WAITING,
+    KERNEL_CONTEXT_TERMINATED,
 };
 
 typedef void (*kernel_context_entry_fn)(void *argument);
@@ -29,7 +32,11 @@ struct kernel_context {
     kernel_context_entry_fn entry;
     void *argument;
 
+    struct kernel_switch_context cpu;
+    struct kernel_switch_context *supervisor;
+
     enum kernel_context_state state;
+    bool prepared;
 };
 
 bool kernel_context_init(
@@ -39,5 +46,28 @@ bool kernel_context_init(
     kernel_context_entry_fn entry,
     void *argument
 );
+
+bool kernel_context_prepare(
+    struct kernel_context *context,
+    void (*trampoline)(void)
+);
+
+/**
+ * Binds a prepared kernel context to its supervisor.
+ *
+ * The supervisor owns its CPU context storage and must keep it
+ * alive until the worker terminates.
+ *
+ * Binding does not switch CPU contexts or change execution state.
+ */
+bool kernel_context_bind_supervisor(
+    struct kernel_context *context,
+    struct kernel_switch_context *supervisor
+);
+
+/**
+ * Architecture bootstrap entry. Never returns.
+ */
+_Noreturn void kernel_context_bootstrap(void);
 
 #endif

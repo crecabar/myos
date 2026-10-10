@@ -6,6 +6,7 @@
 #ifndef MYOS_ARCH_X86_64_KERNEL_SWITCH_H
 #define MYOS_ARCH_X86_64_KERNEL_SWITCH_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -85,6 +86,21 @@ _Static_assert(
 void kernel_context_switch(
     struct kernel_switch_context *current,
     const struct kernel_switch_context *next
+);
+
+/**
+ * Prepares an initial cooperative Ring 0 stack frame.
+ *
+ * entry must not return. The initial frame is consumed
+ * by kernel_context_switch() through RET.
+ *
+ * No CPU context switch is performed.
+ */
+bool kernel_switch_prepare(
+    struct kernel_switch_context *cpu,
+    uintptr_t stack_bottom,
+    uintptr_t stack_top,
+    void (*entry)(void)
 );
 
 #endif
