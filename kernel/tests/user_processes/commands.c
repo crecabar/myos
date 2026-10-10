@@ -39,6 +39,10 @@ struct command_test_case {
 
     const char *expected_stdout;
     size_t expected_stdout_length;
+
+    const char *stdin_data;
+    size_t stdin_length;
+    size_t minimum_stdin_reads;
 };
 
 static const char *const command_test_echo_arguments[] = {
@@ -47,6 +51,29 @@ static const char *const command_test_echo_arguments[] = {
     "desde",
     "MyOS",
 };
+
+static const char *const
+command_test_cat_file_arguments[] = {
+    "/bin/cat",
+    "/cat-fixture.txt",
+};
+
+static const char *const
+command_test_cat_missing_arguments[] = {
+    "/bin/cat",
+    "/missing-cat-file",
+};
+
+#define COMMAND_CAT_LARGE_LENGTH 2305U
+
+static const char command_cat_binary_input[] = {
+    'H', 'o', 'l', 'a', '\n',
+    'M', 'y', 'O', 'S', '\0', '!', '\n',
+};
+
+static char command_cat_large_input[
+    COMMAND_CAT_LARGE_LENGTH
+];
 
 static const struct command_test_case
 command_test_cases[] = {
@@ -95,12 +122,73 @@ command_test_cases[] = {
         .expected_stdout = "/bin\n",
         .expected_stdout_length = sizeof("/bin\n") - 1U,
     },
+    {
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 0,
+        .argument_count = 0,
+        .arguments = NULL,
+        .capture_stdout = true,
+        .expected_stdout = "",
+        .expected_stdout_length = 0U,
+    },
+    {
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 0,
+        .capture_stdout = true,
+        .stdin_data = command_cat_binary_input,
+        .stdin_length = sizeof(command_cat_binary_input),
+        .minimum_stdin_reads = 2U,
+        .expected_stdout = command_cat_binary_input,
+        .expected_stdout_length =
+            sizeof(command_cat_binary_input),
+    },
+    {
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 0,
+        .capture_stdout = true,
+        .stdin_data = command_cat_large_input,
+        .stdin_length = sizeof(command_cat_large_input),
+        .minimum_stdin_reads = 10U,
+        .expected_stdout = command_cat_large_input,
+        .expected_stdout_length =
+            sizeof(command_cat_large_input),
+    },
+    {
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 0,
+        .argument_count =
+            sizeof(command_test_cat_file_arguments) /
+            sizeof(command_test_cat_file_arguments[0]),
+        .arguments = command_test_cat_file_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "MyOS cat fixture\n",
+        .expected_stdout_length =
+            sizeof("MyOS cat fixture\n") - 1U,
+    },
+    {
+        .path = "/bin/cat",
+        .path_length = sizeof("/bin/cat") - 1U,
+        .expected_exit_status = 1,
+        .argument_count =
+            sizeof(command_test_cat_missing_arguments) /
+            sizeof(command_test_cat_missing_arguments[0]),
+        .arguments = command_test_cat_missing_arguments,
+        .capture_stdout = true,
+        .expected_stdout = "",
+        .expected_stdout_length = 0U,
+    },
 };
 
 #define COMMAND_TEST_COUNT \
     (sizeof(command_test_cases) / sizeof(command_test_cases[0]))
 
-#define COMMAND_CAPTURE_CAPACITY 256U
+static size_t command_test_index;
+
+#define COMMAND_CAPTURE_CAPACITY 4096U
 
 static char command_capture_buffer[
     COMMAND_CAPTURE_CAPACITY
@@ -130,6 +218,10 @@ static enum vfs_io_result command_capture_write(
         return VFS_IO_RESULT_INVALID_ARGUMENT;
     }
 
+    if (command_capture_length > COMMAND_CAPTURE_CAPACITY) {
+        return VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
     if (
         offset != command_capture_length ||
         size > COMMAND_CAPTURE_CAPACITY - command_capture_length
@@ -156,13 +248,80 @@ command_capture_operations = {
     .write = command_capture_write,
 };
 
+#define COMMAND_INPUT_READ_LIMIT 257U
+
+static bool command_input_active;
+
+static size_t command_input_read_calls;
+
+static struct vfs_node command_input_node;
+
+static struct vfs_file command_input_file;
+
+static enum vfs_io_result command_input_read(
+    struct vfs_file *file,
+    uint64_t offset,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read)
+{
+    const struct command_test_case *test_case =
+        &command_test_cases[command_test_index];
+
+    if (
+        !command_input_active ||
+        file != &command_input_file ||
+        bytes_read == NULL ||
+        (size != 0 && buffer == NULL) ||
+        test_case->stdin_data == NULL
+    ) {
+        return VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (offset > test_case->stdin_length) {
+        return VFS_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    ++command_input_read_calls;
+
+    size_t available =
+        test_case->stdin_length - (size_t) offset;
+
+    size_t length = size;
+
+    if (length > available) {
+        length = available;
+    }
+
+    if (length > COMMAND_INPUT_READ_LIMIT) {
+        length = COMMAND_INPUT_READ_LIMIT;
+    }
+
+    unsigned char *destination = buffer;
+
+    for (size_t index = 0; index < length; ++index) {
+        destination[index] =
+            (unsigned char)
+                test_case->stdin_data[
+                    (size_t) offset + index
+                ];
+    }
+
+    *bytes_read = length;
+
+    return VFS_IO_RESULT_SUCCESS;
+}
+
+static const struct vfs_file_operations
+command_input_operations = {
+    .read = command_input_read,
+};
+
 static struct process_instance *
 command_test_instance;
 
 static const struct vfs_mount_table *
 command_test_mounts;
-
-static size_t command_test_index;
 
 static size_t
 command_test_scheduler_count_baseline;
@@ -177,6 +336,12 @@ static void command_test_install_capture(void);
 static void command_test_validate_capture(void);
 
 static void command_test_release_capture(void);
+
+static void command_test_install_input(void);
+
+static void command_test_validate_input(void);
+
+static void command_test_release_input(void);
 
 void user_process_commands_test_prepare(
     const struct vfs_mount_table *mounts)
@@ -198,6 +363,15 @@ void user_process_commands_test_prepare(
 
     command_test_scheduler_count_baseline =
         scheduler_test_process_count();
+
+    for (
+        size_t index = 0;
+        index < sizeof(command_cat_large_input);
+        ++index
+    ) {
+        command_cat_large_input[index] =
+            (char) ((index * 37U + 11U) & 0x7FU);
+    }
 
     command_test_start_current();
 }
@@ -243,6 +417,10 @@ bool user_process_commands_test_terminated(
         command_test_validate_capture();
     }
 
+    if (test_case->stdin_data != NULL) {
+        command_test_validate_input();
+    }
+
     if (!process_release_terminated(
         command_test_instance
     )) {
@@ -253,6 +431,10 @@ bool user_process_commands_test_terminated(
 
     if (test_case->capture_stdout) {
         command_test_release_capture();
+    }
+
+    if (test_case->stdin_data != NULL) {
+        command_test_release_input();
     }
 
     command_test_instance = NULL;
@@ -418,6 +600,10 @@ static void command_test_start_current(void)
 
     if (test_case->capture_stdout) {
         command_test_install_capture();
+    }
+
+    if (test_case->stdin_data != NULL) {
+        command_test_install_input();
     }
 
     if (!process_executable_close(&executable)) {
@@ -595,4 +781,147 @@ static void command_test_release_capture(void)
 
     command_capture_active = false;
     command_capture_length = 0;
+}
+
+static void command_test_install_input(void)
+{
+    const struct command_test_case *test_case =
+        &command_test_cases[command_test_index];
+
+    if (
+        command_test_instance == NULL ||
+        command_input_active ||
+        test_case->stdin_data == NULL ||
+        test_case->stdin_length == 0U
+    ) {
+        kernel_panic(
+            "Invalid command stdin fixture state"
+        );
+    }
+
+    command_input_read_calls = 0;
+
+    if (!vfs_node_initialize(
+        &command_input_node,
+        VFS_NODE_TYPE_REGULAR_FILE,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Unable to initialize stdin fixture node"
+        );
+    }
+
+    if (!vfs_file_initialize(
+        &command_input_file,
+        &command_input_node,
+        VFS_OPEN_ACCESS_READ,
+        &command_input_operations,
+        NULL
+    )) {
+        kernel_panic(
+            "Unable to initialize stdin fixture file"
+        );
+    }
+
+    struct process_fd_table *descriptors =
+        &command_test_instance->file_descriptors;
+
+    if (!process_fd_table_close(
+        descriptors,
+        0U
+    )) {
+        kernel_panic(
+            "Unable to close original stdin descriptor"
+        );
+    }
+
+    command_input_active = true;
+
+    if (!process_fd_table_install_at(
+        descriptors,
+        0U,
+        &command_input_file
+    )) {
+        kernel_panic(
+            "Unable to install stdin fixture descriptor"
+        );
+    }
+
+    if (
+        process_fd_table_get(descriptors, 0U) !=
+            &command_input_file ||
+        command_input_file.reference_count != 2U ||
+        command_input_node.reference_count != 2U
+    ) {
+        kernel_panic(
+            "Invalid stdin fixture ownership"
+        );
+    }
+}
+
+static void command_test_validate_input(void)
+{
+    const struct command_test_case *test_case =
+        &command_test_cases[command_test_index];
+
+    if (
+        !command_input_active ||
+        command_input_file.offset !=
+            test_case->stdin_length ||
+        command_input_read_calls <
+            test_case->minimum_stdin_reads
+    ) {
+        kernel_panic(
+            "Command did not consume expected stdin"
+        );
+    }
+
+    diagnostics_printf(
+        "[userland] %s stdin verified: bytes=%u reads=%u\n",
+        test_case->path,
+        (uint64_t) test_case->stdin_length,
+        (uint64_t) command_input_read_calls
+    );
+}
+
+static void command_test_release_input(void)
+{
+    if (
+        !command_input_active ||
+        command_input_file.reference_count != 1U ||
+        command_input_node.reference_count != 2U
+    ) {
+        kernel_panic(
+            "Stdin fixture leaked descriptor ownership"
+        );
+    }
+
+    if (!vfs_file_release(
+        &command_input_file
+    )) {
+        kernel_panic(
+            "Unable to release stdin fixture file"
+        );
+    }
+
+    if (
+        command_input_file.reference_count != 0U ||
+        command_input_node.reference_count != 1U
+    ) {
+        kernel_panic(
+            "Stdin fixture file release contract failed"
+        );
+    }
+
+    if (!vfs_node_release(
+        &command_input_node
+    )) {
+        kernel_panic(
+            "Unable to release stdin fixture node"
+        );
+    }
+
+    command_input_active = false;
+    command_input_read_calls = 0;
 }

@@ -77,6 +77,8 @@ $(TEST_INITRAMFS_IMAGE): \
 	cp \
 		$(RUNTIME_SYSCALLS_ELF) \
 		$(TEST_INITRAMFS_ROOT)/bin/runtime-syscalls
+	printf 'MyOS cat fixture\n' > \
+		$(TEST_INITRAMFS_ROOT)/cat-fixture.txt
 	python3 \
 		$(INITRAMFS_BUILDER) \
 		$(TEST_INITRAMFS_ROOT) \

@@ -385,9 +385,23 @@ static void kernel_heap_test_lifetime_statistics(void)
         );
     }
 
+    /*
+     * Requested allocations require at least 112 bytes
+     * after 16-byte alignment:
+     *
+     *   kmalloc(1)  -> 16
+     *   kmalloc(17) -> 32
+     *   kmalloc(64) -> 64
+     *
+     * The allocator may consume an entire larger free
+     * block when its remainder cannot be split.
+     * Therefore the accounted payload may exceed 112.
+     */
     if (
-        allocated.allocated_bytes !=
-        before.allocated_bytes + 112
+        allocated.allocated_bytes <
+        before.allocated_bytes ||
+        allocated.allocated_bytes -
+            before.allocated_bytes < 112U
     ) {
         kernel_panic(
             "Kernel heap allocated byte statistics mismatch"
