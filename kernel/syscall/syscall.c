@@ -5,6 +5,8 @@
 
 #include "syscall.h"
 
+#include "../version.h"
+
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64_loader.h"
@@ -108,6 +110,10 @@ static syscall_result_t syscall_chdir(
 static syscall_result_t syscall_getcwd(
     uint64_t user_buffer_address,
     uint64_t capacity
+);
+
+static syscall_result_t syscall_uname(
+    uint64_t user_buffer_address
 );
 
 struct syscall_exec_vector {
@@ -620,6 +626,9 @@ syscall_result_t syscall_dispatch(
                 argument0,
                 argument1
             );
+
+        case SYSCALL_UNAME:
+            return syscall_uname(argument0);
 
         default:
             return syscall_result_error(
@@ -2069,4 +2078,47 @@ static syscall_result_t syscall_fd_lseek(
     return
         (syscall_result_t)
             new_offset;
+}
+
+static syscall_result_t syscall_uname(
+    uint64_t user_buffer_address)
+{
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (
+        instance == NULL ||
+        instance->process.memory == NULL
+    ) {
+        return syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+    }
+
+    /*
+     * The complete ABI structure is assembled in kernel
+     * memory before publishing anything to userspace.
+     *
+     * Unavailable fields remain empty NUL-terminated strings.
+     */
+    const struct syscall_utsname identity = {
+        .sysname = MYOS_NAME,
+        .nodename = "",
+        .release = MYOS_VERSION,
+        .version = "",
+        .machine = "x86_64",
+    };
+
+    if (!copy_to_user(
+        instance->process.memory,
+        user_buffer_address,
+        &identity,
+        sizeof(identity)
+    )) {
+        return syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        );
+    }
+
+    return 0;
 }

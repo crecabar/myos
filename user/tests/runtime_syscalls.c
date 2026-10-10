@@ -17,6 +17,126 @@
 
 #define RUNTIME_SYSCALLS_CHILD_EXIT_STATUS 42
 
+static int runtime_test_uname(void)
+{
+    struct syscall_utsname identity = {0};
+
+    syscall_result_t result =
+        myos_uname(&identity);
+
+    if (result != 0) {
+        return 48;
+    }
+
+    static const char expected_sysname[] = "MyOS";
+    static const char expected_release[] = "0.2.0";
+    static const char expected_machine[] = "x86_64";
+
+    const char *actual[] = {
+        identity.sysname,
+        identity.release,
+        identity.machine,
+    };
+
+    const char *expected[] = {
+        expected_sysname,
+        expected_release,
+        expected_machine,
+    };
+
+    const size_t lengths[] = {
+        sizeof(expected_sysname),
+        sizeof(expected_release),
+        sizeof(expected_machine),
+    };
+
+    for (size_t field = 0; field < 3U; ++field) {
+        for (size_t index = 0; index < lengths[field]; ++index) {
+            if (actual[field][index] != expected[field][index]) {
+                return 49;
+            }
+        }
+    }
+
+    if (
+        identity.nodename[0] != '\0' ||
+        identity.version[0] != '\0'
+    ) {
+        return 50;
+    }
+
+    return 0;
+}
+
+static int runtime_test_uname_invalid_destinations(void)
+{
+    syscall_result_t result =
+        myos_uname(NULL);
+
+    if (
+        result != syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        )
+    ) {
+        return 51;
+    }
+
+    /*
+     * An address outside the canonical userspace range
+     * must never be accepted as a destination.
+     */
+    result = myos_uname(
+        (struct syscall_utsname *)
+            (uintptr_t) UINT64_MAX
+    );
+
+    if (
+        result != syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        )
+    ) {
+        return 52;
+    }
+
+    /*
+     * This object resides in the executable's read-only
+     * data. The kernel must not write into that mapping.
+     */
+    static const char readonly_destination[] =
+        "uname-readonly-probe";
+
+    result = myos_uname(
+        (struct syscall_utsname *)
+            (uintptr_t) readonly_destination
+    );
+
+    if (
+        result != syscall_result_error(
+            SYSCALL_ERROR_BAD_ADDRESS
+        )
+    ) {
+        return 53;
+    }
+
+    static const char expected[] =
+        "uname-readonly-probe";
+
+    for (
+        size_t index = 0;
+        index < sizeof(expected);
+        ++index
+    ) {
+        if (
+            readonly_destination[index] !=
+            expected[index]
+        ) {
+            return 54;
+        }
+    }
+
+    return 0;
+}
+
 int main(
     int argc,
     char *argv[],
@@ -531,6 +651,19 @@ int main(
         )
     ) {
         return 32;
+    }
+
+    int uname_result = runtime_test_uname();
+
+    if (uname_result != 0) {
+        return uname_result;
+    }
+
+    int uname_invalid_result =
+        runtime_test_uname_invalid_destinations();
+
+    if (uname_invalid_result != 0) {
+        return uname_invalid_result;
     }
 
     /*
