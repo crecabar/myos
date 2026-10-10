@@ -55,6 +55,7 @@
 #include "tests/bus_test.h"
 #include "tests/character_device_test.h"
 #include "tests/console_device_test.h"
+#include "tests/console_input_test.h"
 #include "tests/console_line_buffer_test.h"
 #include "tests/core_device_fd_test.h"
 #include "tests/devfs_test.h"
@@ -1043,6 +1044,7 @@ static _Noreturn void kernel_main_continue(void)
         pseudo_device_test_run();
         console_device_test_run();
         console_line_buffer_test_run();
+        console_input_test_run();
         bus_test_run();
 
         acpi_test_run(
