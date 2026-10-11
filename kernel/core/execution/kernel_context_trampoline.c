@@ -8,6 +8,7 @@
 #include "../panic.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 /*
  * Called by the x86-64 bootstrap with the descriptor
@@ -31,6 +32,22 @@ _Noreturn void kernel_context_trampoline(
     }
 
     context->entry(context->argument);
+
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0) {
+        kernel_panic(
+            "Kernel context terminated with interrupts enabled"
+        );
+    }
 
     /*
      * A normally returning entry completes the context.

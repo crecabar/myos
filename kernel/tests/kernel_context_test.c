@@ -5,6 +5,7 @@
 
 #include "kernel_context_test.h"
 
+#include "../arch/x86_64/cpu_identity.h"
 #include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/kernel_switch.h"
 #include "../core/cpu/cpu_local.h"
@@ -40,6 +41,38 @@ unsigned char dispatch_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 
 static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char dispatch_resume_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char yield_irq_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+struct kernel_context_yield_irq_probe {
+    struct kernel_context *worker;
+    bool rejected;
+};
+
+static void kernel_context_test_yield_irq_entry(void *argument)
+{
+    struct kernel_context_yield_irq_probe *probe = argument;
+
+    if (probe == NULL || probe->worker == NULL) {
+        kernel_panic("Kernel yield IRQ probe invalid");
+    }
+
+    interrupts_enable();
+
+    bool accepted = kernel_context_yield_wait(probe->worker);
+
+    interrupts_disable();
+
+    if (
+        accepted ||
+        probe->worker->state != KERNEL_CONTEXT_RUNNING
+    ) {
+        kernel_panic("Kernel yield accepted enabled interrupts");
+    }
+
+    probe->rejected = true;
+}
 
 struct kernel_context_dispatch_resume_probe {
     struct cpu_local *cpu;
@@ -1225,8 +1258,14 @@ static void kernel_context_test_dispatch(void)
             (uintptr_t) dispatch_stack + sizeof(dispatch_stack),
     };
 
+    uint32_t current_apic_id;
+
+    if (!arch_cpu_apic_id(&current_apic_id)) {
+        kernel_panic("Unable to identify test CPU");
+    }
+
     if (
-        !cpu_local_init(&cpu, 0U, 4U) ||
+        !cpu_local_init(&cpu, 0U, current_apic_id) ||
         !kernel_context_init(
             &worker,
             dispatch_stack,
@@ -1344,8 +1383,14 @@ static void kernel_context_test_dispatch_resume(void)
         .worker = &worker,
     };
 
+    uint32_t current_apic_id;
+
+    if (!arch_cpu_apic_id(&current_apic_id)) {
+        kernel_panic("Unable to identify test CPU");
+    }
+
     if (
-        !cpu_local_init(&cpu, 0U, 4U) ||
+        !cpu_local_init(&cpu, 0U, current_apic_id) ||
         !kernel_context_init(
             &worker,
             dispatch_resume_stack,
@@ -1464,6 +1509,14 @@ static void kernel_context_test_dispatch_invalid(void)
         kernel_panic("Kernel dispatch accepted invalid arguments");
     }
 
+    uint32_t current_apic_id;
+
+    if (!arch_cpu_apic_id(&current_apic_id)) {
+        kernel_panic("Unable to identify test CPU");
+    }
+
+    cpu.apic_id = current_apic_id;
+
     /*
      * A prepared worker still requires a supervisor.
      */
@@ -1539,6 +1592,115 @@ static void kernel_context_test_dispatch_invalid(void)
     }
 }
 
+static void kernel_context_test_dispatch_interrupts(void)
+{
+    struct cpu_local cpu = {0};
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+    uint32_t current_apic_id;
+
+    if (
+        !arch_cpu_apic_id(&current_apic_id) ||
+        !cpu_local_init(&cpu, 0U, current_apic_id) ||
+        !kernel_context_init(
+            &worker,
+            dispatch_stack,
+            sizeof(dispatch_stack),
+            kernel_context_test_entry,
+            NULL
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel dispatch interrupt setup failed");
+    }
+
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    /*
+     * This test runs after interrupt-controller initialization.
+     * Temporarily enable maskable interrupts to verify rejection.
+     */
+    interrupts_enable();
+
+    bool accepted = kernel_context_dispatch(&cpu, &worker);
+
+    interrupts_disable();
+
+    if (
+        accepted ||
+        worker.state != KERNEL_CONTEXT_READY ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        worker.cpu.rsp == 0
+    ) {
+        kernel_panic("Kernel dispatch accepted enabled interrupts");
+    }
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+}
+
+static void kernel_context_test_yield_irq_contract(void)
+{
+    struct cpu_local cpu = {0};
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+    uint32_t current_apic_id;
+
+    struct kernel_context_yield_irq_probe probe = {
+        .worker = &worker,
+    };
+
+    if (
+        !arch_cpu_apic_id(&current_apic_id) ||
+        !cpu_local_init(&cpu, 0U, current_apic_id) ||
+        !kernel_context_init(
+            &worker,
+            yield_irq_stack,
+            sizeof(yield_irq_stack),
+            kernel_context_test_yield_irq_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel yield IRQ setup failed");
+    }
+
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    if (!kernel_context_dispatch(&cpu, &worker)) {
+        kernel_panic("Kernel yield IRQ dispatch failed");
+    }
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        !probe.rejected ||
+        worker.state != KERNEL_CONTEXT_TERMINATED ||
+        cpu_local_active_kernel_context(&cpu) != NULL
+    ) {
+        kernel_panic("Kernel yield IRQ lifecycle failed");
+    }
+}
+
 void kernel_context_test_run(void)
 {
     kernel_context_test_valid();
@@ -1562,6 +1724,9 @@ void kernel_context_test_run(void)
     kernel_context_test_dispatch();
     kernel_context_test_dispatch_resume();
     kernel_context_test_dispatch_invalid();
+
+    kernel_context_test_dispatch_interrupts();
+    kernel_context_test_yield_irq_contract();
 
     kernel_context_test_stack_ownership();
 

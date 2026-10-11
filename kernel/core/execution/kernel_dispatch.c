@@ -36,6 +36,7 @@ bool kernel_context_dispatch(
     if (
         cpu == NULL ||
         !cpu->initialized ||
+        !cpu_local_matches_current_cpu(cpu) ||
         context == NULL ||
         context->state != KERNEL_CONTEXT_READY ||
         !context->prepared ||

@@ -5,6 +5,7 @@
 
 #include "cpu_local_test.h"
 
+#include "../arch/x86_64/cpu_identity.h"
 #include "../core/cpu/cpu_local.h"
 #include "../core/execution/kernel_context.h"
 #include "../core/panic.h"
@@ -208,6 +209,40 @@ static void cpu_local_test_activation_invalid(void)
     }
 }
 
+static void cpu_local_test_physical_identity(void)
+{
+    struct cpu_local cpu = {0};
+    uint32_t current_apic_id;
+
+    if (
+        !arch_cpu_apic_id(&current_apic_id) ||
+        !cpu_local_init(&cpu, 0U, current_apic_id)
+    ) {
+        kernel_panic("CPU physical identity setup failed");
+    }
+
+    if (!cpu_local_matches_current_cpu(&cpu)) {
+        kernel_panic("CPU local rejected executing CPU");
+    }
+
+    /*
+     * Use a different xAPIC ID without assuming the
+     * actual processor's ID is zero.
+     */
+    cpu.apic_id = current_apic_id ^ 1U;
+
+    if (cpu_local_matches_current_cpu(&cpu)) {
+        kernel_panic("CPU local accepted foreign CPU identity");
+    }
+
+    if (
+        cpu_local_matches_current_cpu(NULL) ||
+        arch_cpu_apic_id(NULL)
+    ) {
+        kernel_panic("CPU physical identity accepted NULL");
+    }
+}
+
 void cpu_local_test_run(void)
 {
     cpu_local_test_initialization();
@@ -216,6 +251,8 @@ void cpu_local_test_run(void)
 
     cpu_local_test_activation();
     cpu_local_test_activation_invalid();
+
+    cpu_local_test_physical_identity();
 
     diagnostics_write(
         "[cpu-local] Descriptor tests passed\n"

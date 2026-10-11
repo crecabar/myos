@@ -171,6 +171,20 @@ bool kernel_context_yield_wait(struct kernel_context *context)
         return false;
     }
 
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0) {
+        return false;
+    }
+
     if (!kernel_context_wait(context)) {
         return false;
     }
@@ -179,6 +193,20 @@ bool kernel_context_yield_wait(struct kernel_context *context)
         &context->cpu,
         context->supervisor
     );
+
+    uint64_t resumed_rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(resumed_rflags)
+        :
+        : "memory"
+    );
+
+    if ((resumed_rflags & (1ULL << 9)) != 0) {
+        kernel_panic("Kernel context resumed with interrupts enabled");
+    }
 
     /*
      * A resumed worker must have been explicitly

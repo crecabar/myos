@@ -5,6 +5,7 @@
 
 #include "cpu_local.h"
 
+#include "../../arch/x86_64/cpu_identity.h"
 #include "../execution/kernel_context.h"
 
 #include <stddef.h>
@@ -79,4 +80,23 @@ bool cpu_local_deactivate_kernel_context(
     cpu->active_kernel_context = NULL;
 
     return true;
+}
+
+bool cpu_local_matches_current_cpu(
+    const struct cpu_local *cpu)
+{
+    if (
+        cpu == NULL ||
+        !cpu->initialized
+    ) {
+        return false;
+    }
+
+    uint32_t current_apic_id;
+
+    if (!arch_cpu_apic_id(&current_apic_id)) {
+        return false;
+    }
+
+    return cpu->apic_id == current_apic_id;
 }

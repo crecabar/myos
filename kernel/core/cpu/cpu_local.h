@@ -71,4 +71,14 @@ bool cpu_local_deactivate_kernel_context(
     const struct kernel_context *context
 );
 
+/**
+ * Checks whether this CPU-local descriptor corresponds
+ * to the processor currently executing the caller.
+ *
+ * Does not modify the descriptor.
+ */
+bool cpu_local_matches_current_cpu(
+    const struct cpu_local *cpu
+);
+
 #endif
