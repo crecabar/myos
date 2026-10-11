@@ -59,6 +59,7 @@
 #include "tests/console_input_test.h"
 #include "tests/console_line_buffer_test.h"
 #include "tests/core_device_fd_test.h"
+#include "tests/cpu_local_test.h"
 #include "tests/deferred_work_test.h"
 #include "tests/devfs_test.h"
 #include "tests/device_registry_test.h"
@@ -1041,6 +1042,7 @@ static _Noreturn void kernel_main_continue(void)
 
         boot_info_test_run();
         boot_config_test_run();
+        cpu_local_test_run();
         kernel_context_test_run();
         kernel_stack_test_run();
         kernel_switch_test_run();
