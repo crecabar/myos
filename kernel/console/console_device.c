@@ -74,6 +74,7 @@ enum console_device_initialize_result console_device_initialize(
 
     console_device->console = console;
     console_line_buffer_init(&console_device->input);
+    console_input_consumer_init(&console_device->input_consumer);
 
     if (!character_device_initialize(
         &console_device->character,
@@ -121,6 +122,26 @@ enum console_device_initialize_result console_device_initialize(
 
     return
         CONSOLE_DEVICE_INITIALIZE_RESULT_INITIALIZED;
+}
+
+size_t console_device_drain_input(
+    struct console_device *device,
+    size_t budget)
+{
+    if (
+        device == NULL ||
+        console_device_from_character(
+            &device->character
+        ) != device
+    ) {
+        return 0;
+    }
+
+    return console_input_consumer_drain(
+        &device->input_consumer,
+        &device->input,
+        budget
+    );
 }
 
 // Private functions and helpers implementations

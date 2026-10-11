@@ -18,6 +18,7 @@
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
+#include "../input/input.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -244,6 +245,80 @@ static void console_device_test_registration_and_write(void)
     ) {
         kernel_panic(
             "Console-device unexpectedly supported reads"
+        );
+    }
+
+    /*
+     * Feed normalized keyboard events and drain them into
+     * this console's canonical line buffer.
+     *
+     * The global input queue is reset for test isolation.
+     */
+    input_init();
+
+    struct input_event events[] = {
+        {
+            .type = INPUT_EVENT_KEY,
+            .key = {
+                .code = INPUT_KEY_H,
+                .state = INPUT_KEY_PRESSED,
+            },
+        },
+        {
+            .type = INPUT_EVENT_KEY,
+            .key = {
+                .code = INPUT_KEY_I,
+                .state = INPUT_KEY_PRESSED,
+            },
+        },
+        {
+            .type = INPUT_EVENT_KEY,
+            .key = {
+                .code = INPUT_KEY_ENTER,
+                .state = INPUT_KEY_PRESSED,
+            },
+        },
+    };
+
+    for (size_t index = 0; index < 3U; ++index) {
+        if (!input_event_submit(&events[index])) {
+            kernel_panic(
+                "Console normalized input submission failed"
+            );
+        }
+    }
+
+    if (
+        console_device_drain_input(&device, 0U) != 0U ||
+        input_event_pending() != 3U ||
+        console_device_drain_input(&device, 2U) != 2U ||
+        input_event_pending() != 1U ||
+        console_device_drain_input(&device, 2U) != 1U ||
+        input_event_pending() != 0U ||
+        device.input_consumer.has_pending_event
+    ) {
+        kernel_panic(
+            "Console device input drain contract failed"
+        );
+    }
+
+    uint8_t normalized_line[4] = {0};
+    size_t normalized_length = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            normalized_line,
+            sizeof(normalized_line),
+            &normalized_length
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        normalized_length != 3U ||
+        normalized_line[0] != 'h' ||
+        normalized_line[1] != 'i' ||
+        normalized_line[2] != '\n'
+    ) {
+        kernel_panic(
+            "Console normalized input line mismatch"
         );
     }
 
