@@ -126,6 +126,8 @@ static void kernel_input_system_action(
 
 static void kernel_input_event_notification(void);
 
+static bool kernel_dispatch_idle_work(void);
+
 static void kernel_mount_root_filesystem(void);
 
 static void kernel_initialize_core_devices(void);
@@ -280,6 +282,27 @@ static void kernel_input_event_notification(void)
     console_device_request_input(
         &kernel_console_device
     );
+}
+
+/*
+ * Dispatches one bounded console input work invocation
+ * from the scheduler's idle path.
+ *
+ * The scheduler calls this outside IRQ context with
+ * interrupts disabled and the kernel address space active.
+ *
+ * One deferred-work invocation processes at most
+ * CONSOLE_INPUT_WORK_EVENT_BUDGET normalized events.
+ *
+ * A zero result indicates that no handler was executed,
+ * allowing the scheduler to enter its interruptible HLT.
+ */
+static bool kernel_dispatch_idle_work(void)
+{
+    return console_device_dispatch_input(
+        &kernel_console_device,
+        1U
+    ) != 0U;
 }
 
 static bool kernel_mount_bootstrap_device_namespace(
@@ -1179,6 +1202,16 @@ static _Noreturn void kernel_main_continue(void)
             &kernel_console_device
         );
     }
+
+    /*
+     * Enable bounded console input processing from scheduler idle.
+     *
+     * This handler is registered after all kernel test fixtures
+     * have completed and before the scheduler starts.
+     */
+    scheduler_set_idle_work_handler(
+        kernel_dispatch_idle_work
+    );
 
     /*
      * A chord may have been recognized before the immediate handler
