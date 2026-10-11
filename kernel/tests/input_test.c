@@ -16,6 +16,8 @@ static uint64_t input_test_action_count;
 static enum input_system_action
     input_test_last_action;
 
+static uint64_t input_test_notification_count;
+
 // PRIVATE HELPERS DECLARATIONS
 static void input_test_submit_key(
     enum input_key_code code,
@@ -24,12 +26,165 @@ static void input_test_submit_key(
 static void input_test_action_handler(
     enum input_system_action action);
 
+static void input_test_notification_handler(void);
+
 // PUBLIC FUNCTIONS IMPLEMENTATIONS
 void input_test_run(void)
 {
     input_init();
 
     input_test_action_count = 0;
+
+    input_system_action_handler_set(
+        input_test_action_handler
+    );
+
+        /*
+     * A successful queue publication must notify exactly once.
+     * Notification itself must not consume the event.
+     */
+    input_test_notification_count = 0;
+
+    if (
+        input_event_notification_handler_set(
+            input_test_notification_handler
+        ) != NULL
+    ) {
+        kernel_panic(
+            "Input notification handler was already registered"
+        );
+    }
+
+    struct input_event notification_event = {
+        .type = INPUT_EVENT_KEY,
+        .key = {
+            .code = INPUT_KEY_H,
+            .state = INPUT_KEY_PRESSED,
+        },
+    };
+
+    if (
+        !input_event_submit(&notification_event) ||
+        input_test_notification_count != 1U ||
+        input_event_pending() != 1U
+    ) {
+        kernel_panic(
+            "Input event notification contract failed"
+        );
+    }
+
+    struct input_event notification_received;
+
+    if (
+        !input_event_pop(&notification_received) ||
+        notification_received.type != INPUT_EVENT_KEY ||
+        notification_received.key.code != INPUT_KEY_H ||
+        input_test_notification_count != 1U ||
+        input_event_pending() != 0U
+    ) {
+        kernel_panic(
+            "Input notification altered queue consumption"
+        );
+    }
+
+    /*
+     * Invalid input must not produce a notification.
+     */
+    struct input_event invalid_event = {
+        .type = INPUT_EVENT_KEY,
+        .key = {
+            .code = INPUT_KEY_NONE,
+            .state = INPUT_KEY_PRESSED,
+        },
+    };
+
+    if (
+        input_event_submit(&invalid_event) ||
+        input_test_notification_count != 1U
+    ) {
+        kernel_panic(
+            "Invalid input produced a notification"
+        );
+    }
+
+    if (
+        input_event_notification_handler_set(NULL) !=
+            input_test_notification_handler
+    ) {
+        kernel_panic(
+            "Input notification handler unregister failed"
+        );
+    }
+
+    /*
+     * Fill the queue until the producer encounters backpressure.
+     * Every accepted event must notify once; the rejected event
+     * must not notify.
+     */
+    input_test_notification_count = 0;
+
+    if (
+        input_event_notification_handler_set(
+            input_test_notification_handler
+        ) != NULL
+    ) {
+        kernel_panic(
+            "Unable to register input overflow notification"
+        );
+    }
+
+    size_t accepted_events = 0;
+
+    while (input_event_submit(&notification_event)) {
+        ++accepted_events;
+
+        if (accepted_events > 128U) {
+            kernel_panic(
+                "Input queue failed to enforce capacity"
+            );
+        }
+    }
+
+    if (
+        accepted_events == 0U ||
+        input_test_notification_count != accepted_events ||
+        input_event_pending() != accepted_events ||
+        input_event_dropped() != 1U
+    ) {
+        kernel_panic(
+            "Input queue overflow notification contract failed"
+        );
+    }
+
+    /*
+     * Reinitialization must clear queue contents, dropped
+     * counters, keyboard state, and notification registration.
+     */
+    input_init();
+
+    if (
+        input_event_pending() != 0U ||
+        input_event_dropped() != 0U ||
+        input_event_notification_handler_set(NULL) != NULL
+    ) {
+        kernel_panic(
+            "Input initialization retained notification state"
+        );
+    }
+
+    if (
+        !input_event_submit(&notification_event) ||
+        input_test_notification_count != accepted_events
+    ) {
+        kernel_panic(
+            "Input notification survived reinitialization"
+        );
+    }
+
+    /*
+     * Restore the original clean state for existing tests.
+     */
+    input_init();
 
     input_system_action_handler_set(
         input_test_action_handler
@@ -454,4 +609,9 @@ static void input_test_action_handler(
 {
     ++input_test_action_count;
     input_test_last_action = action;
+}
+
+static void input_test_notification_handler(void)
+{
+    ++input_test_notification_count;
 }

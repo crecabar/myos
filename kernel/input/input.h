@@ -183,6 +183,14 @@ typedef void (*input_system_action_handler_fn)(
     enum input_system_action action
 );
 
+/**
+ * Lightweight notification invoked after an input event is queued.
+ *
+ * The handler may execute in IRQ context. It must not block,
+ * consume input events, or dispatch deferred work.
+ */
+typedef void (*input_event_notification_handler_fn)(void);
+
 struct input_key_event {
     enum input_key_code code;
     enum input_key_state state;
@@ -287,8 +295,27 @@ bool input_system_action_take(
  *
  * @return Previously installed handler.
  */
-input_system_action_handler_fn input_system_action_handler_set(
+ input_system_action_handler_fn input_system_action_handler_set(
     input_system_action_handler_fn handler
+);
+
+/**
+ * Installs the input-event notification handler.
+ *
+ * A successful event submission invokes the handler after
+ * publishing the event to the queue.
+ *
+ * NULL disables notifications. Initialization also clears
+ * the registered handler.
+ *
+ * This is a single-handler bootstrap interface. The handler
+ * must remain valid until replaced or unregistered.
+ *
+ * @return Previously installed handler.
+ */
+input_event_notification_handler_fn
+input_event_notification_handler_set(
+    input_event_notification_handler_fn handler
 );
 
 #endif
