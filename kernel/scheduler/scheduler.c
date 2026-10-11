@@ -139,6 +139,17 @@ bool scheduler_dispatch_kernel_worker(
     );
 }
 
+bool scheduler_kernel_worker_ready(void)
+{
+    return
+        kernel_worker != NULL &&
+        kernel_worker->state == KERNEL_CONTEXT_READY &&
+        kernel_worker->prepared &&
+        kernel_worker->supervisor != NULL &&
+        kernel_context_owner(kernel_worker) ==
+            KERNEL_CONTEXT_NO_CPU;
+}
+
 void scheduler_set_terminated_handler(
     scheduler_terminated_handler handler)
 {

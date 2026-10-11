@@ -720,9 +720,21 @@ static void scheduler_slot_test_kernel_worker_dispatch(void)
         );
     }
 
+    if (scheduler_kernel_worker_ready()) {
+        kernel_panic(
+            "Unregistered kernel worker reported READY"
+        );
+    }
+
     if (!scheduler_register_kernel_worker(&worker)) {
         kernel_panic(
             "Scheduler could not register executable worker"
+        );
+    }
+
+    if (!scheduler_kernel_worker_ready()) {
+        kernel_panic(
+            "Registered kernel worker not READY"
         );
     }
 
@@ -745,6 +757,12 @@ static void scheduler_slot_test_kernel_worker_dispatch(void)
         );
     }
 
+    if (scheduler_kernel_worker_ready()) {
+        kernel_panic(
+            "Waiting kernel worker reported READY"
+        );
+    }
+
     if (scheduler_dispatch_kernel_worker(&cpu)) {
         kernel_panic(
             "Scheduler dispatched waiting worker"
@@ -753,10 +771,19 @@ static void scheduler_slot_test_kernel_worker_dispatch(void)
 
     probe.stage = 2U;
 
-    if (
-        !kernel_context_wake(&worker) ||
-        !scheduler_dispatch_kernel_worker(&cpu)
-    ) {
+    if (!kernel_context_wake(&worker)) {
+        kernel_panic(
+            "Scheduler worker wake failed"
+        );
+    }
+
+    if (!scheduler_kernel_worker_ready()) {
+        kernel_panic(
+            "Woken kernel worker not READY"
+        );
+    }
+
+    if (!scheduler_dispatch_kernel_worker(&cpu)) {
         kernel_panic(
             "Scheduler worker resume dispatch failed"
         );
@@ -772,6 +799,12 @@ static void scheduler_slot_test_kernel_worker_dispatch(void)
     ) {
         kernel_panic(
             "Scheduler worker completion state invalid"
+        );
+    }
+
+    if (scheduler_kernel_worker_ready()) {
+        kernel_panic(
+            "Terminated kernel worker reported READY"
         );
     }
 

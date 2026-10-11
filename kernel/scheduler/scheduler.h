@@ -112,6 +112,16 @@ bool scheduler_dispatch_kernel_worker(
 );
 
 /**
+ * Reports whether the registered kernel worker is READY.
+ *
+ * This is a scheduling decision only. It does not
+ * acquire ownership, change state, or execute the worker.
+ *
+ * Callers must serialize access to scheduler state.
+ */
+bool scheduler_kernel_worker_ready(void);
+
+/**
  * Registers one borrowed idle-work handler.
  *
  * Passing NULL disables idle work execution.
