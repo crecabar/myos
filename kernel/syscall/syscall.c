@@ -1372,6 +1372,10 @@ static enum syscall_error syscall_file_map_error(
             kernel_panic(
                 "Successful process file result cannot map to syscall error"
             );
+        case PROCESS_FILE_RESULT_WOULD_BLOCK:
+            kernel_panic(
+                "WOULD_BLOCK reached syscall error mapper"
+            );
     }
 
     kernel_panic(

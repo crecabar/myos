@@ -524,6 +524,8 @@ static enum process_file_result process_file_map_io_result(
         case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
             return
                 PROCESS_FILE_RESULT_RESOURCE_EXHAUSTED;
+        case VFS_IO_RESULT_WOULD_BLOCK:
+            return PROCESS_FILE_RESULT_WOULD_BLOCK;
     }
 
     return

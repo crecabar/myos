@@ -223,6 +223,7 @@ enum vfs_io_result vfs_file_read(
         case VFS_IO_RESULT_NOT_SUPPORTED:
         case VFS_IO_RESULT_ACCESS_DENIED:
         case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
+        case VFS_IO_RESULT_WOULD_BLOCK:
             return
                 io_result;
     }
@@ -355,6 +356,7 @@ enum vfs_io_result vfs_file_read_at(
         case VFS_IO_RESULT_NOT_SUPPORTED:
         case VFS_IO_RESULT_ACCESS_DENIED:
         case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
+        case VFS_IO_RESULT_WOULD_BLOCK:
             return
                 io_result;
     }
@@ -461,6 +463,7 @@ enum vfs_io_result vfs_file_write(
         case VFS_IO_RESULT_NOT_SUPPORTED:
         case VFS_IO_RESULT_ACCESS_DENIED:
         case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
+        case VFS_IO_RESULT_WOULD_BLOCK:
             return
                 io_result;
     }

@@ -10,7 +10,9 @@
 
 #include "vfs_character_device_test.h"
 
+#include "../core/device/character_device.h"
 #include "../core/device/registry.h"
+#include "../core/device/device.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/pseudo.h"
@@ -19,6 +21,39 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
+struct vfs_would_block_probe {
+    size_t read_calls;
+};
+
+static enum character_device_io_result
+vfs_would_block_read(
+    struct character_device *character,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read)
+{
+    (void) buffer;
+    (void) size;
+    (void) bytes_read;
+
+    struct vfs_would_block_probe *probe =
+        character->private_data;
+
+    if (probe == NULL) {
+        kernel_panic("VFS WOULD_BLOCK probe missing");
+    }
+
+    ++probe->read_calls;
+
+    return CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK;
+}
+
+static const struct character_device_operations
+    vfs_would_block_operations = {
+        .read = vfs_would_block_read,
+        .write = NULL,
+    };
 
 // Private functions and helpers declarations
 static void vfs_character_device_test_unregister(
@@ -30,11 +65,15 @@ static void vfs_character_device_test_null(void);
 
 static void vfs_character_device_test_zero(void);
 
+static void vfs_character_device_test_would_block(void);
+
 // Public functions implementations
 void vfs_character_device_test_run(void)
 {
     vfs_character_device_test_null();
     vfs_character_device_test_zero();
+
+    vfs_character_device_test_would_block();
 
     diagnostics_write(
         "[vfs] Character-device adapter tests passed\n"
@@ -380,4 +419,106 @@ static void vfs_character_device_test_zero(void)
         &registry,
         &devices.null_device.device
     );
+}
+
+static void vfs_character_device_test_would_block(void)
+{
+    struct device generic;
+    struct character_device character;
+    struct vfs_character_device_node node;
+
+    struct vfs_would_block_probe probe = {0};
+
+    if (
+        !device_initialize(
+            &generic,
+            6460,
+            "vfs-would-block",
+            sizeof("vfs-would-block") - 1U,
+            DEVICE_KIND_PSEUDO,
+            NULL,
+            NULL
+        ) ||
+        !character_device_initialize(
+            &character,
+            &generic,
+            &vfs_would_block_operations,
+            &probe
+        ) ||
+        !vfs_character_device_node_initialize(
+            &node,
+            &character
+        )
+    ) {
+        kernel_panic("VFS WOULD_BLOCK fixture setup failed");
+    }
+
+    struct vfs_file *file = NULL;
+
+    if (
+        vfs_node_open(
+            &node.vfs,
+            VFS_OPEN_ACCESS_READ,
+            &file
+        ) != VFS_OPEN_RESULT_OPENED ||
+        file == NULL
+    ) {
+        kernel_panic("VFS WOULD_BLOCK open failed");
+    }
+
+    uint8_t buffer[4] = {
+        0x11U, 0x22U, 0x33U, 0x44U,
+    };
+
+    size_t bytes_read = SIZE_MAX;
+    uint64_t original_offset = file->offset;
+
+    if (
+        vfs_file_read(
+            file,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != VFS_IO_RESULT_WOULD_BLOCK ||
+        probe.read_calls != 1U ||
+        bytes_read != SIZE_MAX ||
+        file->offset != original_offset ||
+        buffer[0] != 0x11U ||
+        buffer[1] != 0x22U ||
+        buffer[2] != 0x33U ||
+        buffer[3] != 0x44U
+    ) {
+        kernel_panic("VFS WOULD_BLOCK propagation failed");
+    }
+
+    /*
+     * Zero-length reads succeed at the VFS layer
+     * without invoking the device backend.
+     */
+    bytes_read = SIZE_MAX;
+
+    if (
+        vfs_file_read(
+            file,
+            NULL,
+            0,
+            &bytes_read
+        ) != VFS_IO_RESULT_SUCCESS ||
+        bytes_read != 0U ||
+        probe.read_calls != 1U ||
+        file->offset != original_offset
+    ) {
+        kernel_panic("VFS WOULD_BLOCK zero-length read failed");
+    }
+
+    if (
+        !vfs_file_release(file) ||
+        !vfs_node_release(&node.vfs) ||
+        generic.reference_count != 1U ||
+        !device_begin_removal(&generic) ||
+        !device_finish_removal(&generic) ||
+        !device_release(&generic)
+    ) {
+        kernel_panic("VFS WOULD_BLOCK fixture cleanup failed");
+    }
 }

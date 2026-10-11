@@ -85,6 +85,8 @@ static const struct character_device_operations
             character_device_test_write,
     };
 
+static void character_device_test_would_block(void);
+
 // Public functions implementations
 void character_device_test_run(void)
 {
@@ -94,6 +96,7 @@ void character_device_test_run(void)
     character_device_test_io_dispatch();
     character_device_test_missing_capability();
     character_device_test_backend_failure();
+    character_device_test_would_block();
     character_device_test_overreport_rejection();
 
     diagnostics_write(
@@ -996,4 +999,64 @@ static void character_device_test_overreport_rejection(void)
     character_device_test_remove_generic(
         &generic
     );
+}
+
+static void character_device_test_would_block(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6450,
+        "char-would-block",
+        sizeof("char-would-block") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic("Character WOULD_BLOCK setup failed");
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+    };
+
+    struct character_device character;
+
+    if (!character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        &state
+    )) {
+        kernel_panic("Character WOULD_BLOCK binding failed");
+    }
+
+    uint8_t buffer[4] = {
+        0x11U, 0x22U, 0x33U, 0x44U,
+    };
+
+    size_t bytes_read = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &character,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK ||
+        state.read_calls != 1U ||
+        bytes_read != SIZE_MAX ||
+        buffer[0] != 0x11U ||
+        buffer[1] != 0x22U ||
+        buffer[2] != 0x33U ||
+        buffer[3] != 0x44U
+    ) {
+        kernel_panic("Character WOULD_BLOCK contract failed");
+    }
+
+    character_device_test_remove_generic(&generic);
 }

@@ -323,6 +323,7 @@ static bool character_device_io_result_valid(
         case CHARACTER_DEVICE_IO_RESULT_INVALID_ARGUMENT:
         case CHARACTER_DEVICE_IO_RESULT_NOT_SUPPORTED:
         case CHARACTER_DEVICE_IO_RESULT_RESOURCE_EXHAUSTED:
+        case CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK:
             return true;
     }
 

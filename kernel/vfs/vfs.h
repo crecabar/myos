@@ -93,6 +93,7 @@ enum vfs_io_result {
     VFS_IO_RESULT_NOT_SUPPORTED,
     VFS_IO_RESULT_ACCESS_DENIED,
     VFS_IO_RESULT_RESOURCE_EXHAUSTED,
+    VFS_IO_RESULT_WOULD_BLOCK,
 };
 
 enum vfs_open_result {

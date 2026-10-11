@@ -247,6 +247,8 @@ static enum vfs_io_result vfs_character_device_map_io_result(
         case CHARACTER_DEVICE_IO_RESULT_RESOURCE_EXHAUSTED:
             return
                 VFS_IO_RESULT_RESOURCE_EXHAUSTED;
+        case CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK:
+            return VFS_IO_RESULT_WOULD_BLOCK;
     }
 
     return

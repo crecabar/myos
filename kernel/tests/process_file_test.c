@@ -132,11 +132,14 @@ static const struct vfs_file_operations
             process_file_test_write_callback,
     };
 
+static void process_file_test_would_block(void);
+
 void process_file_test_run(void)
 {
     process_file_test_open_close();
     process_file_test_io_success();
     process_file_test_io_failures();
+    process_file_test_would_block();
     process_file_test_seek_stat_failures();
     process_file_test_failures();
     process_file_test_full_table_rollback();
@@ -1712,4 +1715,67 @@ static void process_file_test_full_table_rollback(void)
     process_file_test_fixture_release(
         &fixture
     );
+}
+
+static void process_file_test_would_block(void)
+{
+    struct process_file_test_fixture fixture;
+
+    process_file_test_fixture_initialize(&fixture);
+
+    size_t descriptor = SIZE_MAX;
+
+    if (
+        process_file_open(
+            &fixture.instance,
+            "/file",
+            sizeof("/file") - 1U,
+            VFS_OPEN_ACCESS_READ,
+            &descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        kernel_panic("WOULD_BLOCK fixture open failed");
+    }
+
+    process_file_test_read_result =
+        VFS_IO_RESULT_WOULD_BLOCK;
+
+    uint8_t buffer[4] = {
+        0xa1U, 0xa2U, 0xa3U, 0xa4U,
+    };
+
+    size_t bytes_read = SIZE_MAX;
+    uint64_t original_offset = fixture.file_storage.offset;
+
+    if (
+        process_file_read(
+            &fixture.instance,
+            descriptor,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != PROCESS_FILE_RESULT_WOULD_BLOCK ||
+        bytes_read != SIZE_MAX ||
+        fixture.file_storage.offset != original_offset ||
+        process_file_test_read_call_count != 1U ||
+        process_file_test_read_last_offset != original_offset ||
+        buffer[0] != 0xa1U ||
+        buffer[1] != 0xa2U ||
+        buffer[2] != 0xa3U ||
+        buffer[3] != 0xa4U
+    ) {
+        kernel_panic("Process WOULD_BLOCK contract failed");
+    }
+
+    if (
+        process_file_close(
+            &fixture.instance,
+            descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        kernel_panic("WOULD_BLOCK fixture close failed");
+    }
+
+    process_file_test_expect_baseline(&fixture);
+    process_file_test_fixture_release(&fixture);
 }
