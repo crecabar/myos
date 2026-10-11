@@ -23,6 +23,7 @@ static size_t process_count;
 static size_t next_process_index;
 
 static scheduler_terminated_handler terminated_handler;
+static scheduler_idle_work_handler idle_work_handler;
 
 static struct process *current_process;
 static uint64_t current_quantum_ticks;
@@ -35,6 +36,7 @@ static uint64_t scheduler_test_cross_address_space_preemption_count_value;
 static struct process *scheduler_find_next_ready(void);
 static _Noreturn void scheduler_enter_process(struct process *process);
 static _Noreturn void scheduler_idle(void);
+static bool scheduler_dispatch_idle_work(void);
 
 static void scheduler_save_context(
     struct process *process,
@@ -73,6 +75,7 @@ void scheduler_init(void)
     next_process_index = 0;
     current_quantum_ticks = 0;
     terminated_handler = NULL;
+    idle_work_handler = NULL;
 
 #if MYOS_KERNEL_TESTS
     scheduler_test_preemption_count_value = 0;
@@ -85,6 +88,28 @@ void scheduler_set_terminated_handler(
 {
     terminated_handler = handler;
 }
+
+void scheduler_set_idle_work_handler(
+    scheduler_idle_work_handler handler)
+{
+    idle_work_handler = handler;
+}
+
+static bool scheduler_dispatch_idle_work(void)
+{
+    if (idle_work_handler == NULL) {
+        return false;
+    }
+
+    return idle_work_handler();
+}
+
+#if MYOS_KERNEL_TESTS
+bool scheduler_test_dispatch_idle_work(void)
+{
+    return scheduler_dispatch_idle_work();
+}
+#endif
 
 bool scheduler_add(struct process *process)
 {
@@ -441,6 +466,22 @@ static _Noreturn void scheduler_idle(void)
 
         if (next != NULL) {
             scheduler_enter_process(next);
+        }
+
+        /*
+         * Dispatch bounded kernel work before entering HLT.
+         *
+         * Interrupts remain disabled while checking for work.
+         * A producer running on this BSP cannot interleave
+         * between this check and interrupts_wait().
+         */
+        if (scheduler_dispatch_idle_work()) {
+            /*
+             * Work may have changed process readiness or
+             * generated another bounded work request.
+             * Reevaluate before sleeping.
+             */
+            continue;
         }
 
         interrupts_wait();

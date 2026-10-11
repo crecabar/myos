@@ -8,12 +8,12 @@
  * @brief Scheduler registration-slot recycling regression tests.
  */
 
- #include "scheduler_slot_test.h"
+#include "scheduler_slot_test.h"
 
- #include "../arch/x86_64/interrupts.h"
- #include "../arch/x86_64/timer.h"
- #include "../core/panic.h"
- #include "../diagnostics/diagnostics.h"
+#include "../arch/x86_64/interrupts.h"
+#include "../arch/x86_64/timer.h"
+#include "../core/panic.h"
+#include "../diagnostics/diagnostics.h"
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"
 
@@ -52,6 +52,31 @@ static struct process_layout
 static struct process
     test_processes[SCHEDULER_SLOT_TEST_PROCESS_COUNT];
 
+static unsigned int idle_work_test_calls;
+
+static bool scheduler_slot_test_idle_work(void)
+{
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0) {
+        kernel_panic(
+            "Scheduler idle work ran with interrupts enabled"
+        );
+    }
+
+    ++idle_work_test_calls;
+
+    return idle_work_test_calls == 1U;
+}
+
 static void scheduler_slot_test_initialize_processes(void);
 
 void scheduler_slot_test_run(void)
@@ -66,6 +91,55 @@ void scheduler_slot_test_run(void)
      * No real processes have been registered yet when this regression runs.
      */
     scheduler_init();
+
+        /*
+     * Exercise the production idle-work dispatch helper
+     * without entering the non-returning idle loop.
+     */
+    idle_work_test_calls = 0;
+
+    interrupts_disable();
+
+    if (scheduler_test_dispatch_idle_work()) {
+        kernel_panic(
+            "Scheduler idle work ran without a handler"
+        );
+    }
+
+    scheduler_set_idle_work_handler(
+        scheduler_slot_test_idle_work
+    );
+
+    if (
+        !scheduler_test_dispatch_idle_work() ||
+        idle_work_test_calls != 1U
+    ) {
+        kernel_panic(
+            "Scheduler idle work dispatch failed"
+        );
+    }
+
+    if (
+        scheduler_test_dispatch_idle_work() ||
+        idle_work_test_calls != 2U
+    ) {
+        kernel_panic(
+            "Scheduler idle work completion contract failed"
+        );
+    }
+
+    scheduler_set_idle_work_handler(NULL);
+
+    if (
+        scheduler_test_dispatch_idle_work() ||
+        idle_work_test_calls != 2U
+    ) {
+        kernel_panic(
+            "Scheduler idle work unregister failed"
+        );
+    }
+
+    interrupts_enable();
 
     scheduler_slot_test_initialize_processes();
 

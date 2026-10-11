@@ -58,9 +58,30 @@ typedef void (*scheduler_terminated_handler)(
 );
 
 /**
+ * Executes bounded deferred work from the scheduler idle path.
+ *
+ * Called with interrupts disabled, outside IRQ context.
+ * The handler must not block, enable interrupts, or perform
+ * its own context switch.
+ *
+ * Returns true when at least one work item was executed.
+ */
+typedef bool (*scheduler_idle_work_handler)(void);
+
+/**
  * Initializes the scheduler.
  */
 void scheduler_init(void);
+
+/**
+ * Registers one borrowed idle-work handler.
+ *
+ * Passing NULL disables idle work execution.
+ * The caller owns the handler's lifetime.
+ */
+void scheduler_set_idle_work_handler(
+    scheduler_idle_work_handler handler
+);
 
 /**
  * Sets the handler invoked for safely detached terminated processes.
@@ -365,6 +386,14 @@ uint64_t scheduler_test_preemption_count(void);
  * @return Cross-address-space preemption count.
  */
 uint64_t scheduler_test_cross_address_space_preemption_count(void);
+
+/**
+ * Exercises the idle-work dispatch path without entering HLT.
+ *
+ * Test code must establish the interrupt state required
+ * by the registered callback.
+ */
+bool scheduler_test_dispatch_idle_work(void);
 #endif
 
 #endif
