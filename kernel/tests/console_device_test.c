@@ -666,6 +666,239 @@ static void console_device_test_deferred_input(void)
         );
     }
 
+    /*
+     * Fill the completed-line queue to its exact capacity.
+     * Each line contains one character followed by newline.
+     */
+    for (
+        size_t index = 0;
+        index < CONSOLE_LINE_QUEUE_CAPACITY;
+        ++index
+    ) {
+        if (
+            console_line_buffer_submit(
+                &device.input,
+                (char) ('a' + index)
+            ) != CONSOLE_LINE_INPUT_ACCEPTED ||
+            console_line_buffer_submit(
+                &device.input,
+                '\n'
+            ) != CONSOLE_LINE_INPUT_ACCEPTED
+        ) {
+            kernel_panic(
+                "Deferred console queue fill failed"
+            );
+        }
+    }
+
+    if (
+        device.input.completed_count !=
+            CONSOLE_LINE_QUEUE_CAPACITY
+    ) {
+        kernel_panic(
+            "Deferred console queue capacity mismatch"
+        );
+    }
+
+    /*
+     * Submit one additional line through the normalized
+     * input queue rather than directly into the line buffer.
+     *
+     * The first event must be retained when the completed
+     * queue is full. Enter remains in the global input queue.
+     */
+    input_init();
+
+    struct input_event overflow_events[] = {
+        {
+            .type = INPUT_EVENT_KEY,
+            .key = {
+                .code = INPUT_KEY_H,
+                .state = INPUT_KEY_PRESSED,
+            },
+        },
+        {
+            .type = INPUT_EVENT_KEY,
+            .key = {
+                .code = INPUT_KEY_ENTER,
+                .state = INPUT_KEY_PRESSED,
+            },
+        },
+    };
+
+    for (size_t index = 0; index < 2U; ++index) {
+        if (!input_event_submit(&overflow_events[index])) {
+            kernel_panic(
+                "Deferred console overflow event submission failed"
+            );
+        }
+    }
+
+    console_device_request_input(&device);
+
+    if (
+        console_device_dispatch_input(&device, 1U) != 1U ||
+        !device.input_consumer.has_pending_event ||
+        input_event_pending() != 1U ||
+        deferred_work_pending(&device.input_work) ||
+        device.input.completed_count !=
+            CONSOLE_LINE_QUEUE_CAPACITY
+    ) {
+        kernel_panic(
+            "Deferred console failed to wait on full queue"
+        );
+    }
+
+    /*
+     * Reading only the first byte of the oldest line does
+     * not release a completed-line queue entry.
+     *
+     * The read requests deferred processing, but another
+     * dispatch must return to WAIT without losing the event.
+     */
+    uint8_t partial_byte = 0;
+    size_t partial_length = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            &partial_byte,
+            1U,
+            &partial_length
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        partial_byte != 'a' ||
+        partial_length != 1U ||
+        device.input.completed_count !=
+            CONSOLE_LINE_QUEUE_CAPACITY ||
+        !deferred_work_pending(&device.input_work)
+    ) {
+        kernel_panic(
+            "Deferred console partial read contract failed"
+        );
+    }
+
+    if (
+        console_device_dispatch_input(&device, 1U) != 1U ||
+        !device.input_consumer.has_pending_event ||
+        input_event_pending() != 1U ||
+        deferred_work_pending(&device.input_work)
+    ) {
+        kernel_panic(
+            "Deferred console retried full queue incorrectly"
+        );
+    }
+
+    /*
+     * Consuming the newline completes the oldest line,
+     * releases one queue entry, and requests deferred work.
+     */
+    uint8_t newline_byte = 0;
+    size_t newline_length = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            &newline_byte,
+            1U,
+            &newline_length
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        newline_byte != '\n' ||
+        newline_length != 1U ||
+        device.input.completed_count !=
+            CONSOLE_LINE_QUEUE_CAPACITY - 1U ||
+        !deferred_work_pending(&device.input_work)
+    ) {
+        kernel_panic(
+            "Deferred console failed to release completed line"
+        );
+    }
+
+    /*
+     * The retained H event must be consumed before Enter.
+     * Together they create the fifth line: "h\n".
+     */
+    if (
+        console_device_dispatch_input(&device, 1U) != 1U ||
+        device.input_consumer.has_pending_event ||
+        input_event_pending() != 0U ||
+        deferred_work_pending(&device.input_work) ||
+        device.input.completed_count !=
+            CONSOLE_LINE_QUEUE_CAPACITY
+    ) {
+        kernel_panic(
+            "Deferred console failed to resume retained input"
+        );
+    }
+
+    /*
+     * Verify FIFO ordering. The remaining original lines
+     * precede the newly completed fifth line.
+     */
+    for (
+        size_t index = 1U;
+        index < CONSOLE_LINE_QUEUE_CAPACITY;
+        ++index
+    ) {
+        uint8_t completed_line[2] = {0};
+        size_t completed_length = SIZE_MAX;
+
+        if (
+            character_device_read(
+                &device.character,
+                completed_line,
+                sizeof(completed_line),
+                &completed_length
+            ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+            completed_length != 2U ||
+            completed_line[0] != (uint8_t) ('a' + index) ||
+            completed_line[1] != '\n'
+        ) {
+            kernel_panic(
+                "Deferred console completed-line ordering failed"
+            );
+        }
+    }
+
+    uint8_t resumed_line[2] = {0};
+    size_t resumed_length = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            resumed_line,
+            sizeof(resumed_line),
+            &resumed_length
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        resumed_length != 2U ||
+        resumed_line[0] != 'h' ||
+        resumed_line[1] != '\n' ||
+        device.input.completed_count != 0U
+    ) {
+        kernel_panic(
+            "Deferred console retained line was lost"
+        );
+    }
+
+    uint8_t exhausted_byte = 0xa5U;
+    size_t exhausted_length = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            &exhausted_byte,
+            1U,
+            &exhausted_length
+        ) != CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK ||
+        exhausted_byte != 0xa5U ||
+        exhausted_length != SIZE_MAX ||
+        deferred_work_pending(&device.input_work) ||
+        console_device_dispatch_input(&device, 1U) != 0U
+    ) {
+        kernel_panic(
+            "Deferred console overflow recovery left stale input"
+        );
+    }
+
     console_device_test_unregister(
         &registry,
         &device.device
