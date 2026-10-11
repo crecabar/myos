@@ -7,6 +7,8 @@
 
 #include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/kernel_switch.h"
+#include "../core/cpu/cpu_local.h"
+#include "../core/execution/kernel_dispatch.h"
 #include "../core/execution/kernel_context.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
@@ -32,6 +34,34 @@ unsigned char isolation_stack_a[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 
 static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char isolation_stack_b[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char dispatch_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char dispatch_resume_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
+
+struct kernel_context_dispatch_resume_probe {
+    struct cpu_local *cpu;
+    struct kernel_context *worker;
+
+    unsigned int entry_calls;
+    unsigned int stage;
+
+    bool first_identity_valid;
+    bool resumed_identity_valid;
+};
+
+struct kernel_context_dispatch_probe {
+    struct cpu_local *cpu;
+    struct kernel_context *worker;
+
+    uintptr_t stack_bottom;
+    uintptr_t stack_top;
+
+    unsigned int calls;
+    bool identity_valid;
+};
 
 struct kernel_context_isolation_probe {
     struct kernel_context *self;
@@ -1141,6 +1171,374 @@ static void kernel_context_test_worker_isolation(void)
     }
 }
 
+static void kernel_context_test_dispatch_entry(void *argument)
+{
+    struct kernel_context_dispatch_probe *probe = argument;
+
+    if (
+        probe == NULL ||
+        probe->cpu == NULL ||
+        probe->worker == NULL
+    ) {
+        kernel_panic("Kernel dispatch entry argument invalid");
+    }
+
+    uintptr_t rsp = kernel_context_test_rsp();
+
+    if (
+        probe->worker->state != KERNEL_CONTEXT_RUNNING ||
+        cpu_local_active_kernel_context(probe->cpu) !=
+            probe->worker ||
+        rsp < probe->stack_bottom ||
+        rsp >= probe->stack_top
+    ) {
+        kernel_panic("Kernel dispatch active worker mismatch");
+    }
+
+    if (
+        (kernel_context_test_rflags() &
+            KERNEL_CONTEXT_RFLAGS_IF) != 0
+    ) {
+        kernel_panic("Kernel dispatch worker interrupts enabled");
+    }
+
+    ++probe->calls;
+    probe->identity_valid = true;
+
+    /*
+     * Returning transfers control to kernel_context_trampoline(),
+     * which marks the worker TERMINATED.
+     */
+}
+
+static void kernel_context_test_dispatch(void)
+{
+    struct cpu_local cpu = {0};
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+
+    struct kernel_context_dispatch_probe probe = {
+        .cpu = &cpu,
+        .worker = &worker,
+        .stack_bottom = (uintptr_t) dispatch_stack,
+        .stack_top =
+            (uintptr_t) dispatch_stack + sizeof(dispatch_stack),
+    };
+
+    if (
+        !cpu_local_init(&cpu, 0U, 4U) ||
+        !kernel_context_init(
+            &worker,
+            dispatch_stack,
+            sizeof(dispatch_stack),
+            kernel_context_test_dispatch_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel dispatch test setup failed");
+    }
+
+    /*
+     * No worker is active before dispatch.
+     */
+    if (
+        worker.state != KERNEL_CONTEXT_READY ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        probe.calls != 0U
+    ) {
+        kernel_panic("Kernel dispatch initial state invalid");
+    }
+
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    bool dispatched = kernel_context_dispatch(
+        &cpu,
+        &worker
+    );
+
+    /*
+     * We are back on the supervisor's stack.
+     * Restore the interrupt state inherited by the test.
+     */
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        !dispatched ||
+        worker.state != KERNEL_CONTEXT_TERMINATED ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        probe.calls != 1U ||
+        !probe.identity_valid
+    ) {
+        kernel_panic("Kernel dispatch completion contract failed");
+    }
+}
+
+static void kernel_context_test_dispatch_resume_entry(void *argument)
+{
+    struct kernel_context_dispatch_resume_probe *probe = argument;
+    volatile uint64_t marker = 0xABCDEF1234567890ULL;
+
+    if (
+        probe == NULL ||
+        probe->cpu == NULL ||
+        probe->worker == NULL ||
+        probe->stage != 0U
+    ) {
+        kernel_panic("Kernel dispatch resume entry invalid");
+    }
+
+    ++probe->entry_calls;
+
+    if (
+        probe->worker->state != KERNEL_CONTEXT_RUNNING ||
+        cpu_local_active_kernel_context(probe->cpu) != probe->worker
+    ) {
+        kernel_panic("Kernel dispatch first identity invalid");
+    }
+
+    probe->first_identity_valid = true;
+    probe->stage = 1U;
+
+    if (!kernel_context_yield_wait(probe->worker)) {
+        kernel_panic("Kernel dispatch worker yield failed");
+    }
+
+    /*
+     * Execution resumes here, not at the beginning
+     * of the entry function.
+     */
+    if (
+        probe->stage != 2U ||
+        probe->entry_calls != 1U ||
+        marker != 0xABCDEF1234567890ULL ||
+        probe->worker->state != KERNEL_CONTEXT_RUNNING ||
+        cpu_local_active_kernel_context(probe->cpu) != probe->worker
+    ) {
+        kernel_panic("Kernel dispatch resumed continuation invalid");
+    }
+
+    probe->resumed_identity_valid = true;
+    probe->stage = 3U;
+}
+
+static void kernel_context_test_dispatch_resume(void)
+{
+    struct cpu_local cpu = {0};
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+
+    struct kernel_context_dispatch_resume_probe probe = {
+        .cpu = &cpu,
+        .worker = &worker,
+    };
+
+    if (
+        !cpu_local_init(&cpu, 0U, 4U) ||
+        !kernel_context_init(
+            &worker,
+            dispatch_resume_stack,
+            sizeof(dispatch_resume_stack),
+            kernel_context_test_dispatch_resume_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel dispatch resume setup failed");
+    }
+
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    /*
+     * First dispatch: the worker enters WAITING.
+     */
+    if (!kernel_context_dispatch(&cpu, &worker)) {
+        kernel_panic("Kernel dispatch first execution failed");
+    }
+
+    if (
+        worker.state != KERNEL_CONTEXT_WAITING ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        probe.entry_calls != 1U ||
+        probe.stage != 1U ||
+        !probe.first_identity_valid ||
+        probe.resumed_identity_valid
+    ) {
+        kernel_panic("Kernel dispatch waiting contract failed");
+    }
+
+    /*
+     * Wakeup changes WAITING to READY.
+     * It does not execute the worker immediately.
+     */
+    if (!kernel_context_wake(&worker)) {
+        kernel_panic("Kernel dispatch wake failed");
+    }
+
+    if (
+        worker.state != KERNEL_CONTEXT_READY ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        probe.stage != 1U
+    ) {
+        kernel_panic("Kernel dispatch wake contract failed");
+    }
+
+    probe.stage = 2U;
+
+    /*
+     * Second dispatch: resume the saved continuation,
+     * then return through the termination trampoline.
+     */
+    if (!kernel_context_dispatch(&cpu, &worker)) {
+        kernel_panic("Kernel dispatch second execution failed");
+    }
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        worker.state != KERNEL_CONTEXT_TERMINATED ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        probe.entry_calls != 1U ||
+        probe.stage != 3U ||
+        !probe.first_identity_valid ||
+        !probe.resumed_identity_valid
+    ) {
+        kernel_panic("Kernel dispatch resume lifecycle failed");
+    }
+}
+
+static void kernel_context_test_dispatch_invalid(void)
+{
+    struct cpu_local cpu = {0};
+    struct cpu_local invalid_cpu = {0};
+
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+
+    if (!kernel_context_init(
+        &worker,
+        dispatch_stack,
+        sizeof(dispatch_stack),
+        kernel_context_test_entry,
+        NULL
+    )) {
+        kernel_panic("Kernel invalid dispatch setup failed");
+    }
+
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    /*
+     * Reject invalid CPU descriptors and NULL arguments.
+     */
+    if (
+        kernel_context_dispatch(NULL, &worker) ||
+        kernel_context_dispatch(&invalid_cpu, &worker) ||
+        !cpu_local_init(&cpu, 0U, 4U) ||
+        kernel_context_dispatch(&cpu, NULL) ||
+        kernel_context_dispatch(&cpu, &worker)
+    ) {
+        kernel_panic("Kernel dispatch accepted invalid arguments");
+    }
+
+    /*
+     * A prepared worker still requires a supervisor.
+     */
+    if (
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        kernel_context_dispatch(&cpu, &worker)
+    ) {
+        kernel_panic("Kernel dispatch accepted unsupervised worker");
+    }
+
+    if (!kernel_context_bind_supervisor(
+        &worker,
+        &supervisor
+    )) {
+        kernel_panic("Kernel invalid dispatch supervisor setup failed");
+    }
+
+    /*
+     * The worker is READY, but the CPU-local slot is occupied.
+     * No worker execution occurs in this scenario.
+     */
+    struct kernel_context occupied = {
+        .prepared = true,
+        .state = KERNEL_CONTEXT_RUNNING,
+        .supervisor = &supervisor,
+        .cpu = {
+            .rsp = 0x1000U,
+        },
+    };
+
+    if (
+        !cpu_local_activate_kernel_context(&cpu, &occupied) ||
+        kernel_context_dispatch(&cpu, &worker) ||
+        worker.state != KERNEL_CONTEXT_READY ||
+        cpu_local_active_kernel_context(&cpu) != &occupied
+    ) {
+        kernel_panic("Kernel dispatch accepted occupied CPU");
+    }
+
+    if (!cpu_local_deactivate_kernel_context(
+        &cpu,
+        &occupied
+    )) {
+        kernel_panic("Kernel invalid dispatch cleanup failed");
+    }
+
+    /*
+     * A worker already RUNNING cannot be dispatched again.
+     */
+    if (
+        !kernel_context_start(&worker) ||
+        kernel_context_dispatch(&cpu, &worker) ||
+        worker.state != KERNEL_CONTEXT_RUNNING ||
+        cpu_local_active_kernel_context(&cpu) != NULL
+    ) {
+        kernel_panic("Kernel dispatch accepted running worker");
+    }
+
+    if (
+        !kernel_context_terminate(&worker) ||
+        kernel_context_dispatch(&cpu, &worker) ||
+        worker.state != KERNEL_CONTEXT_TERMINATED ||
+        cpu_local_active_kernel_context(&cpu) != NULL
+    ) {
+        kernel_panic("Kernel dispatch accepted terminated worker");
+    }
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+}
+
 void kernel_context_test_run(void)
 {
     kernel_context_test_valid();
@@ -1160,6 +1558,10 @@ void kernel_context_test_run(void)
     kernel_context_test_yield_resume();
     kernel_context_test_yield_wrong_stack();
     kernel_context_test_worker_isolation();
+
+    kernel_context_test_dispatch();
+    kernel_context_test_dispatch_resume();
+    kernel_context_test_dispatch_invalid();
 
     kernel_context_test_stack_ownership();
 
