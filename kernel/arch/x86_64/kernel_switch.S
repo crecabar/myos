@@ -36,4 +36,41 @@ kernel_context_switch:
 
 .size kernel_context_switch, .-kernel_context_switch
 
+.global kernel_supervisor_stack_call
+.type kernel_supervisor_stack_call, @function
+
+/*
+ * RDI = dedicated stack top
+ * RSI = callback
+ * RDX = callback argument
+ *
+ * This is a synchronous Ring 0 stack transition.
+ * It is not an IRQ-return mechanism.
+ */
+kernel_supervisor_stack_call:
+    pushq %r12
+    movq %rsp, %r12
+
+    /*
+     * Switch to the dedicated supervisor stack.
+     * stack_top is required to be 16-byte aligned.
+     */
+    movq %rdi, %rsp
+
+    /*
+     * First callback argument.
+     */
+    movq %rdx, %rdi
+
+    call *%rsi
+
+    /*
+     * Restore the original supervisor caller stack.
+     */
+    movq %r12, %rsp
+    popq %r12
+    ret
+
+.size kernel_supervisor_stack_call, .-kernel_supervisor_stack_call
+
 .section .note.GNU-stack,"",@progbits

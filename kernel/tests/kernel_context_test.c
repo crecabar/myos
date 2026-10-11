@@ -45,6 +45,13 @@ unsigned char dispatch_resume_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char yield_irq_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 
+#define KERNEL_SUPERVISOR_TEST_STACK_SIZE 8192U
+
+static _Alignas(16)
+unsigned char supervisor_test_stack[
+    KERNEL_SUPERVISOR_TEST_STACK_SIZE
+];
+
 struct kernel_context_yield_irq_probe {
     struct kernel_context *worker;
     bool rejected;
@@ -1947,6 +1954,89 @@ static void kernel_context_test_dispatch_owned(void)
     }
 }
 
+struct kernel_supervisor_test_probe {
+    uintptr_t stack_bottom;
+    uintptr_t stack_top;
+    bool executed;
+};
+
+static void kernel_supervisor_test_entry(void *argument)
+{
+    struct kernel_supervisor_test_probe *probe =
+        argument;
+
+    uintptr_t rsp;
+
+    __asm__ volatile (
+        "movq %%rsp, %0"
+        : "=r"(rsp)
+        :
+        : "memory"
+    );
+
+    if (
+        probe == NULL ||
+        rsp < probe->stack_bottom ||
+        rsp >= probe->stack_top
+    ) {
+        kernel_panic(
+            "Supervisor did not use dedicated stack"
+        );
+    }
+
+    if (
+        (kernel_context_test_rflags() &
+            KERNEL_CONTEXT_RFLAGS_IF) != 0
+    ) {
+        kernel_panic(
+            "Supervisor entered with interrupts enabled"
+        );
+    }
+
+    probe->executed = true;
+}
+
+static void kernel_context_test_supervisor_stack(void)
+{
+    struct kernel_supervisor_test_probe probe = {
+        .stack_bottom =
+            (uintptr_t) supervisor_test_stack,
+        .stack_top =
+            (uintptr_t) supervisor_test_stack +
+            sizeof(supervisor_test_stack),
+    };
+
+    uintptr_t original_rsp =
+        kernel_context_test_rsp();
+
+    uint64_t original_rflags =
+        kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    kernel_supervisor_stack_call(
+        probe.stack_top,
+        kernel_supervisor_test_entry,
+        &probe
+    );
+
+    uintptr_t restored_rsp =
+        kernel_context_test_rsp();
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        !probe.executed ||
+        restored_rsp != original_rsp
+    ) {
+        kernel_panic(
+            "Supervisor stack return contract failed"
+        );
+    }
+}
+
 void kernel_context_test_run(void)
 {
     kernel_context_test_valid();
@@ -1960,6 +2050,8 @@ void kernel_context_test_run(void)
     kernel_context_test_prepare_bounds();
 
     kernel_context_test_supervisor();
+
+    kernel_context_test_supervisor_stack();
 
     kernel_context_test_execution();
 

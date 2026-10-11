@@ -103,4 +103,24 @@ bool kernel_switch_prepare(
     void (*entry)(void)
 );
 
+/**
+ * Invokes a supervisor callback on a dedicated Ring 0 stack.
+ *
+ * stack_top must be 16-byte aligned and refer to a writable
+ * kernel stack whose lifetime covers the entire callback.
+ *
+ * The caller must execute in Ring 0, outside IRQ context,
+ * with interrupts disabled.
+ *
+ * The callback must return normally and must not switch
+ * address spaces or retain pointers into its stack.
+ *
+ * On return, the caller's original stack is restored.
+ */
+void kernel_supervisor_stack_call(
+    uintptr_t stack_top,
+    void (*entry)(void *),
+    void *argument
+);
+
 #endif
