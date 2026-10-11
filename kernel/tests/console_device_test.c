@@ -26,6 +26,11 @@
 #define CONSOLE_DEVICE_TEST_WIDTH 64U
 #define CONSOLE_DEVICE_TEST_HEIGHT 32U
 
+/*
+ * Borrowed only while the automatic-notification fixture is active.
+ */
+static struct console_device *console_device_test_notification_target;
+
 // Private functions and helpers declarations
 static void console_device_test_unregister(
     struct device_registry *registry,
@@ -35,6 +40,8 @@ static void console_device_test_unregister(
 static void console_device_test_registration_and_write(void);
 
 static void console_device_test_deferred_input(void);
+
+static void console_device_test_input_notification(void);
 
 static void console_device_test_registration_rollback(void);
 
@@ -92,6 +99,23 @@ static void console_device_test_unregister(
             "Console-device fixture cleanup failed"
         );
     }
+}
+
+static void console_device_test_input_notification(void)
+{
+    if (console_device_test_notification_target == NULL) {
+        kernel_panic(
+            "Console input notification has no target"
+        );
+    }
+
+    /*
+     * Mirror the production notification callback:
+     * request deferred work without consuming input.
+     */
+    console_device_request_input(
+        console_device_test_notification_target
+    );
 }
 
 static void console_device_test_registration_and_write(void)
@@ -898,6 +922,124 @@ static void console_device_test_deferred_input(void)
             "Deferred console overflow recovery left stale input"
         );
     }
+
+    /*
+     * Verify automatic deferred-work notification.
+     *
+     * Publishing a normalized event must request console work
+     * without consuming the event or invoking the worker.
+     */
+    if (
+        input_event_pending() != 0U ||
+        deferred_work_pending(&device.input_work) ||
+        device.input.completed_count != 0U ||
+        console_device_test_notification_target != NULL
+    ) {
+        kernel_panic(
+            "Console notification fixture has dirty initial state"
+        );
+    }
+
+    console_device_test_notification_target = &device;
+
+    if (
+        input_event_notification_handler_set(
+            console_device_test_input_notification
+        ) != NULL
+    ) {
+        kernel_panic(
+            "Console notification handler already registered"
+        );
+    }
+
+    struct input_event notified_events[] = {
+        {
+            .type = INPUT_EVENT_KEY,
+            .key = {
+                .code = INPUT_KEY_H,
+                .state = INPUT_KEY_PRESSED,
+            },
+        },
+        {
+            .type = INPUT_EVENT_KEY,
+            .key = {
+                .code = INPUT_KEY_ENTER,
+                .state = INPUT_KEY_PRESSED,
+            },
+        },
+    };
+
+    for (size_t index = 0; index < 2U; ++index) {
+        if (!input_event_submit(&notified_events[index])) {
+            kernel_panic(
+                "Console notified event submission failed"
+            );
+        }
+    }
+
+    /*
+     * Notification coalesces requests but does not consume
+     * the input queue or produce a completed line.
+     */
+    if (
+        input_event_pending() != 2U ||
+        !deferred_work_pending(&device.input_work) ||
+        device.input.completed_count != 0U ||
+        device.input_consumer.has_pending_event
+    ) {
+        kernel_panic(
+            "Console notification executed work prematurely"
+        );
+    }
+
+    /*
+     * Only explicit dispatch may process the queued events.
+     */
+    if (
+        console_device_dispatch_input(&device, 1U) != 1U ||
+        input_event_pending() != 0U ||
+        deferred_work_pending(&device.input_work) ||
+        device.input.completed_count != 1U
+    ) {
+        kernel_panic(
+            "Console notification dispatch contract failed"
+        );
+    }
+
+    uint8_t notified_line[2] = {0};
+    size_t notified_length = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            notified_line,
+            sizeof(notified_line),
+            &notified_length
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        notified_length != 2U ||
+        notified_line[0] != 'h' ||
+        notified_line[1] != '\n'
+    ) {
+        kernel_panic(
+            "Console notified input line mismatch"
+        );
+    }
+
+    /*
+     * Unregister before retiring the borrowed device.
+     * The global input subsystem must not retain a pointer
+     * to a fixture that is about to leave scope.
+     */
+    if (
+        input_event_notification_handler_set(NULL) !=
+            console_device_test_input_notification
+    ) {
+        kernel_panic(
+            "Console notification handler cleanup failed"
+        );
+    }
+
+    console_device_test_notification_target = NULL;
 
     console_device_test_unregister(
         &registry,
