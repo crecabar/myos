@@ -7,6 +7,7 @@
 
 #include "../panic.h"
 
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -50,6 +51,7 @@ bool kernel_context_init(
         .supervisor = NULL,
         .state = KERNEL_CONTEXT_READY,
         .prepared = false,
+        .owner_cpu_id = KERNEL_CONTEXT_NO_CPU,
     };
 
     return true;
@@ -262,5 +264,65 @@ bool kernel_context_contains_stack_pointer(
     return (
         stack_pointer >= context->stack_bottom &&
         stack_pointer < context->stack_top
+    );
+}
+
+bool kernel_context_acquire(
+    struct kernel_context *context,
+    uint32_t logical_cpu_id)
+{
+    if (
+        context == NULL ||
+        logical_cpu_id == KERNEL_CONTEXT_NO_CPU ||
+        !context->prepared ||
+        context->supervisor == NULL ||
+        context->state != KERNEL_CONTEXT_READY
+    ) {
+        return false;
+    }
+
+    uint32_t expected = KERNEL_CONTEXT_NO_CPU;
+
+    return atomic_compare_exchange_strong_explicit(
+        &context->owner_cpu_id,
+        &expected,
+        logical_cpu_id,
+        memory_order_acquire,
+        memory_order_relaxed
+    );
+}
+
+bool kernel_context_release(
+    struct kernel_context *context,
+    uint32_t logical_cpu_id)
+{
+    if (
+        context == NULL ||
+        logical_cpu_id == KERNEL_CONTEXT_NO_CPU
+    ) {
+        return false;
+    }
+
+    uint32_t expected = logical_cpu_id;
+
+    return atomic_compare_exchange_strong_explicit(
+        &context->owner_cpu_id,
+        &expected,
+        KERNEL_CONTEXT_NO_CPU,
+        memory_order_release,
+        memory_order_relaxed
+    );
+}
+
+uint32_t kernel_context_owner(
+    const struct kernel_context *context)
+{
+    if (context == NULL) {
+        return KERNEL_CONTEXT_NO_CPU;
+    }
+
+    return atomic_load_explicit(
+        &context->owner_cpu_id,
+        memory_order_acquire
     );
 }

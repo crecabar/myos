@@ -1220,6 +1220,7 @@ static void kernel_context_test_dispatch_entry(void *argument)
 
     if (
         probe->worker->state != KERNEL_CONTEXT_RUNNING ||
+        kernel_context_owner(probe->worker) != probe->cpu->logical_id ||
         cpu_local_active_kernel_context(probe->cpu) !=
             probe->worker ||
         rsp < probe->stack_bottom ||
@@ -1317,6 +1318,7 @@ static void kernel_context_test_dispatch(void)
         !dispatched ||
         worker.state != KERNEL_CONTEXT_TERMINATED ||
         cpu_local_active_kernel_context(&cpu) != NULL ||
+        kernel_context_owner(&worker) != KERNEL_CONTEXT_NO_CPU ||
         probe.calls != 1U ||
         !probe.identity_valid
     ) {
@@ -1342,6 +1344,7 @@ static void kernel_context_test_dispatch_resume_entry(void *argument)
 
     if (
         probe->worker->state != KERNEL_CONTEXT_RUNNING ||
+        kernel_context_owner(probe->worker) != probe->cpu->logical_id ||
         cpu_local_active_kernel_context(probe->cpu) != probe->worker
     ) {
         kernel_panic("Kernel dispatch first identity invalid");
@@ -1363,6 +1366,7 @@ static void kernel_context_test_dispatch_resume_entry(void *argument)
         probe->entry_calls != 1U ||
         marker != 0xABCDEF1234567890ULL ||
         probe->worker->state != KERNEL_CONTEXT_RUNNING ||
+        kernel_context_owner(probe->worker) != probe->cpu->logical_id ||
         cpu_local_active_kernel_context(probe->cpu) != probe->worker
     ) {
         kernel_panic("Kernel dispatch resumed continuation invalid");
@@ -1424,6 +1428,7 @@ static void kernel_context_test_dispatch_resume(void)
     if (
         worker.state != KERNEL_CONTEXT_WAITING ||
         cpu_local_active_kernel_context(&cpu) != NULL ||
+        kernel_context_owner(&worker) != KERNEL_CONTEXT_NO_CPU ||
         probe.entry_calls != 1U ||
         probe.stage != 1U ||
         !probe.first_identity_valid ||
@@ -1465,6 +1470,7 @@ static void kernel_context_test_dispatch_resume(void)
     if (
         worker.state != KERNEL_CONTEXT_TERMINATED ||
         cpu_local_active_kernel_context(&cpu) != NULL ||
+        kernel_context_owner(&worker) != KERNEL_CONTEXT_NO_CPU ||
         probe.entry_calls != 1U ||
         probe.stage != 3U ||
         !probe.first_identity_valid ||
@@ -1701,6 +1707,246 @@ static void kernel_context_test_yield_irq_contract(void)
     }
 }
 
+static void kernel_context_test_ownership(void)
+{
+    struct kernel_context context;
+    struct kernel_switch_context supervisor = {0};
+
+    if (
+        !kernel_context_init(
+            &context,
+            test_stack,
+            sizeof(test_stack),
+            kernel_context_test_entry,
+            NULL
+        ) ||
+        !kernel_context_prepare(
+            &context,
+            kernel_context_test_trampoline
+        ) ||
+        !kernel_context_bind_supervisor(
+            &context,
+            &supervisor
+        )
+    ) {
+        kernel_panic("Kernel ownership setup failed");
+    }
+
+    if (kernel_context_owner(&context) != KERNEL_CONTEXT_NO_CPU) {
+        kernel_panic("Kernel context initialized with an owner");
+    }
+
+    /*
+     * CPU 0 acquires ownership of the READY worker.
+     */
+    if (
+        !kernel_context_acquire(&context, 0U) ||
+        kernel_context_owner(&context) != 0U
+    ) {
+        kernel_panic("Kernel context ownership acquisition failed");
+    }
+
+    /*
+     * Neither the current owner nor another CPU may
+     * acquire an already reserved worker.
+     */
+    if (
+        kernel_context_acquire(&context, 0U) ||
+        kernel_context_acquire(&context, 1U) ||
+        kernel_context_owner(&context) != 0U
+    ) {
+        kernel_panic("Kernel context accepted duplicate ownership");
+    }
+
+    /*
+     * Another CPU cannot release CPU 0's reservation.
+     */
+    if (
+        kernel_context_release(&context, 1U) ||
+        kernel_context_owner(&context) != 0U
+    ) {
+        kernel_panic("Kernel context accepted foreign release");
+    }
+
+    if (
+        !kernel_context_release(&context, 0U) ||
+        kernel_context_owner(&context) != KERNEL_CONTEXT_NO_CPU
+    ) {
+        kernel_panic("Kernel context ownership release failed");
+    }
+
+    /*
+     * After release, another logical CPU may acquire
+     * the same READY descriptor.
+     */
+    if (
+        !kernel_context_acquire(&context, 1U) ||
+        kernel_context_owner(&context) != 1U ||
+        !kernel_context_release(&context, 1U) ||
+        kernel_context_owner(&context) != KERNEL_CONTEXT_NO_CPU
+    ) {
+        kernel_panic("Kernel context ownership transfer failed");
+    }
+}
+
+static void kernel_context_test_ownership_invalid(void)
+{
+    struct kernel_context context;
+    struct kernel_switch_context supervisor = {0};
+
+    if (!kernel_context_init(
+        &context,
+        test_stack,
+        sizeof(test_stack),
+        kernel_context_test_entry,
+        NULL
+    )) {
+        kernel_panic("Kernel invalid ownership setup failed");
+    }
+
+    if (
+        kernel_context_acquire(NULL, 0U) ||
+        kernel_context_release(NULL, 0U) ||
+        kernel_context_owner(NULL) != KERNEL_CONTEXT_NO_CPU ||
+        kernel_context_acquire(
+            &context, KERNEL_CONTEXT_NO_CPU
+        ) ||
+        kernel_context_release(
+            &context, KERNEL_CONTEXT_NO_CPU
+        ) ||
+        kernel_context_acquire(&context, 0U)
+    ) {
+        kernel_panic("Kernel ownership accepted invalid argument");
+    }
+
+    /*
+     * Prepared but unsupervised contexts cannot be owned.
+     */
+    if (
+        !kernel_context_prepare(
+            &context,
+            kernel_context_test_trampoline
+        ) ||
+        kernel_context_acquire(&context, 0U) ||
+        !kernel_context_bind_supervisor(
+            &context, &supervisor
+        )
+    ) {
+        kernel_panic("Kernel invalid ownership preparation failed");
+    }
+
+    /*
+     * Ownership acquisition is restricted to READY.
+     */
+    if (
+        !kernel_context_start(&context) ||
+        kernel_context_acquire(&context, 0U) ||
+        !kernel_context_wait(&context) ||
+        kernel_context_acquire(&context, 0U) ||
+        !kernel_context_wake(&context) ||
+        !kernel_context_start(&context) ||
+        !kernel_context_terminate(&context) ||
+        kernel_context_acquire(&context, 0U) ||
+        kernel_context_owner(&context) != KERNEL_CONTEXT_NO_CPU
+    ) {
+        kernel_panic("Kernel ownership accepted invalid state");
+    }
+
+    if (kernel_context_release(&context, 0U)) {
+        kernel_panic("Kernel ownership accepted unowned release");
+    }
+}
+
+static void kernel_context_test_dispatch_owned(void)
+{
+    struct cpu_local cpu = {0};
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+    uint32_t current_apic_id;
+
+    if (
+        !arch_cpu_apic_id(&current_apic_id) ||
+        !cpu_local_init(&cpu, 0U, current_apic_id) ||
+        !kernel_context_init(
+            &worker,
+            dispatch_stack,
+            sizeof(dispatch_stack),
+            kernel_context_test_entry,
+            NULL
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            &supervisor
+        ) ||
+        !kernel_context_acquire(&worker, 1U)
+    ) {
+        kernel_panic("Kernel owned dispatch setup failed");
+    }
+
+    uintptr_t saved_rsp = worker.cpu.rsp;
+    uint64_t original_rflags = kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    bool accepted = kernel_context_dispatch(&cpu, &worker);
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        accepted ||
+        worker.state != KERNEL_CONTEXT_READY ||
+        worker.cpu.rsp != saved_rsp ||
+        kernel_context_owner(&worker) != 1U ||
+        cpu_local_active_kernel_context(&cpu) != NULL
+    ) {
+        kernel_panic("Kernel dispatch accepted foreign ownership");
+    }
+
+    if (
+        !kernel_context_release(&worker, 1U) ||
+        kernel_context_owner(&worker) != KERNEL_CONTEXT_NO_CPU
+    ) {
+        kernel_panic("Kernel owned dispatch cleanup failed");
+    }
+
+    if (!kernel_context_acquire(&worker, cpu.logical_id)) {
+        kernel_panic("Kernel same-owner dispatch setup failed");
+    }
+
+    uintptr_t same_owner_rsp = worker.cpu.rsp;
+
+    interrupts_disable();
+
+    bool same_owner_accepted = kernel_context_dispatch(
+        &cpu,
+        &worker
+    );
+
+    if ((original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0) {
+        interrupts_enable();
+    }
+
+    if (
+        same_owner_accepted ||
+        worker.state != KERNEL_CONTEXT_READY ||
+        worker.cpu.rsp != same_owner_rsp ||
+        kernel_context_owner(&worker) != cpu.logical_id ||
+        cpu_local_active_kernel_context(&cpu) != NULL
+    ) {
+        kernel_panic("Kernel dispatch accepted duplicate ownership");
+    }
+
+    if (!kernel_context_release(&worker, cpu.logical_id)) {
+        kernel_panic("Kernel same-owner dispatch cleanup failed");
+    }
+}
+
 void kernel_context_test_run(void)
 {
     kernel_context_test_valid();
@@ -1728,7 +1974,12 @@ void kernel_context_test_run(void)
     kernel_context_test_dispatch_interrupts();
     kernel_context_test_yield_irq_contract();
 
+    kernel_context_test_dispatch_owned();
+
     kernel_context_test_stack_ownership();
+
+    kernel_context_test_ownership();
+    kernel_context_test_ownership_invalid();
 
     kernel_context_test_lifecycle();
     kernel_context_test_lifecycle_invalid();

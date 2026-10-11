@@ -14,6 +14,7 @@
 
 #define KERNEL_CONTEXT_STACK_ALIGNMENT 16U
 #define KERNEL_CONTEXT_MIN_STACK_SIZE 4096U
+#define KERNEL_CONTEXT_NO_CPU UINT32_MAX
 
 enum kernel_context_state {
     KERNEL_CONTEXT_UNINITIALIZED,
@@ -37,6 +38,8 @@ struct kernel_context {
 
     enum kernel_context_state state;
     bool prepared;
+
+    _Atomic uint32_t owner_cpu_id;
 };
 
 bool kernel_context_init(
@@ -109,6 +112,34 @@ bool kernel_context_terminate(struct kernel_context *context);
 bool kernel_context_contains_stack_pointer(
     const struct kernel_context *context,
     uintptr_t stack_pointer
+);
+
+/**
+ * Acquires exclusive ownership for a logical CPU.
+ *
+ * Does not change the lifecycle state or execute the worker.
+ */
+bool kernel_context_acquire(
+    struct kernel_context *context,
+    uint32_t logical_cpu_id
+);
+
+/**
+ * Releases ownership held by the specified logical CPU.
+ *
+ * Must only be called after execution has returned safely
+ * to the supervisor.
+ */
+bool kernel_context_release(
+    struct kernel_context *context,
+    uint32_t logical_cpu_id
+);
+
+/**
+ * Returns the owner CPU ID, or KERNEL_CONTEXT_NO_CPU.
+ */
+uint32_t kernel_context_owner(
+    const struct kernel_context *context
 );
 
 /**

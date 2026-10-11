@@ -67,13 +67,31 @@ bool kernel_context_dispatch(
         return false;
     }
 
+    /*
+     * Acquire exclusive ownership before changing lifecycle
+     * state or publishing the worker as active on this CPU.
+     */
+    if (!kernel_context_acquire(
+        context,
+        cpu->logical_id
+    )) {
+        return false;
+    }
+
     if (!kernel_context_start(context)) {
+        if (!kernel_context_release(
+            context,
+            cpu->logical_id
+        )) {
+            kernel_panic("Unable to roll back kernel context ownership");
+        }
+
         return false;
     }
 
     /*
-     * The RUNNING descriptor becomes the logical target
-     * before the physical context switch.
+     * The CPU-local active reference is published before
+     * switching to the worker's execution stack.
      */
     if (!cpu_local_activate_kernel_context(
         cpu,
@@ -88,8 +106,8 @@ bool kernel_context_dispatch(
     );
 
     /*
-     * Execution has returned to the supervisor.
-     * The worker must have yielded or terminated.
+     * We have returned physically to the supervisor.
+     * The worker must no longer be RUNNING.
      */
     if (
         context->state != KERNEL_CONTEXT_WAITING &&
@@ -98,11 +116,33 @@ bool kernel_context_dispatch(
         kernel_panic("Kernel context returned in invalid state");
     }
 
+    if (!kernel_dispatch_interrupts_disabled()) {
+        kernel_panic("Kernel context returned with interrupts enabled");
+    }
+
+    if (
+        kernel_context_owner(context) != cpu->logical_id ||
+        cpu_local_active_kernel_context(cpu) != context
+    ) {
+        kernel_panic("Kernel context ownership lost during dispatch");
+    }
+
     if (!cpu_local_deactivate_kernel_context(
         cpu,
         context
     )) {
         kernel_panic("Unable to deactivate dispatched kernel context");
+    }
+
+    /*
+     * Release ownership only after the supervisor has
+     * resumed and CPU-local active identity was removed.
+     */
+    if (!kernel_context_release(
+        context,
+        cpu->logical_id
+    )) {
+        kernel_panic("Unable to release dispatched kernel context");
     }
 
     return true;
