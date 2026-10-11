@@ -10,8 +10,12 @@
 
 #include "console_device.h"
 
+#include "../input/input.h"
+
 #include <stddef.h>
 #include <stdint.h>
+
+#define CONSOLE_INPUT_WORK_EVENT_BUDGET 16U
 
 // Private functions and helpers declarations
 static struct console_device *console_device_from_character(
@@ -35,6 +39,9 @@ static enum character_device_io_result console_device_read(
     size_t size,
     size_t *bytes_read
 );
+
+static enum deferred_work_result console_device_input_work(
+    void *context);
 
 // Static local variables
 static const struct character_device_operations
@@ -96,6 +103,20 @@ enum console_device_initialize_result console_device_initialize(
             CONSOLE_DEVICE_INITIALIZE_RESULT_INVALID_ARGUMENT;
     }
 
+    if (!deferred_work_init(
+        &console_device->input_work,
+        console_device_input_work,
+        console_device
+    )) {
+        console_device->console = NULL;
+
+        if (!console_device_retire_unpublished(console_device)) {
+            return CONSOLE_DEVICE_INITIALIZE_RESULT_ROLLBACK_FAILED;
+        }
+
+        return CONSOLE_DEVICE_INITIALIZE_RESULT_INVALID_ARGUMENT;
+    }
+
     enum device_registry_register_result register_result =
         device_registry_register(
             registry,
@@ -140,6 +161,38 @@ size_t console_device_drain_input(
     return console_input_consumer_drain(
         &device->input_consumer,
         &device->input,
+        budget
+    );
+}
+
+void console_device_request_input(
+    struct console_device *device)
+{
+    if (
+        device != NULL &&
+        console_device_from_character(
+            &device->character
+        ) == device
+    ) {
+        deferred_work_request(&device->input_work);
+    }
+}
+
+size_t console_device_dispatch_input(
+    struct console_device *device,
+    size_t budget)
+{
+    if (
+        device == NULL ||
+        console_device_from_character(
+            &device->character
+        ) != device
+    ) {
+        return 0;
+    }
+
+    return deferred_work_dispatch(
+        &device->input_work,
         budget
     );
 }
@@ -243,6 +296,10 @@ static enum character_device_io_result console_device_read(
 
     *bytes_read = transferred;
 
+    if (device->input_consumer.has_pending_event) {
+        deferred_work_request(&device->input_work);
+    }
+
     return CHARACTER_DEVICE_IO_RESULT_SUCCESS;
 }
 
@@ -292,4 +349,35 @@ static enum character_device_io_result console_device_write(
 
     return
         CHARACTER_DEVICE_IO_RESULT_SUCCESS;
+}
+
+static enum deferred_work_result console_device_input_work(
+    void *context)
+{
+    struct console_device *device = context;
+
+    size_t processed = console_device_drain_input(
+        device,
+        CONSOLE_INPUT_WORK_EVENT_BUDGET
+    );
+
+    if (
+        device->input_consumer.has_pending_event
+    ) {
+        /*
+         * The canonical line queue cannot accept this event.
+         * A subsequent read must request processing again.
+         */
+        return DEFERRED_WORK_WAIT;
+    }
+
+    if (
+        input_event_pending() != 0
+    ) {
+        return DEFERRED_WORK_MORE;
+    }
+
+    (void) processed;
+
+    return DEFERRED_WORK_COMPLETED;
 }

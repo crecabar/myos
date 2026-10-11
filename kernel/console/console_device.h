@@ -36,6 +36,7 @@
 #include "console_input_consumer.h"
 #include "line_buffer.h"
 
+#include "../core/deferred_work/deferred_work.h"
 #include "../core/device/character_device.h"
 #include "../core/device/device.h"
 #include "../core/device/registry.h"
@@ -86,6 +87,8 @@ struct console_device {
     struct console *console;
     struct console_line_buffer input;
     struct console_input_consumer input_consumer;
+
+    struct deferred_work input_work;
 };
 
 /**
@@ -138,6 +141,28 @@ enum console_device_initialize_result console_device_initialize(
  * @return Number of accepted or ignored events processed.
  */
 size_t console_device_drain_input(
+    struct console_device *device,
+    size_t budget
+);
+
+/**
+ * Requests deferred processing of console input.
+ *
+ * Safe as a lightweight notification; does not process events.
+ */
+void console_device_request_input(
+    struct console_device *device
+);
+
+/**
+ * Dispatches previously requested console input work.
+ *
+ * Must be called outside IRQ context with exclusive access
+ * to the console input state.
+ *
+ * budget counts handler invocations, not input events.
+ */
+size_t console_device_dispatch_input(
     struct console_device *device,
     size_t budget
 );
