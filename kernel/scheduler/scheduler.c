@@ -10,6 +10,7 @@
 #include "../arch/x86_64/gdt.h"
 #include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/timer.h"
+#include "../core/execution/kernel_dispatch.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/lifecycle.h"
@@ -119,6 +120,23 @@ bool scheduler_unregister_kernel_worker(
     kernel_worker = NULL;
 
     return true;
+}
+
+bool scheduler_dispatch_kernel_worker(
+    struct cpu_local *cpu)
+{
+    if (
+        cpu == NULL ||
+        kernel_worker == NULL ||
+        kernel_worker->state != KERNEL_CONTEXT_READY
+    ) {
+        return false;
+    }
+
+    return kernel_context_dispatch(
+        cpu,
+        kernel_worker
+    );
 }
 
 void scheduler_set_terminated_handler(

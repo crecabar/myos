@@ -43,6 +43,8 @@
  */
 #define SCHEDULER_MAX_PROCESSES 8
 
+struct cpu_local;
+
 /**
  * Handles a process after termination has been detached from the scheduler.
  *
@@ -94,6 +96,19 @@ bool scheduler_register_kernel_worker(
  */
 bool scheduler_unregister_kernel_worker(
     struct kernel_context *context
+);
+
+/**
+ * Dispatches the registered kernel worker when it is READY.
+ *
+ * The caller must be the current CPU's supervisor, outside
+ * interrupt context, with maskable interrupts disabled.
+ *
+ * Returns true when a worker was dispatched, false when no
+ * registered worker is eligible or dispatch was rejected.
+ */
+bool scheduler_dispatch_kernel_worker(
+    struct cpu_local *cpu
 );
 
 /**

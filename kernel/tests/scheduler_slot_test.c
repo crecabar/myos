@@ -10,8 +10,10 @@
 
 #include "scheduler_slot_test.h"
 
+#include "../arch/x86_64/cpu_identity.h"
 #include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/timer.h"
+#include "../core/cpu/cpu_local.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/process.h"
@@ -42,6 +44,56 @@
 
 #define SCHEDULER_SLOT_TEST_NEW_RBX \
     0xEEEEFFFF11112222ULL
+
+#define SCHEDULER_WORKER_TEST_STACK_SIZE 8192U
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char scheduler_worker_test_stack[
+    SCHEDULER_WORKER_TEST_STACK_SIZE
+];
+
+struct scheduler_worker_test_probe {
+    struct kernel_context *worker;
+    unsigned int entries;
+    unsigned int stage;
+};
+
+static void scheduler_worker_test_entry(
+    void *argument)
+{
+    struct scheduler_worker_test_probe *probe =
+        argument;
+
+    if (
+        probe == NULL ||
+        probe->worker == NULL ||
+        probe->stage != 0U
+    ) {
+        kernel_panic(
+            "Scheduler worker test entry invalid"
+        );
+    }
+
+    ++probe->entries;
+    probe->stage = 1U;
+
+    if (!kernel_context_yield_wait(probe->worker)) {
+        kernel_panic(
+            "Scheduler worker failed to yield"
+        );
+    }
+
+    if (
+        probe->stage != 2U ||
+        probe->entries != 1U
+    ) {
+        kernel_panic(
+            "Scheduler worker did not resume"
+        );
+    }
+
+    probe->stage = 3U;
+}
 
 static struct process_memory
     test_memories[SCHEDULER_SLOT_TEST_PROCESS_COUNT];
@@ -78,6 +130,7 @@ static bool scheduler_slot_test_idle_work(void)
 }
 
 static void scheduler_slot_test_initialize_processes(void);
+static void scheduler_slot_test_kernel_worker_dispatch(void);
 
 void scheduler_slot_test_run(void)
 {
@@ -91,6 +144,8 @@ void scheduler_slot_test_run(void)
      * No real processes have been registered yet when this regression runs.
      */
     scheduler_init();
+
+    scheduler_slot_test_kernel_worker_dispatch();
 
         /*
      * Exercise the production idle-work dispatch helper
@@ -619,4 +674,115 @@ static void scheduler_slot_test_initialize_processes(void)
             );
         }
     }
+}
+
+static void scheduler_slot_test_kernel_worker_dispatch(void)
+{
+    struct cpu_local cpu = {0};
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+
+    struct scheduler_worker_test_probe probe = {
+        .worker = &worker,
+    };
+
+    uint32_t apic_id;
+
+    if (
+        !arch_cpu_apic_id(&apic_id) ||
+        !cpu_local_init(&cpu, 0U, apic_id) ||
+        !kernel_context_init(
+            &worker,
+            scheduler_worker_test_stack,
+            sizeof(scheduler_worker_test_stack),
+            scheduler_worker_test_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            &supervisor
+        )
+    ) {
+        kernel_panic(
+            "Scheduler worker dispatch setup failed"
+        );
+    }
+
+    interrupts_disable();
+
+    if (scheduler_dispatch_kernel_worker(&cpu)) {
+        kernel_panic(
+            "Scheduler dispatched unregistered worker"
+        );
+    }
+
+    if (!scheduler_register_kernel_worker(&worker)) {
+        kernel_panic(
+            "Scheduler could not register executable worker"
+        );
+    }
+
+    if (!scheduler_dispatch_kernel_worker(&cpu)) {
+        kernel_panic(
+            "Scheduler first worker dispatch failed"
+        );
+    }
+
+    if (
+        worker.state != KERNEL_CONTEXT_WAITING ||
+        probe.entries != 1U ||
+        probe.stage != 1U ||
+        kernel_context_owner(&worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        cpu_local_active_kernel_context(&cpu) != NULL
+    ) {
+        kernel_panic(
+            "Scheduler worker waiting state invalid"
+        );
+    }
+
+    if (scheduler_dispatch_kernel_worker(&cpu)) {
+        kernel_panic(
+            "Scheduler dispatched waiting worker"
+        );
+    }
+
+    probe.stage = 2U;
+
+    if (
+        !kernel_context_wake(&worker) ||
+        !scheduler_dispatch_kernel_worker(&cpu)
+    ) {
+        kernel_panic(
+            "Scheduler worker resume dispatch failed"
+        );
+    }
+
+    if (
+        worker.state != KERNEL_CONTEXT_TERMINATED ||
+        probe.entries != 1U ||
+        probe.stage != 3U ||
+        kernel_context_owner(&worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        cpu_local_active_kernel_context(&cpu) != NULL
+    ) {
+        kernel_panic(
+            "Scheduler worker completion state invalid"
+        );
+    }
+
+    if (
+        scheduler_dispatch_kernel_worker(&cpu) ||
+        !scheduler_unregister_kernel_worker(&worker)
+    ) {
+        kernel_panic(
+            "Scheduler worker cleanup failed"
+        );
+    }
+
+    interrupts_enable();
 }
