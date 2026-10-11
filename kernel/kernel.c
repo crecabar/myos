@@ -124,6 +124,8 @@ static void kernel_input_system_action(
     enum input_system_action action
 );
 
+static void kernel_input_event_notification(void);
+
 static void kernel_mount_root_filesystem(void);
 
 static void kernel_initialize_core_devices(void);
@@ -261,6 +263,23 @@ static void kernel_input_system_action(
                 "Unknown kernel input system action"
             );
     }
+}
+
+/*
+ * Invoked after an input event has been published.
+ *
+ * This callback may execute in IRQ context. It only requests
+ * deferred processing; it must never drain the input queue,
+ * render console output, or switch execution contexts.
+ *
+ * The system console has static lifetime and is initialized
+ * before this handler is registered.
+ */
+static void kernel_input_event_notification(void)
+{
+    console_device_request_input(
+        &kernel_console_device
+    );
 }
 
 static bool kernel_mount_bootstrap_device_namespace(
@@ -1134,6 +1153,32 @@ static _Noreturn void kernel_main_continue(void)
     input_system_action_handler_set(
         kernel_input_system_action
     );
+
+    /*
+     * Register the production console notification after kernel tests
+     * and their input_init() calls have completed.
+     *
+     * The callback only marks deferred work pending.
+     */
+    if (
+        input_event_notification_handler_set(
+            kernel_input_event_notification
+        ) != NULL
+    ) {
+        kernel_panic(
+            "Input event notification handler already registered"
+        );
+    }
+
+    /*
+     * Events may have arrived before notification registration.
+     * Ensure any queued input receives an initial work request.
+     */
+    if (input_event_pending() != 0U) {
+        console_device_request_input(
+            &kernel_console_device
+        );
+    }
 
     /*
      * A chord may have been recognized before the immediate handler
