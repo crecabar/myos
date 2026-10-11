@@ -122,6 +122,19 @@ bool scheduler_dispatch_kernel_worker(
 bool scheduler_kernel_worker_ready(void);
 
 /**
+ * Reports whether a timer-interrupted userspace execution
+ * has an eligible kernel worker.
+ *
+ * Does not save user context, alter scheduling state,
+ * dispatch a worker, or rewrite the interrupt frame.
+ *
+ * The caller must serialize access to scheduler state.
+ */
+bool scheduler_kernel_worker_handoff_needed(
+    const struct interrupt_context *context
+);
+
+/**
  * Registers one borrowed idle-work handler.
  *
  * Passing NULL disables idle work execution.

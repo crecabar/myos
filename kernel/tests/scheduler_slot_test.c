@@ -738,6 +738,32 @@ static void scheduler_slot_test_kernel_worker_dispatch(void)
         );
     }
 
+    struct interrupt_context user_context = {
+        .cs = 0x1BU,
+    };
+
+    struct interrupt_context kernel_context = {
+        .cs = 0x08U,
+    };
+
+    /*
+     * A READY worker alone is insufficient.
+     * The scheduler must also have a running user process.
+     */
+    if (
+        scheduler_kernel_worker_handoff_needed(
+            &user_context
+        ) ||
+        scheduler_kernel_worker_handoff_needed(
+            &kernel_context
+        ) ||
+        scheduler_kernel_worker_handoff_needed(NULL)
+    ) {
+        kernel_panic(
+            "Scheduler accepted kernel handoff without running user process"
+        );
+    }
+
     if (!scheduler_dispatch_kernel_worker(&cpu)) {
         kernel_panic(
             "Scheduler first worker dispatch failed"

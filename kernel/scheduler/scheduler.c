@@ -150,6 +150,21 @@ bool scheduler_kernel_worker_ready(void)
             KERNEL_CONTEXT_NO_CPU;
 }
 
+bool scheduler_kernel_worker_handoff_needed(
+    const struct interrupt_context *context)
+{
+    if (
+        context == NULL ||
+        (context->cs & 0x3U) != 3U ||
+        current_process == NULL ||
+        current_process->state != PROCESS_STATE_RUNNING
+    ) {
+        return false;
+    }
+
+    return scheduler_kernel_worker_ready();
+}
+
 void scheduler_set_terminated_handler(
     scheduler_terminated_handler handler)
 {
