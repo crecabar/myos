@@ -32,6 +32,7 @@
 
 #include "../process/process.h"
 #include "../arch/x86_64/interrupts.h"
+#include "../core/execution/kernel_context.h"
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -72,6 +73,28 @@ typedef bool (*scheduler_idle_work_handler)(void);
  * Initializes the scheduler.
  */
 void scheduler_init(void);
+
+/**
+ * Registers one prepared kernel worker with the scheduler.
+ *
+ * The descriptor and its execution stack remain caller-owned.
+ * Registration neither transfers ownership nor executes the worker.
+ *
+ * This bootstrap interface supports one worker. A second distinct
+ * registration is rejected without changing the first.
+ */
+bool scheduler_register_kernel_worker(
+    struct kernel_context *context
+);
+
+/**
+ * Removes a registered kernel worker that is not executing.
+ *
+ * The caller remains responsible for the worker's lifetime.
+ */
+bool scheduler_unregister_kernel_worker(
+    struct kernel_context *context
+);
 
 /**
  * Registers one borrowed idle-work handler.

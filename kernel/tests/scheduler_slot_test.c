@@ -141,6 +141,71 @@ void scheduler_slot_test_run(void)
 
     interrupts_enable();
 
+    /*
+     * Kernel worker registration owns no execution resources
+     * and must not interfere with userspace process slots.
+     */
+    struct kernel_context worker = {
+        .state = KERNEL_CONTEXT_READY,
+        .prepared = true,
+        .supervisor = NULL,
+        .owner_cpu_id = KERNEL_CONTEXT_NO_CPU,
+    };
+
+    struct kernel_switch_context supervisor = {0};
+
+    if (scheduler_register_kernel_worker(&worker)) {
+        kernel_panic(
+            "Scheduler accepted worker without supervisor"
+        );
+    }
+
+    worker.supervisor = &supervisor;
+
+    if (
+        !scheduler_register_kernel_worker(&worker) ||
+        scheduler_register_kernel_worker(&worker)
+    ) {
+        kernel_panic(
+            "Scheduler kernel worker registration failed"
+        );
+    }
+
+    struct kernel_context other_worker = {
+        .state = KERNEL_CONTEXT_READY,
+        .prepared = true,
+        .supervisor = &supervisor,
+        .owner_cpu_id = KERNEL_CONTEXT_NO_CPU,
+    };
+
+    if (
+        scheduler_register_kernel_worker(&other_worker) ||
+        scheduler_unregister_kernel_worker(&other_worker)
+    ) {
+        kernel_panic(
+            "Scheduler accepted unrelated kernel worker"
+        );
+    }
+
+    worker.state = KERNEL_CONTEXT_RUNNING;
+
+    if (scheduler_unregister_kernel_worker(&worker)) {
+        kernel_panic(
+            "Scheduler unregistered running kernel worker"
+        );
+    }
+
+    worker.state = KERNEL_CONTEXT_WAITING;
+
+    if (
+        !scheduler_unregister_kernel_worker(&worker) ||
+        scheduler_unregister_kernel_worker(&worker)
+    ) {
+        kernel_panic(
+            "Scheduler kernel worker unregister failed"
+        );
+    }
+
     scheduler_slot_test_initialize_processes();
 
     /*

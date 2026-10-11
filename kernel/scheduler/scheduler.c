@@ -25,6 +25,8 @@ static size_t next_process_index;
 static scheduler_terminated_handler terminated_handler;
 static scheduler_idle_work_handler idle_work_handler;
 
+static struct kernel_context *kernel_worker;
+
 static struct process *current_process;
 static uint64_t current_quantum_ticks;
 
@@ -76,11 +78,47 @@ void scheduler_init(void)
     current_quantum_ticks = 0;
     terminated_handler = NULL;
     idle_work_handler = NULL;
+    kernel_worker = NULL;
 
 #if MYOS_KERNEL_TESTS
     scheduler_test_preemption_count_value = 0;
     scheduler_test_cross_address_space_preemption_count_value = 0;
 #endif
+}
+
+bool scheduler_register_kernel_worker(
+    struct kernel_context *context)
+{
+    if (
+        context == NULL ||
+        context->state != KERNEL_CONTEXT_READY ||
+        !context->prepared ||
+        context->supervisor == NULL ||
+        kernel_worker != NULL
+    ) {
+        return false;
+    }
+
+    kernel_worker = context;
+
+    return true;
+}
+
+bool scheduler_unregister_kernel_worker(
+    struct kernel_context *context)
+{
+    if (
+        context == NULL ||
+        kernel_worker != context ||
+        context->state == KERNEL_CONTEXT_RUNNING ||
+        kernel_context_owner(context) != KERNEL_CONTEXT_NO_CPU
+    ) {
+        return false;
+    }
+
+    kernel_worker = NULL;
+
+    return true;
 }
 
 void scheduler_set_terminated_handler(
