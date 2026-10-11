@@ -183,7 +183,7 @@ static void console_device_test_registration_and_write(void)
             &device.device ||
         device.console !=
             &console ||
-        character_device_can_read(
+        !character_device_can_read(
             &device.character
         ) ||
         !character_device_can_write(
@@ -236,7 +236,7 @@ static void console_device_test_registration_and_write(void)
             sizeof(read_buffer),
             &bytes_read
         ) !=
-            CHARACTER_DEVICE_IO_RESULT_NOT_SUPPORTED ||
+            CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK ||
         bytes_read !=
             SIZE_MAX ||
         read_buffer !=
@@ -313,6 +313,66 @@ static void console_device_test_registration_and_write(void)
         kernel_panic(
             "Console-device zero-length write contract failed"
         );
+    }
+
+    if (
+        console_line_buffer_submit(&device.input, 'h') !=
+            CONSOLE_LINE_INPUT_ACCEPTED ||
+        console_line_buffer_submit(&device.input, 'i') !=
+            CONSOLE_LINE_INPUT_ACCEPTED ||
+        console_line_buffer_submit(&device.input, '\n') !=
+            CONSOLE_LINE_INPUT_ACCEPTED
+    ) {
+        kernel_panic("Console input fixture submission failed");
+    }
+
+    uint8_t first[2] = {0};
+    size_t first_read = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            first,
+            sizeof(first),
+            &first_read
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        first_read != 2U ||
+        first[0] != 'h' ||
+        first[1] != 'i'
+    ) {
+        kernel_panic("Console partial line read failed");
+    }
+
+    uint8_t second[2] = {0};
+    size_t second_read = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            second,
+            sizeof(second),
+            &second_read
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        second_read != 1U ||
+        second[0] != '\n'
+    ) {
+        kernel_panic("Console remaining line read failed");
+    }
+
+    uint8_t empty_buffer = 0xa5U;
+    size_t empty_read = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device.character,
+            &empty_buffer,
+            1U,
+            &empty_read
+        ) != CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK ||
+        empty_buffer != 0xa5U ||
+        empty_read != SIZE_MAX
+    ) {
+        kernel_panic("Console consumed line remained readable");
     }
 
     console_device_test_unregister(

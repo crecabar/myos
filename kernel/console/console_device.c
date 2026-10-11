@@ -29,13 +29,18 @@ static enum character_device_io_result console_device_write(
     size_t *bytes_written
 );
 
+static enum character_device_io_result console_device_read(
+    struct character_device *character,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read
+);
+
 // Static local variables
 static const struct character_device_operations
     console_device_character_operations = {
-        .read =
-            NULL,
-        .write =
-            console_device_write,
+        .read = console_device_read,
+        .write = console_device_write,
     };
 
 // Public functions implementations
@@ -67,8 +72,8 @@ enum console_device_initialize_result console_device_initialize(
             CONSOLE_DEVICE_INITIALIZE_RESULT_INVALID_ARGUMENT;
     }
 
-    console_device->console =
-        console;
+    console_device->console = console;
+    console_line_buffer_init(&console_device->input);
 
     if (!character_device_initialize(
         &console_device->character,
@@ -172,6 +177,52 @@ static bool console_device_retire_unpublished(
         device_release(
             &console_device->device
         );
+}
+
+static enum character_device_io_result console_device_read(
+    struct character_device *character,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read)
+{
+    struct console_device *device =
+        console_device_from_character(character);
+
+    if (
+        device == NULL ||
+        bytes_read == NULL ||
+        (size != 0 && buffer == NULL)
+    ) {
+        return CHARACTER_DEVICE_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * Normally handled by the generic character-device layer.
+     */
+    if (size == 0) {
+        *bytes_read = 0;
+        return CHARACTER_DEVICE_IO_RESULT_SUCCESS;
+    }
+
+    size_t transferred = 0;
+
+    if (!console_line_buffer_read(
+        &device->input,
+        buffer,
+        size,
+        &transferred
+    )) {
+        /*
+         * No completed line is available.
+         * This is not EOF and must not become a successful
+         * zero-byte read.
+         */
+        return CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK;
+    }
+
+    *bytes_read = transferred;
+
+    return CHARACTER_DEVICE_IO_RESULT_SUCCESS;
 }
 
 static enum character_device_io_result console_device_write(

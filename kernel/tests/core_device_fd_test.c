@@ -370,11 +370,10 @@ static void core_device_fd_test_console(
         "/dev/console";
 
     /*
-     * Console input deliberately does not exist yet. Rejection must happen
-     * through the same pathname/open path rather than through a pathname hack.
+     * Console input is now readable. An empty line queue
+     * reports WOULD_BLOCK rather than EOF.
      */
-    size_t rejected_descriptor =
-        SIZE_MAX;
+    size_t read_descriptor = SIZE_MAX;
 
     if (
         process_file_open(
@@ -382,14 +381,42 @@ static void core_device_fd_test_console(
             path,
             sizeof(path) - 1U,
             VFS_OPEN_ACCESS_READ,
-            &rejected_descriptor
-        ) !=
-            PROCESS_FILE_RESULT_NOT_SUPPORTED ||
-        rejected_descriptor !=
-            SIZE_MAX
+            &read_descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        read_descriptor != 0
     ) {
         kernel_panic(
-            "/dev/console process FD unexpectedly supported read open"
+            "/dev/console process FD read open failed"
+        );
+    }
+
+    uint8_t input_byte = 0xa5U;
+    size_t bytes_read = SIZE_MAX;
+
+    if (
+        process_file_read(
+            instance,
+            read_descriptor,
+            &input_byte,
+            sizeof(input_byte),
+            &bytes_read
+        ) != PROCESS_FILE_RESULT_WOULD_BLOCK ||
+        input_byte != 0xa5U ||
+        bytes_read != SIZE_MAX
+    ) {
+        kernel_panic(
+            "/dev/console process FD empty input contract failed"
+        );
+    }
+
+    if (
+        process_file_close(
+            instance,
+            read_descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        kernel_panic(
+            "/dev/console process FD read close failed"
         );
     }
 

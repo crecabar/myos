@@ -23,6 +23,8 @@
 
 #include "console.h"
 
+#include "line_buffer.h"
+
 #include "../core/device/character_device.h"
 #include "../core/device/device.h"
 #include "../core/device/registry.h"
@@ -59,6 +61,7 @@ struct console_device {
     struct character_device character;
 
     struct console *console;
+    struct console_line_buffer input;
 };
 
 /**
