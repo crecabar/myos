@@ -12,6 +12,7 @@
 
 #include "../arch/x86_64/cpu_identity.h"
 #include "../arch/x86_64/interrupts.h"
+#include "../arch/x86_64/kernel_switch.h"
 #include "../arch/x86_64/timer.h"
 #include "../core/cpu/cpu_local.h"
 #include "../core/panic.h"
@@ -51,6 +52,33 @@ static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char scheduler_worker_test_stack[
     SCHEDULER_WORKER_TEST_STACK_SIZE
 ];
+
+#define SCHEDULER_SUPERVISOR_TEST_STACK_SIZE 8192U
+
+static _Alignas(16)
+unsigned char scheduler_supervisor_test_stack[
+    SCHEDULER_SUPERVISOR_TEST_STACK_SIZE
+];
+
+static _Alignas(16)
+unsigned char scheduler_nested_worker_stack[
+    SCHEDULER_WORKER_TEST_STACK_SIZE
+];
+
+struct scheduler_nested_test_probe {
+    struct cpu_local *cpu;
+    struct kernel_context *worker;
+
+    uintptr_t supervisor_bottom;
+    uintptr_t supervisor_top;
+    uintptr_t worker_bottom;
+    uintptr_t worker_top;
+
+    unsigned int supervisor_calls;
+    unsigned int worker_entries;
+    unsigned int stage;
+    bool dispatch_succeeded;
+};
 
 struct scheduler_worker_test_probe {
     struct kernel_context *worker;
@@ -132,6 +160,219 @@ static bool scheduler_slot_test_idle_work(void)
 static void scheduler_slot_test_initialize_processes(void);
 static void scheduler_slot_test_kernel_worker_dispatch(void);
 
+static uintptr_t scheduler_nested_test_rsp(void)
+{
+    uintptr_t rsp;
+
+    __asm__ volatile (
+        "movq %%rsp, %0"
+        : "=r"(rsp)
+        :
+        : "memory"
+    );
+
+    return rsp;
+}
+
+static void scheduler_nested_worker_entry(void *argument)
+{
+    struct scheduler_nested_test_probe *probe = argument;
+
+    if (
+        probe == NULL ||
+        probe->worker == NULL ||
+        probe->stage != 0U
+    ) {
+        kernel_panic("Nested worker entry invalid");
+    }
+
+    uintptr_t rsp = scheduler_nested_test_rsp();
+
+    if (
+        rsp < probe->worker_bottom ||
+        rsp >= probe->worker_top ||
+        (rsp >= probe->supervisor_bottom &&
+         rsp < probe->supervisor_top)
+    ) {
+        kernel_panic("Nested worker used incorrect stack");
+    }
+
+    ++probe->worker_entries;
+    probe->stage = 1U;
+
+    if (!kernel_context_yield_wait(probe->worker)) {
+        kernel_panic("Nested worker yield failed");
+    }
+
+    /*
+     * Continuation after the second supervisor dispatch.
+     */
+    if (
+        probe->stage != 2U ||
+        probe->worker_entries != 1U
+    ) {
+        kernel_panic("Nested worker continuation invalid");
+    }
+
+    probe->stage = 3U;
+}
+
+static void scheduler_nested_supervisor_entry(void *argument)
+{
+    struct scheduler_nested_test_probe *probe = argument;
+
+    if (
+        probe == NULL ||
+        probe->cpu == NULL ||
+        probe->worker == NULL
+    ) {
+        kernel_panic("Nested supervisor arguments invalid");
+    }
+
+    uintptr_t rsp = scheduler_nested_test_rsp();
+
+    if (
+        rsp < probe->supervisor_bottom ||
+        rsp >= probe->supervisor_top ||
+        (rsp >= probe->worker_bottom &&
+         rsp < probe->worker_top)
+    ) {
+        kernel_panic("Nested supervisor used incorrect stack");
+    }
+
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0) {
+        kernel_panic("Nested supervisor enabled interrupts");
+    }
+
+    ++probe->supervisor_calls;
+
+    probe->dispatch_succeeded =
+        scheduler_dispatch_kernel_worker(probe->cpu);
+}
+
+static void scheduler_slot_test_nested_supervisor(void)
+{
+    struct cpu_local cpu = {0};
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+
+    struct scheduler_nested_test_probe probe = {
+        .cpu = &cpu,
+        .worker = &worker,
+        .supervisor_bottom =
+            (uintptr_t) scheduler_supervisor_test_stack,
+        .supervisor_top =
+            (uintptr_t) scheduler_supervisor_test_stack +
+            sizeof(scheduler_supervisor_test_stack),
+        .worker_bottom =
+            (uintptr_t) scheduler_nested_worker_stack,
+        .worker_top =
+            (uintptr_t) scheduler_nested_worker_stack +
+            sizeof(scheduler_nested_worker_stack),
+    };
+
+    uint32_t apic_id;
+
+    if (
+        !arch_cpu_apic_id(&apic_id) ||
+        !cpu_local_init(&cpu, 0U, apic_id) ||
+        !kernel_context_init(
+            &worker,
+            scheduler_nested_worker_stack,
+            sizeof(scheduler_nested_worker_stack),
+            scheduler_nested_worker_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            &supervisor
+        ) ||
+        !scheduler_register_kernel_worker(&worker)
+    ) {
+        kernel_panic("Nested supervisor setup failed");
+    }
+
+    /*
+     * First invocation:
+     * caller -> supervisor stack -> worker stack ->
+     * supervisor stack -> caller.
+     */
+    uintptr_t caller_rsp_before =
+        scheduler_nested_test_rsp();
+
+    interrupts_disable();
+
+    kernel_supervisor_stack_call(
+        probe.supervisor_top,
+        scheduler_nested_supervisor_entry,
+        &probe
+    );
+
+    uintptr_t caller_rsp_after =
+        scheduler_nested_test_rsp();
+
+    if (
+        caller_rsp_after != caller_rsp_before ||
+        !probe.dispatch_succeeded ||
+        probe.supervisor_calls != 1U ||
+        probe.worker_entries != 1U ||
+        probe.stage != 1U ||
+        worker.state != KERNEL_CONTEXT_WAITING ||
+        kernel_context_owner(&worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        cpu_local_active_kernel_context(&cpu) != NULL
+    ) {
+        kernel_panic("Nested supervisor first dispatch failed");
+    }
+
+    probe.stage = 2U;
+    probe.dispatch_succeeded = false;
+
+    if (!kernel_context_wake(&worker)) {
+        kernel_panic("Nested worker wake failed");
+    }
+
+    /*
+     * Second invocation resumes the saved worker continuation.
+     */
+    kernel_supervisor_stack_call(
+        probe.supervisor_top,
+        scheduler_nested_supervisor_entry,
+        &probe
+    );
+
+    if (
+        scheduler_nested_test_rsp() != caller_rsp_before ||
+        !probe.dispatch_succeeded ||
+        probe.supervisor_calls != 2U ||
+        probe.worker_entries != 1U ||
+        probe.stage != 3U ||
+        worker.state != KERNEL_CONTEXT_TERMINATED ||
+        kernel_context_owner(&worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        !scheduler_unregister_kernel_worker(&worker)
+    ) {
+        kernel_panic("Nested supervisor resume failed");
+    }
+
+    interrupts_enable();
+}
+
 void scheduler_slot_test_run(void)
 {
     if (scheduler_current() != NULL) {
@@ -146,6 +387,8 @@ void scheduler_slot_test_run(void)
     scheduler_init();
 
     scheduler_slot_test_kernel_worker_dispatch();
+
+    scheduler_slot_test_nested_supervisor();
 
         /*
      * Exercise the production idle-work dispatch helper
