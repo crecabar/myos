@@ -1313,6 +1313,39 @@ static void scheduler_slot_test_kernel_worker_dispatch(void)
         );
     }
 
+    /*
+     * A registered READY worker must not be sufficient
+     * to publish a scheduler-owned request.
+     *
+     * There is no current process in this test.
+     */
+    if (
+        scheduler_kernel_worker_handoff_pending() ||
+        scheduler_prepare_kernel_worker_handoff(
+            &user_context
+        ) ||
+        scheduler_prepare_kernel_worker_handoff(
+            &kernel_context
+        ) ||
+        scheduler_prepare_kernel_worker_handoff(NULL)
+    ) {
+        kernel_panic(
+            "Scheduler prepared handoff without current process"
+        );
+    }
+
+    if (scheduler_kernel_worker_handoff_pending()) {
+        kernel_panic(
+            "Rejected handoff left pending request"
+        );
+    }
+
+    if (scheduler_release_kernel_worker_handoff(NULL)) {
+        kernel_panic(
+            "Scheduler released nonexistent handoff"
+        );
+    }
+
     if (!scheduler_dispatch_kernel_worker(&cpu)) {
         kernel_panic(
             "Scheduler first worker dispatch failed"

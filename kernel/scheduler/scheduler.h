@@ -198,6 +198,38 @@ bool scheduler_kernel_handoff_release(
 );
 
 /**
+ * Prepares the scheduler-owned kernel worker handoff.
+ *
+ * The owner is necessarily current_process.
+ *
+ * Requires an eligible registered worker, a RUNNING
+ * userspace process and a valid Ring 3 interrupt frame.
+ *
+ * The caller must execute with interrupts disabled.
+ * Does not change execution or process state.
+ */
+bool scheduler_prepare_kernel_worker_handoff(
+    const struct interrupt_context *frame
+);
+
+/**
+ * Releases the scheduler-owned pending request.
+ *
+ * Only the request owner can release it.
+ * Does not perform a context switch.
+ */
+bool scheduler_release_kernel_worker_handoff(
+    const struct process *owner
+);
+
+/**
+ * Reports whether the scheduler owns a pending handoff.
+ *
+ * The caller must serialize access to scheduler state.
+ */
+bool scheduler_kernel_worker_handoff_pending(void);
+
+/**
  * Registers one borrowed idle-work handler.
  *
  * Passing NULL disables idle work execution.

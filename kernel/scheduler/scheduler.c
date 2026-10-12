@@ -27,6 +27,7 @@ static scheduler_terminated_handler terminated_handler;
 static scheduler_idle_work_handler idle_work_handler;
 
 static struct kernel_context *kernel_worker;
+static struct scheduler_kernel_handoff kernel_handoff;
 
 static struct process *current_process;
 static uint64_t current_quantum_ticks;
@@ -80,6 +81,7 @@ void scheduler_init(void)
     terminated_handler = NULL;
     idle_work_handler = NULL;
     kernel_worker = NULL;
+    scheduler_kernel_handoff_init(&kernel_handoff);
 
 #if MYOS_KERNEL_TESTS
     scheduler_test_preemption_count_value = 0;
@@ -257,6 +259,44 @@ bool scheduler_kernel_handoff_release(
     scheduler_kernel_handoff_init(handoff);
 
     return true;
+}
+
+bool scheduler_prepare_kernel_worker_handoff(
+    const struct interrupt_context *frame)
+{
+    if (
+        kernel_handoff.pending ||
+        !scheduler_kernel_worker_handoff_needed(frame)
+    ) {
+        return false;
+    }
+
+    /*
+     * The owner is the scheduler's current process,
+     * never a process supplied by the caller.
+     *
+     * This operation must execute with interrupts
+     * disabled on the current bootstrap BSP.
+     */
+    return scheduler_kernel_handoff_prepare(
+        &kernel_handoff,
+        current_process,
+        frame
+    );
+}
+
+bool scheduler_release_kernel_worker_handoff(
+    const struct process *owner)
+{
+    return scheduler_kernel_handoff_release(
+        &kernel_handoff,
+        owner
+    );
+}
+
+bool scheduler_kernel_worker_handoff_pending(void)
+{
+    return kernel_handoff.pending;
 }
 
 void scheduler_set_terminated_handler(
