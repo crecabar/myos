@@ -1303,6 +1303,288 @@ static void scheduler_slot_test_timer_decision(void)
     );
 }
 
+static void scheduler_slot_test_handoff_cr3_activation(void)
+{
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (kernel_space == NULL) {
+        kernel_panic(
+            "Handoff CR3 test has no kernel address space"
+        );
+    }
+
+    uint64_t kernel_cr3 =
+        paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
+
+    if (
+        kernel_cr3 == 0U ||
+        kernel_cr3 != kernel_space->pml4_physical
+    ) {
+        kernel_panic(
+            "Handoff CR3 test started outside kernel space"
+        );
+    }
+
+    /*
+     * Unlike synthetic preflight tests, this address
+     * space owns real paging structures.
+     */
+    struct process_memory memory = {0};
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic(
+            "Unable to create handoff CR3 test space"
+        );
+    }
+
+    struct process owner = {
+        .id = 400U,
+        .state = PROCESS_STATE_RUNNING,
+        .memory = &memory,
+    };
+
+    struct process other = {
+        .id = 401U,
+        .state = PROCESS_STATE_RUNNING,
+        .memory = &memory,
+    };
+
+    struct interrupt_context frame = {
+        .vector = 0x20U,
+        .rip = 0x400000ULL,
+        .cs = GDT_USER_CODE_SELECTOR,
+        .rflags = 0x202ULL,
+        .rsp = 0x70000000ULL,
+        .ss = GDT_USER_DATA_SELECTOR,
+        .rax = 0x1122334455667788ULL,
+    };
+
+    struct scheduler_kernel_handoff handoff;
+    scheduler_kernel_handoff_init(&handoff);
+
+    if (!scheduler_kernel_handoff_prepare(
+        &handoff,
+        &owner,
+        &frame
+    )) {
+        kernel_panic(
+            "Unable to prepare handoff CR3 test"
+        );
+    }
+
+    struct scheduler_handoff_resume_plan plan = {0};
+
+    if (!scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        kernel_space,
+        paging_read_cr3(),
+        &plan
+    )) {
+        kernel_panic(
+            "Handoff CR3 preflight failed"
+        );
+    }
+
+    uint64_t original_rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(original_rflags)
+        :
+        : "memory"
+    );
+
+    /*
+     * The transition must reject enabled interrupts.
+     */
+    if (
+        (original_rflags & (1ULL << 9)) != 0U &&
+        scheduler_kernel_handoff_activate_resume_space(
+            &handoff,
+            &owner,
+            &plan
+        )
+    ) {
+        kernel_panic(
+            "Handoff CR3 activation accepted IF=1"
+        );
+    }
+
+    interrupts_disable();
+
+    /*
+     * A different process cannot consume this plan.
+     */
+    if (scheduler_kernel_handoff_activate_resume_space(
+        &handoff,
+        &other,
+        &plan
+    )) {
+        kernel_panic(
+            "Handoff CR3 activation accepted wrong owner"
+        );
+    }
+
+    /*
+     * Reject stale or modified plans.
+     */
+    struct scheduler_handoff_resume_plan stale = plan;
+    stale.frame.rax ^= 1U;
+
+    if (scheduler_kernel_handoff_activate_resume_space(
+        &handoff,
+        &owner,
+        &stale
+    )) {
+        kernel_panic(
+            "Handoff CR3 activation accepted stale plan"
+        );
+    }
+
+    /*
+     * The pending request itself may have changed.
+     * The old plan must then be rejected as well.
+     */
+    handoff.frame.rax ^= 1U;
+
+    if (scheduler_kernel_handoff_activate_resume_space(
+        &handoff,
+        &owner,
+        &plan
+    )) {
+        kernel_panic(
+            "Handoff CR3 activation accepted changed request"
+        );
+    }
+
+    handoff.frame.rax ^= 1U;
+
+    if (
+        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+            kernel_cr3 ||
+        !handoff.pending ||
+        handoff.owner != &owner
+    ) {
+        kernel_panic(
+            "Rejected handoff CR3 activation changed state"
+        );
+    }
+
+    /*
+     * The production wrapper must reject the test
+     * owner, which is not scheduler_current().
+     */
+    if (scheduler_activate_kernel_worker_resume_space(
+        &plan
+    )) {
+        kernel_panic(
+            "Handoff CR3 wrapper ignored current process"
+        );
+    }
+
+    /*
+     * Perform the actual Ring 0 CR3 transition.
+     */
+    if (!scheduler_kernel_handoff_activate_resume_space(
+        &handoff,
+        &owner,
+        &plan
+    )) {
+        kernel_panic(
+            "Handoff owner CR3 activation failed"
+        );
+    }
+
+    uint64_t user_cr3 =
+        paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
+
+    if (
+        user_cr3 !=
+            memory.address_space.pml4_physical ||
+        user_cr3 == kernel_cr3 ||
+        !handoff.pending ||
+        handoff.owner != &owner
+    ) {
+        kernel_panic(
+            "Handoff CR3 activation violated contract"
+        );
+    }
+
+    /*
+     * Once the user's CR3 is active, another attempt
+     * requiring kernel CR3 must be rejected.
+     */
+    if (scheduler_kernel_handoff_activate_resume_space(
+        &handoff,
+        &owner,
+        &plan
+    )) {
+        kernel_panic(
+            "Handoff CR3 activation accepted wrong source space"
+        );
+    }
+
+    /*
+     * Test-only rollback. We have not performed IRETQ,
+     * so execution must return to kernel CR3.
+     */
+    if (!paging_address_space_activate(kernel_space)) {
+        kernel_panic(
+            "Handoff CR3 test could not restore kernel space"
+        );
+    }
+
+    if (
+        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+        kernel_cr3
+    ) {
+        kernel_panic(
+            "Handoff CR3 test restored incorrect space"
+        );
+    }
+
+    /*
+     * Activation does not consume the request.
+     * The existing completion primitive still owns
+     * that responsibility.
+     */
+    struct interrupt_context resumed = {0};
+
+    if (
+        !scheduler_kernel_handoff_complete(
+            &handoff,
+            &owner,
+            &resumed
+        ) ||
+        !scheduler_slot_test_frames_equal(
+            &resumed,
+            &frame
+        ) ||
+        handoff.pending
+    ) {
+        kernel_panic(
+            "Handoff CR3 test lost saved user context"
+        );
+    }
+
+    if (!process_memory_destroy(&memory)) {
+        kernel_panic(
+            "Handoff CR3 test leaked address space"
+        );
+    }
+
+    if ((original_rflags & (1ULL << 9)) != 0U) {
+        interrupts_enable();
+    }
+
+    diagnostics_write(
+        "[scheduler] Kernel handoff CR3 activation tests passed\n"
+    );
+}
+
 static void scheduler_slot_test_bsp_supervisor(void)
 {
     struct kernel_context worker;
@@ -1460,6 +1742,7 @@ void scheduler_slot_test_run(void)
     scheduler_slot_test_handoff_ownership();
     scheduler_slot_test_handoff_completion();
     scheduler_slot_test_handoff_resume_preflight();
+    scheduler_slot_test_handoff_cr3_activation();
     scheduler_slot_test_timer_decision();
 
         /*

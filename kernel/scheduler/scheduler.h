@@ -294,6 +294,40 @@ bool scheduler_kernel_worker_resume_preflight(
 );
 
 /**
+ * Activates the owner's address space for a validated resume plan.
+ *
+ * Revalidates the pending handoff against the entire supplied
+ * plan before changing CR3.
+ *
+ * Requires Ring 0, interrupts disabled, kernel CR3 active
+ * and stable caller-owned plan storage.
+ *
+ * On success, the owner's CR3 becomes active, but the
+ * handoff remains pending. No IRETQ is performed.
+ *
+ * A rejected validation leaves CR3 and handoff unchanged.
+ * The caller must not enable interrupts between successful
+ * activation and the eventual resume or explicit rollback.
+ */
+bool scheduler_kernel_handoff_activate_resume_space(
+    const struct scheduler_kernel_handoff *handoff,
+    const struct process *selected,
+    const struct scheduler_handoff_resume_plan *plan
+);
+
+/**
+ * Activates the current handoff owner's address space.
+ *
+ * Requires an existing scheduler-owned pending request
+ * belonging to current_process.
+ *
+ * Does not consume the request or resume Ring 3.
+ */
+bool scheduler_activate_kernel_worker_resume_space(
+    const struct scheduler_handoff_resume_plan *plan
+);
+
+/**
  * Releases the scheduler-owned pending request.
  *
  * Only the request owner can release it.

@@ -406,6 +406,117 @@ bool scheduler_kernel_handoff_resume_preflight(
     return true;
 }
 
+bool scheduler_kernel_handoff_activate_resume_space(
+    const struct scheduler_kernel_handoff *handoff,
+    const struct process *selected,
+    const struct scheduler_handoff_resume_plan *plan)
+{
+    if (plan == NULL) {
+        return false;
+    }
+
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    /*
+     * CR3 must not be changed while maskable interrupts
+     * can interleave with this transition.
+     */
+    if ((rflags & (1ULL << 9)) != 0U) {
+        return false;
+    }
+
+    struct scheduler_handoff_resume_plan current = {0};
+
+    if (!scheduler_kernel_handoff_resume_preflight(
+        handoff,
+        selected,
+        paging_kernel_address_space(),
+        paging_read_cr3(),
+        &current
+    )) {
+        return false;
+    }
+
+    /*
+     * A previously prepared plan must still describe
+     * the exact current handoff.
+     */
+    if (
+        plan->owner != current.owner ||
+        plan->address_space != current.address_space
+    ) {
+        return false;
+    }
+
+    const unsigned char *expected =
+        (const unsigned char *) &current.frame;
+
+    const unsigned char *actual =
+        (const unsigned char *) &plan->frame;
+
+    for (size_t index = 0;
+         index < sizeof(current.frame);
+         ++index) {
+        if (expected[index] != actual[index]) {
+            return false;
+        }
+    }
+
+    /*
+     * All validations have succeeded.
+     * This is the only operation that changes CR3.
+     */
+    if (!paging_address_space_activate(
+        current.address_space
+    )) {
+        return false;
+    }
+
+    /*
+     * Once CR3 is modified, a failed verification
+     * cannot be reported as an ordinary rejection.
+     */
+    uint64_t active_cr3 =
+        paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
+
+    if (
+        active_cr3 !=
+        current.address_space->pml4_physical
+    ) {
+        kernel_panic(
+            "Handoff resume activated unexpected CR3"
+        );
+    }
+
+    return true;
+}
+
+bool scheduler_activate_kernel_worker_resume_space(
+    const struct scheduler_handoff_resume_plan *plan)
+{
+    if (
+        current_process == NULL ||
+        plan == NULL ||
+        plan->owner != current_process
+    ) {
+        return false;
+    }
+
+    return scheduler_kernel_handoff_activate_resume_space(
+        &kernel_handoff,
+        current_process,
+        plan
+    );
+}
+
 bool scheduler_prepare_kernel_worker_handoff(
     const struct interrupt_context *frame)
 {
