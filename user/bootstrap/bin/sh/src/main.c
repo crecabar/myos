@@ -10,6 +10,7 @@
 
 #include <myos/file.h>
 
+#include <sh/builtin.h>
 #include <sh/execute.h>
 #include <sh/parser.h>
 
@@ -67,31 +68,67 @@ int main(
     }
 
     /*
-     * Temporary deterministic input.
-     *
-     * Interactive console input will replace
-     * this fixture in a later slice.
+     * Temporary deterministic command sequence.
+     * This will eventually be replaced by stdin.
      */
-    char line[] = "uname -a";
+    char command_cd[] = "cd /bin";
+    char command_pwd[] = "pwd";
+    char command_exit[] = "exit";
 
-    char *arguments[SH_MAX_ARGS + 1U];
+    char *lines[] = {
+        command_cd,
+        command_pwd,
+        command_exit,
+    };
 
-    int argument_count =
-        sh_parse_line(
-            line,
+    for (
+        size_t index = 0;
+        index < sizeof(lines) / sizeof(lines[0]);
+        ++index
+    ) {
+        char *arguments[SH_MAX_ARGS + 1U];
+
+        int argument_count = sh_parse_line(
+            lines[index],
             arguments,
             SH_MAX_ARGS + 1U
         );
 
-    if (argument_count <= 0) {
-        return 1;
-    }
+        if (argument_count < 0) {
+            return 1;
+        }
 
-    int result =
-        sh_execute(
+        if (argument_count == 0) {
+            continue;
+        }
+
+        struct sh_builtin_result builtin =
+            sh_builtin_execute(
+                argument_count,
+                arguments
+            );
+
+        if (builtin.handled) {
+            if (builtin.exit_requested) {
+                return builtin.status;
+            }
+
+            if (builtin.status != 0) {
+                return builtin.status;
+            }
+
+            continue;
+        }
+
+        int status = sh_execute(
             argument_count,
             arguments
         );
 
-    return result < 0 ? 1 : result;
+        if (status != 0) {
+            return status < 0 ? 1 : status;
+        }
+    }
+
+    return 0;
 }
