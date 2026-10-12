@@ -150,6 +150,54 @@ bool scheduler_capture_user_interrupt(
 );
 
 /**
+ * A pending transfer request from userspace to a kernel supervisor.
+ *
+ * The owner is a borrowed process reference. Its lifetime must
+ * extend beyond the request until the request is released.
+ *
+ * The frame is stored by value, independently of the IRQ stack.
+ */
+struct scheduler_kernel_handoff {
+    bool pending;
+    struct process *owner;
+    struct interrupt_context frame;
+};
+
+/**
+ * Initializes an empty handoff request.
+ *
+ * Must not be called on a live pending request.
+ */
+void scheduler_kernel_handoff_init(
+    struct scheduler_kernel_handoff *handoff
+);
+
+/**
+ * Prepares a handoff for a running userspace process.
+ *
+ * Rejects duplicate requests, invalid frames and processes
+ * that are not RUNNING. Does not modify the scheduler.
+ *
+ * Caller guarantees the source frame and handoff storage
+ * do not overlap.
+ */
+bool scheduler_kernel_handoff_prepare(
+    struct scheduler_kernel_handoff *handoff,
+    struct process *owner,
+    const struct interrupt_context *frame
+);
+
+/**
+ * Releases a pending request only for its owner.
+ *
+ * Does not resume, dispatch or change the process state.
+ */
+bool scheduler_kernel_handoff_release(
+    struct scheduler_kernel_handoff *handoff,
+    const struct process *owner
+);
+
+/**
  * Registers one borrowed idle-work handler.
  *
  * Passing NULL disables idle work execution.

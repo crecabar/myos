@@ -190,6 +190,75 @@ bool scheduler_capture_user_interrupt(
     return true;
 }
 
+void scheduler_kernel_handoff_init(
+    struct scheduler_kernel_handoff *handoff)
+{
+    if (handoff == NULL) {
+        return;
+    }
+
+    *handoff = (struct scheduler_kernel_handoff) {0};
+}
+
+bool scheduler_kernel_handoff_prepare(
+    struct scheduler_kernel_handoff *handoff,
+    struct process *owner,
+    const struct interrupt_context *frame)
+{
+    if (
+        handoff == NULL ||
+        owner == NULL ||
+        frame == NULL ||
+        handoff->pending ||
+        owner->state != PROCESS_STATE_RUNNING
+    ) {
+        return false;
+    }
+
+    struct interrupt_context captured;
+
+    if (!scheduler_capture_user_interrupt(
+        frame,
+        &captured
+    )) {
+        return false;
+    }
+
+    /*
+     * Publication occurs last.
+     *
+     * On the current single-CPU scheduler, callers must
+     * serialize this operation with interrupts disabled.
+     */
+    handoff->frame = captured;
+    handoff->owner = owner;
+    handoff->pending = true;
+
+    return true;
+}
+
+bool scheduler_kernel_handoff_release(
+    struct scheduler_kernel_handoff *handoff,
+    const struct process *owner)
+{
+    if (
+        handoff == NULL ||
+        owner == NULL ||
+        !handoff->pending ||
+        handoff->owner != owner
+    ) {
+        return false;
+    }
+
+    /*
+     * Clearing the request releases its borrowed
+     * owner reference and invalidates the saved frame.
+     */
+    scheduler_kernel_handoff_init(handoff);
+
+    return true;
+}
+
 void scheduler_set_terminated_handler(
     scheduler_terminated_handler handler)
 {

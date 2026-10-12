@@ -487,6 +487,197 @@ static void scheduler_slot_test_handoff_capture(void)
     }
 }
 
+static void scheduler_slot_test_handoff_ownership(void)
+{
+    struct scheduler_kernel_handoff handoff;
+    scheduler_kernel_handoff_init(&handoff);
+
+    struct process owner = {
+        .id = 100U,
+        .state = PROCESS_STATE_RUNNING,
+    };
+
+    struct process other = {
+        .id = 101U,
+        .state = PROCESS_STATE_RUNNING,
+    };
+
+    struct interrupt_context frame = {
+        .vector = 0x20U,
+        .rip = 0x400000ULL,
+        .cs = 0x1BU,
+        .rflags = 0x202ULL,
+        .rsp = 0x70000000ULL,
+        .ss = 0x23U,
+        .rax = 0x1122334455667788ULL,
+    };
+
+    if (
+        handoff.pending ||
+        handoff.owner != NULL
+    ) {
+        kernel_panic(
+            "New kernel handoff not empty"
+        );
+    }
+
+    /*
+     * A valid RUNNING process can publish one request.
+     */
+    if (!scheduler_kernel_handoff_prepare(
+        &handoff,
+        &owner,
+        &frame
+    )) {
+        kernel_panic(
+            "Scheduler rejected valid handoff"
+        );
+    }
+
+    if (
+        !handoff.pending ||
+        handoff.owner != &owner ||
+        !scheduler_slot_test_frames_equal(
+            &handoff.frame,
+            &frame
+        )
+    ) {
+        kernel_panic(
+            "Scheduler corrupted pending handoff"
+        );
+    }
+
+    /*
+     * Changing the source after publication must not
+     * modify the stored frame.
+     */
+    frame.rax = 0U;
+
+    if (
+        handoff.frame.rax !=
+        0x1122334455667788ULL
+    ) {
+        kernel_panic(
+            "Pending handoff borrowed IRQ frame"
+        );
+    }
+
+    /*
+     * A second process cannot overwrite an existing request.
+     */
+    if (scheduler_kernel_handoff_prepare(
+        &handoff,
+        &other,
+        &frame
+    )) {
+        kernel_panic(
+            "Scheduler overwrote pending handoff"
+        );
+    }
+
+    if (
+        handoff.owner != &owner ||
+        handoff.frame.rax !=
+            0x1122334455667788ULL
+    ) {
+        kernel_panic(
+            "Rejected handoff changed ownership"
+        );
+    }
+
+    /*
+     * Only the owning process can release the request.
+     */
+    if (scheduler_kernel_handoff_release(
+        &handoff,
+        &other
+    )) {
+        kernel_panic(
+            "Non-owner released kernel handoff"
+        );
+    }
+
+    if (
+        !handoff.pending ||
+        handoff.owner != &owner
+    ) {
+        kernel_panic(
+            "Rejected release modified handoff"
+        );
+    }
+
+    if (!scheduler_kernel_handoff_release(
+        &handoff,
+        &owner
+    )) {
+        kernel_panic(
+            "Owner could not release handoff"
+        );
+    }
+
+    if (
+        handoff.pending ||
+        handoff.owner != NULL
+    ) {
+        kernel_panic(
+            "Released handoff retained ownership"
+        );
+    }
+
+    if (scheduler_kernel_handoff_release(
+        &handoff,
+        &owner
+    )) {
+        kernel_panic(
+            "Scheduler accepted duplicate release"
+        );
+    }
+
+    /*
+     * A READY process cannot prepare a new request.
+     */
+    owner.state = PROCESS_STATE_READY;
+
+    if (scheduler_kernel_handoff_prepare(
+        &handoff,
+        &owner,
+        &frame
+    )) {
+        kernel_panic(
+            "READY process prepared kernel handoff"
+        );
+    }
+
+    /*
+     * A malformed kernel frame must not publish a request.
+     */
+    owner.state = PROCESS_STATE_RUNNING;
+    frame.cs = 0x08U;
+
+    if (scheduler_kernel_handoff_prepare(
+        &handoff,
+        &owner,
+        &frame
+    )) {
+        kernel_panic(
+            "Kernel frame prepared user handoff"
+        );
+    }
+
+    if (
+        handoff.pending ||
+        handoff.owner != NULL
+    ) {
+        kernel_panic(
+            "Rejected preparation left pending handoff"
+        );
+    }
+
+    diagnostics_write(
+        "[scheduler] Kernel handoff ownership tests passed\n"
+    );
+}
+
 void scheduler_slot_test_run(void)
 {
     if (scheduler_current() != NULL) {
@@ -503,6 +694,7 @@ void scheduler_slot_test_run(void)
     scheduler_slot_test_kernel_worker_dispatch();
     scheduler_slot_test_nested_supervisor();
     scheduler_slot_test_handoff_capture();
+    scheduler_slot_test_handoff_ownership();
 
         /*
      * Exercise the production idle-work dispatch helper
