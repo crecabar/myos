@@ -619,6 +619,131 @@ bool scheduler_commit_kernel_worker_resume(
     );
 }
 
+_Noreturn void scheduler_kernel_worker_resume_completion(
+    bool dispatched,
+    void *argument)
+{
+    /*
+     * The timer selected a handoff because an eligible
+     * worker existed. That worker must have run before
+     * returning control to this completion.
+     *
+     * WAITING and TERMINATED are both valid outcomes.
+     */
+    if (
+        !dispatched ||
+        argument != NULL ||
+        !scheduler_kernel_worker_handoff_pending()
+    ) {
+        kernel_panic(
+            "Kernel handoff completion entered without dispatched work"
+        );
+    }
+
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    /*
+     * No maskable interrupt may interleave with
+     * the restoration of the userspace execution state.
+     */
+    if ((rflags & (1ULL << 9)) != 0U) {
+        kernel_panic(
+            "Kernel handoff completion enabled interrupts"
+        );
+    }
+
+    /*
+     * The BSP supervisor has already activated the
+     * kernel CR3. Validate the selected process and
+     * capture the independent resume plan.
+     */
+    struct scheduler_handoff_resume_plan plan = {0};
+
+    if (!scheduler_kernel_worker_resume_preflight(
+        &plan
+    )) {
+        kernel_panic(
+            "Kernel handoff resume preflight failed"
+        );
+    }
+
+    /*
+     * This operation revalidates the pending handoff
+     * before switching to the owner's address space.
+     *
+     * The request remains pending after activation.
+     */
+    if (!scheduler_activate_kernel_worker_resume_space(
+        &plan
+    )) {
+        kernel_panic(
+            "Kernel handoff resume CR3 activation failed"
+        );
+    }
+
+    /*
+     * The supervisor stack lives in the shared kernel
+     * higher half, so it remains accessible under the
+     * process address space.
+     *
+     * The saved frame must not reside on the abandoned
+     * IRQ stack.
+     */
+    struct interrupt_context resume_frame = {0};
+
+    if (!scheduler_commit_kernel_worker_resume(
+        &plan,
+        &resume_frame
+    )) {
+        kernel_panic(
+            "Kernel handoff resume commit failed"
+        );
+    }
+
+    /*
+     * The request has been retired exactly once.
+     * No kernel worker may still own this execution.
+     */
+    if (
+        scheduler_kernel_worker_handoff_pending() ||
+        scheduler_current() != plan.owner ||
+        plan.owner->state != PROCESS_STATE_RUNNING
+    ) {
+        kernel_panic(
+            "Kernel handoff resume ownership invariant failed"
+        );
+    }
+
+    uint64_t active_cr3 =
+        paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
+
+    if (
+        active_cr3 !=
+        plan.address_space->pml4_physical
+    ) {
+        kernel_panic(
+            "Kernel handoff resume has incorrect process CR3"
+        );
+    }
+
+    /*
+     * IRETQ consumes resume_frame directly from the
+     * shared supervisor stack.
+     *
+     * This transition does not return to the supervisor
+     * or to the abandoned interrupt stack.
+     */
+    usermode_resume(&resume_frame);
+}
+
 bool scheduler_prepare_kernel_worker_handoff(
     const struct interrupt_context *frame)
 {

@@ -361,6 +361,31 @@ bool scheduler_commit_kernel_worker_resume(
 );
 
 /**
+ * Completes a supervisor handoff and resumes its Ring 3 owner.
+ *
+ * Intended as the non-returning completion callback of
+ * kernel_supervisor_bsp_enter().
+ *
+ * Preconditions:
+ * - Running on the BSP supervisor stack in Ring 0.
+ * - Kernel CR3 active.
+ * - Maskable interrupts disabled.
+ * - The worker has returned control to the supervisor.
+ * - A scheduler-owned handoff remains pending.
+ *
+ * The callback validates the owner, activates its address
+ * space, commits the saved frame and resumes userspace.
+ *
+ * Never returns, including on failure.
+ *
+ * The completion argument must be NULL.
+ */
+_Noreturn void scheduler_kernel_worker_resume_completion(
+    bool dispatched,
+    void *argument
+);
+
+/**
  * Releases the scheduler-owned pending request.
  *
  * Only the request owner can release it.
