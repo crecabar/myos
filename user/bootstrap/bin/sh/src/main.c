@@ -10,6 +10,9 @@
 
 #include <myos/file.h>
 
+#include <sh/execute.h>
+#include <sh/parser.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -63,5 +66,32 @@ int main(
         return 1;
     }
 
-    return 0;
+    /*
+     * Temporary deterministic input.
+     *
+     * Interactive console input will replace
+     * this fixture in a later slice.
+     */
+    char line[] = "uname -a";
+
+    char *arguments[SH_MAX_ARGS + 1U];
+
+    int argument_count =
+        sh_parse_line(
+            line,
+            arguments,
+            SH_MAX_ARGS + 1U
+        );
+
+    if (argument_count <= 0) {
+        return 1;
+    }
+
+    int result =
+        sh_execute(
+            argument_count,
+            arguments
+        );
+
+    return result < 0 ? 1 : result;
 }

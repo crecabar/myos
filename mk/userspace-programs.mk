@@ -6,7 +6,7 @@ USER_PROGRAM_BUILD_DIR := $(BUILD_DIR)/user-programs
 
 USER_PROGRAM_NAMES := true false echo pwd cat uname sh
 
-USER_PROGRAM_OBJECTS := $(addprefix $(USER_PROGRAM_BUILD_DIR)/,$(addsuffix .o,$(USER_PROGRAM_NAMES)))
+USER_PROGRAM_OBJECTS := $(addprefix $(USER_PROGRAM_BUILD_DIR)/,$(addsuffix .o,$(filter-out sh,$(USER_PROGRAM_NAMES))))
 
 .SECONDARY: $(USER_PROGRAM_OBJECTS)
 
@@ -18,10 +18,17 @@ SH_TEST_DIR    := user/bootstrap/bin/sh/tests
 
 SH_MAIN_OBJECT   := $(USER_PROGRAM_BUILD_DIR)/sh.o
 SH_PARSER_OBJECT := $(USER_PROGRAM_BUILD_DIR)/sh-parser.o
-SH_OBJECTS       := $(SH_MAIN_OBJECT) $(SH_PARSER_OBJECT)
+SH_EXECUTE_OBJECT := $(USER_PROGRAM_BUILD_DIR)/sh-execute.o
+SH_OBJECTS := \
+	$(SH_MAIN_OBJECT) \
+	$(SH_PARSER_OBJECT) \
+	$(SH_EXECUTE_OBJECT)
 
-$(SH_MAIN_OBJECT): \
-	$(SH_SOURCE_DIR)/main.c \
+.SECONDARY: $(SH_OBJECTS)
+
+$(SH_MAIN_OBJECT): $(SH_SOURCE_DIR)/main.c \
+	$(SH_INCLUDE_DIR)/sh/parser.h \
+	$(SH_INCLUDE_DIR)/sh/execute.h \
 	| $(USER_PROGRAM_BUILD_DIR)
 	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
 		-I$(SH_INCLUDE_DIR) \
@@ -36,8 +43,26 @@ $(SH_PARSER_OBJECT): \
 		-I$(SH_INCLUDE_DIR) \
 		-c $< \
 		-o $@
+$(SH_EXECUTE_OBJECT): \
+	$(SH_SOURCE_DIR)/execute.c \
+	$(SH_INCLUDE_DIR)/sh/execute.h \
+	| $(USER_PROGRAM_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-I$(SH_INCLUDE_DIR) \
+		-c $< \
+		-o $@
 
-$(USER_PROGRAM_BUILD_DIR)/sh.elf: $(SH_PARSER_OBJECT)
+$(USER_PROGRAM_BUILD_DIR)/sh.elf: \
+	$(SH_OBJECTS) \
+	$(USER_BOOTSTRAP_RUNTIME_OBJECTS) \
+	$(USER_BOOTSTRAP_LINKER_SCRIPT)
+	$(LD_LLD) \
+		-static \
+		--build-id=none \
+		-T $(USER_BOOTSTRAP_LINKER_SCRIPT) \
+		-o $@ \
+		$(USER_BOOTSTRAP_RUNTIME_OBJECTS) \
+		$(SH_OBJECTS)
 
 $(USER_PROGRAM_BUILD_DIR):
 	mkdir -p $@
