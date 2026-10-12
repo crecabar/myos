@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "../bootstrap/bin/sh/parser.h"
+ #include <sh/parser.h>
 
 #include <assert.h>
 #include <stddef.h>

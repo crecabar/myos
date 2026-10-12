@@ -12,13 +12,28 @@ USER_PROGRAM_OBJECTS := $(addprefix $(USER_PROGRAM_BUILD_DIR)/,$(addsuffix .o,$(
 
 USER_PROGRAM_ELFS := $(addprefix $(USER_PROGRAM_BUILD_DIR)/,$(addsuffix .elf,$(USER_PROGRAM_NAMES)))
 
-SH_PARSER_OBJECT := $(USER_PROGRAM_BUILD_DIR)/sh-parser.o
+SH_SOURCE_DIR  := user/bootstrap/bin/sh/src
+SH_INCLUDE_DIR := user/bootstrap/bin/sh/include
+SH_TEST_DIR    := user/bootstrap/bin/sh/tests
 
-$(SH_PARSER_OBJECT): \
-	user/bootstrap/bin/sh/parser.c \
-	user/bootstrap/bin/sh/parser.h \
+SH_MAIN_OBJECT   := $(USER_PROGRAM_BUILD_DIR)/sh.o
+SH_PARSER_OBJECT := $(USER_PROGRAM_BUILD_DIR)/sh-parser.o
+SH_OBJECTS       := $(SH_MAIN_OBJECT) $(SH_PARSER_OBJECT)
+
+$(SH_MAIN_OBJECT): \
+	$(SH_SOURCE_DIR)/main.c \
 	| $(USER_PROGRAM_BUILD_DIR)
 	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-I$(SH_INCLUDE_DIR) \
+		-c $< \
+		-o $@
+
+$(SH_PARSER_OBJECT): \
+	$(SH_SOURCE_DIR)/parser.c \
+	$(SH_INCLUDE_DIR)/sh/parser.h \
+	| $(USER_PROGRAM_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-I$(SH_INCLUDE_DIR) \
 		-c $< \
 		-o $@
 
@@ -50,7 +65,8 @@ test-sh-parser:
 	mkdir -p $(BUILD_DIR)/host-tests
 	cc -std=c11 \
 		-Wall -Wextra -Werror -Wpedantic \
-		user/bootstrap/bin/sh/parser.c \
-		user/tests/sh_parser_test.c \
+		-I$(SH_INCLUDE_DIR) \
+		$(SH_SOURCE_DIR)/parser.c \
+		$(SH_TEST_DIR)/parser_test.c \
 		-o $(BUILD_DIR)/host-tests/sh-parser-test
 	$(BUILD_DIR)/host-tests/sh-parser-test

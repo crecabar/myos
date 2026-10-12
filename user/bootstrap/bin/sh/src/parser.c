@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "parser.h"
+ #include <sh/parser.h>
 
 static int sh_is_separator(char character)
 {
