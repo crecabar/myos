@@ -29,6 +29,11 @@
 #define SCHEDULER_CONTEXT_TEST_MIN_CROSS_ADDRESS_SPACE_PREEMPTIONS 4
 #define SCHEDULER_CONTEXT_HANDOFF_STACK_SIZE 8192U
 #define SCHEDULER_CONTEXT_TIMER_VECTOR 0x20U
+#define SCHEDULER_CONTEXT_HANDOFF_DISPATCH_COUNT 3U
+#define SCHEDULER_CONTEXT_HANDOFF_WAKE_COUNT 2U
+
+#define SCHEDULER_CONTEXT_HANDOFF_STACK_MARKER \
+    0x1122334455667788ULL
 
 // Static local variables
 static struct process_instance
@@ -57,9 +62,17 @@ static struct kernel_context
 static unsigned int
     scheduler_context_handoff_dispatches;
 
+static unsigned int
+    scheduler_context_handoff_wakes;
+
+static unsigned int
+    scheduler_context_handoff_entries;
+
 // Private functions and helpers
 static void scheduler_context_handoff_worker_entry(
     void *argument);
+
+static void scheduler_context_handoff_wake_if_waiting(void);
 
 // Public functions implementations
 void user_process_scheduler_context_test_prepare(void)
@@ -73,6 +86,8 @@ void user_process_scheduler_context_test_prepare(void)
         process_scheduler_context_fixture_end;
 
     scheduler_context_handoff_dispatches = 0U;
+    scheduler_context_handoff_wakes = 0U;
+    scheduler_context_handoff_entries = 0U;
 
     if (image_end <= image_start) {
         kernel_panic(
@@ -245,13 +260,21 @@ void user_process_scheduler_context_test_syscall(
             );
         }
 
+        scheduler_context_handoff_wake_if_waiting();
+
         uint64_t cross_address_space_preemptions =
             scheduler_test_cross_address_space_preemption_count() -
             scheduler_context_test_cross_address_space_baseline;
 
         context->rax =
             cross_address_space_preemptions >=
-                SCHEDULER_CONTEXT_TEST_MIN_CROSS_ADDRESS_SPACE_PREEMPTIONS
+                SCHEDULER_CONTEXT_TEST_MIN_CROSS_ADDRESS_SPACE_PREEMPTIONS &&
+            scheduler_context_handoff_dispatches ==
+                SCHEDULER_CONTEXT_HANDOFF_DISPATCH_COUNT &&
+            scheduler_context_handoff_wakes ==
+                SCHEDULER_CONTEXT_HANDOFF_WAKE_COUNT &&
+            scheduler_context_handoff_worker.state ==
+                KERNEL_CONTEXT_TERMINATED
                 ? 1
                 : 0;
 
@@ -268,6 +291,8 @@ void user_process_scheduler_context_test_syscall(
                 "Scheduler context gate observed incorrect process B"
             );
         }
+
+        scheduler_context_handoff_wake_if_waiting();
 
         context->rax =
             scheduler_context_test_a_completed
@@ -383,18 +408,22 @@ bool user_process_scheduler_context_test_terminated(
      * the user processes continued.
      */
     if (
-        scheduler_context_handoff_dispatches != 1U ||
+        scheduler_context_handoff_entries != 1U ||
+        scheduler_context_handoff_dispatches !=
+            SCHEDULER_CONTEXT_HANDOFF_DISPATCH_COUNT ||
+        scheduler_context_handoff_wakes !=
+            SCHEDULER_CONTEXT_HANDOFF_WAKE_COUNT ||
         scheduler_context_handoff_worker.state !=
-            KERNEL_CONTEXT_WAITING ||
+            KERNEL_CONTEXT_TERMINATED ||
         kernel_context_owner(
             &scheduler_context_handoff_worker
         ) != KERNEL_CONTEXT_NO_CPU ||
         scheduler_kernel_worker_handoff_pending() ||
         scheduler_kernel_worker_ready()
     ) {
-        kernel_panic(
-            "Ring3 timer handoff regression violated worker lifecycle"
-        );
+            kernel_panic(
+                "Repeated Ring3 timer handoff violated worker lifecycle"
+            );
     }
 
     if (!scheduler_unregister_kernel_worker(
@@ -405,8 +434,12 @@ bool user_process_scheduler_context_test_terminated(
         );
     }
 
-    diagnostics_write(
-        "[scheduler] Ring3 timer handoff regression passed\n"
+    diagnostics_printf(
+        "[scheduler] Repeated Ring3 timer handoff passed: "
+        "entries=%u dispatches=%u wakes=%u\n",
+        scheduler_context_handoff_entries,
+        scheduler_context_handoff_dispatches,
+        scheduler_context_handoff_wakes
     );
 
     uint64_t preemptions =
@@ -459,29 +492,143 @@ static void scheduler_context_handoff_worker_entry(
 {
     struct kernel_context *worker = argument;
 
-    struct process *current =
-        scheduler_current();
-
-    /*
-     * A real Ring 3 timer interruption must have
-     * selected one of our regression processes.
-     */
     if (
         worker != &scheduler_context_handoff_worker ||
-        scheduler_context_handoff_dispatches != 0U ||
-        current == NULL ||
-        current->state != PROCESS_STATE_RUNNING ||
-        !scheduler_kernel_worker_handoff_pending() ||
-        (
-            current !=
-                &scheduler_context_test_a_instance->process &&
-            current !=
-                &scheduler_context_test_b_instance->process
-        )
+        scheduler_context_handoff_entries != 0U
     ) {
         kernel_panic(
-            "Ring3 timer handoff worker entered invalid state"
+            "Ring3 handoff worker entered more than once"
         );
+    }
+
+    ++scheduler_context_handoff_entries;
+
+    /*
+     * This marker lives on the worker's own stack.
+     * It must survive both cooperative suspensions.
+     */
+    volatile uint64_t stack_marker =
+        SCHEDULER_CONTEXT_HANDOFF_STACK_MARKER;
+
+    for (
+        unsigned int pass = 0U;
+        pass < SCHEDULER_CONTEXT_HANDOFF_DISPATCH_COUNT;
+        ++pass
+    ) {
+        struct process *current =
+            scheduler_current();
+
+        bool owns_test_process =
+            current != NULL &&
+            (
+                (
+                    scheduler_context_test_a_instance != NULL &&
+                    current ==
+                        &scheduler_context_test_a_instance->process
+                ) ||
+                (
+                    scheduler_context_test_b_instance != NULL &&
+                    current ==
+                        &scheduler_context_test_b_instance->process
+                )
+            );
+
+        if (
+            !owns_test_process ||
+            current->state != PROCESS_STATE_RUNNING ||
+            worker->state != KERNEL_CONTEXT_RUNNING ||
+            kernel_context_owner(worker) ==
+                KERNEL_CONTEXT_NO_CPU ||
+            !scheduler_kernel_worker_handoff_pending() ||
+            scheduler_context_handoff_dispatches != pass ||
+            stack_marker !=
+                SCHEDULER_CONTEXT_HANDOFF_STACK_MARKER
+        ) {
+            kernel_panic(
+                "Ring3 repeated handoff worker state invalid"
+            );
+        }
+
+        uint64_t rflags;
+
+        __asm__ volatile (
+            "pushfq\n\t"
+            "popq %0"
+            : "=r"(rflags)
+            :
+            : "memory"
+        );
+
+        struct paging_address_space *kernel_space =
+            paging_kernel_address_space();
+
+        if (
+            (rflags & (1ULL << 9)) != 0U ||
+            kernel_space == NULL ||
+            (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+                kernel_space->pml4_physical
+        ) {
+            kernel_panic(
+                "Ring3 repeated handoff worker CPU state invalid"
+            );
+        }
+
+        struct scheduler_handoff_resume_plan plan = {0};
+
+        if (
+            !scheduler_kernel_worker_resume_preflight(
+                &plan
+            ) ||
+            plan.owner != current ||
+            plan.address_space !=
+                &current->memory->address_space ||
+            plan.frame.vector !=
+                SCHEDULER_CONTEXT_TIMER_VECTOR
+        ) {
+            kernel_panic(
+                "Ring3 repeated handoff captured invalid frame"
+            );
+        }
+
+        ++scheduler_context_handoff_dispatches;
+
+        /*
+         * The first two dispatches suspend the worker.
+         * The third completes the worker entry normally.
+         */
+        if (
+            pass + 1U <
+            SCHEDULER_CONTEXT_HANDOFF_DISPATCH_COUNT
+        ) {
+            if (!kernel_context_yield_wait(worker)) {
+                kernel_panic(
+                    "Ring3 repeated handoff worker yield failed"
+                );
+            }
+        }
+    }
+
+    /*
+     * Returning through kernel_context_bootstrap()
+     * transitions the worker to TERMINATED.
+     */
+}
+
+static void scheduler_context_handoff_wake_if_waiting(void)
+{
+    /*
+     * Only two wakeups are expected.
+     *
+     * After each dispatch the worker suspends itself.
+     * A subsequent syscall may make it READY again.
+     */
+    if (
+        scheduler_context_handoff_wakes >=
+            SCHEDULER_CONTEXT_HANDOFF_WAKE_COUNT ||
+        scheduler_context_handoff_dispatches !=
+            scheduler_context_handoff_wakes + 1U
+    ) {
+        return;
     }
 
     uint64_t rflags;
@@ -494,61 +641,42 @@ static void scheduler_context_handoff_worker_entry(
         : "memory"
     );
 
-    struct paging_address_space *kernel_space =
-        paging_kernel_address_space();
-
+    /*
+     * The syscall uses an interrupt gate, so IF must
+     * remain disabled while changing worker readiness.
+     */
     if (
         (rflags & (1ULL << 9)) != 0U ||
-        kernel_space == NULL ||
-        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
-            kernel_space->pml4_physical
+        scheduler_context_handoff_worker.state !=
+            KERNEL_CONTEXT_WAITING ||
+        scheduler_kernel_worker_handoff_pending() ||
+        scheduler_kernel_worker_ready() ||
+        kernel_context_owner(
+            &scheduler_context_handoff_worker
+        ) != KERNEL_CONTEXT_NO_CPU
     ) {
         kernel_panic(
-            "Ring3 timer handoff worker has invalid CPU state"
+            "Ring3 handoff wakeup observed invalid state"
         );
     }
 
-    /*
-     * Independently inspect the actual frame captured
-     * from the timer IRQ.
-     */
-    struct scheduler_handoff_resume_plan plan = {0};
+    if (!kernel_context_wake(
+        &scheduler_context_handoff_worker
+    )) {
+        kernel_panic(
+            "Unable to wake Ring3 handoff worker"
+        );
+    }
+
+    ++scheduler_context_handoff_wakes;
 
     if (
-        !scheduler_kernel_worker_resume_preflight(
-            &plan
-        ) ||
-        plan.owner != current ||
-        plan.address_space !=
-            &current->memory->address_space ||
-        plan.frame.vector !=
-            SCHEDULER_CONTEXT_TIMER_VECTOR
+        scheduler_context_handoff_worker.state !=
+            KERNEL_CONTEXT_READY ||
+        !scheduler_kernel_worker_ready()
     ) {
         kernel_panic(
-            "Ring3 timer handoff did not capture valid IRQ frame"
+            "Ring3 handoff wakeup did not make worker READY"
         );
     }
-
-    ++scheduler_context_handoff_dispatches;
-
-    /*
-     * The worker performs one bounded unit of work
-     * and suspends itself.
-     *
-     * This transfers control back to the supervisor
-     * without terminating the worker.
-     */
-    if (!kernel_context_yield_wait(worker)) {
-        kernel_panic(
-            "Ring3 timer handoff worker could not yield"
-        );
-    }
-
-    /*
-     * This regression intentionally never wakes the
-     * worker again.
-     */
-    kernel_panic(
-        "Ring3 timer handoff worker resumed unexpectedly"
-    );
 }
