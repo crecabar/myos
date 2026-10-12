@@ -312,6 +312,100 @@ bool scheduler_kernel_handoff_complete(
     return true;
 }
 
+bool scheduler_kernel_handoff_resume_preflight(
+    const struct scheduler_kernel_handoff *handoff,
+    const struct process *selected,
+    const struct paging_address_space *kernel_space,
+    uint64_t active_cr3,
+    struct scheduler_handoff_resume_plan *plan)
+{
+    if (
+        handoff == NULL ||
+        selected == NULL ||
+        kernel_space == NULL ||
+        plan == NULL ||
+        !handoff->pending ||
+        handoff->owner != selected ||
+        selected->state != PROCESS_STATE_RUNNING ||
+        selected->memory == NULL
+    ) {
+        return false;
+    }
+
+    const struct paging_address_space *user_space =
+        &selected->memory->address_space;
+
+    /*
+     * Both address spaces must have valid PML4 roots.
+     * User processes must inherit the kernel higher half.
+     */
+    if (
+        kernel_space->pml4_virtual == NULL ||
+        user_space->pml4_virtual == NULL ||
+        !user_space->kernel_half_shared ||
+        kernel_space->pml4_physical == 0U ||
+        user_space->pml4_physical == 0U ||
+        (kernel_space->pml4_physical &
+            ~PAGE_ADDRESS_MASK_4K) != 0U ||
+        (user_space->pml4_physical &
+            ~PAGE_ADDRESS_MASK_4K) != 0U ||
+        kernel_space->pml4_physical ==
+            user_space->pml4_physical
+    ) {
+        return false;
+    }
+
+    /*
+     * The supervisor must be running under the kernel
+     * address space before preparing the return.
+     */
+    if (
+        (active_cr3 & PAGE_ADDRESS_MASK_4K) !=
+        kernel_space->pml4_physical
+    ) {
+        return false;
+    }
+
+    const struct interrupt_context *frame =
+        &handoff->frame;
+
+    /*
+     * Unlike the generic Ring 3 capture contract,
+     * actual IRETQ resumption requires the exact
+     * MyOS GDT selectors, not only RPL == 3.
+     */
+    if (
+        frame->cs != GDT_USER_CODE_SELECTOR ||
+        frame->ss != GDT_USER_DATA_SELECTOR ||
+        (frame->rflags & 0x2U) == 0U ||
+        !process_memory_user_range_valid(
+            frame->rip,
+            1U
+        ) ||
+        !process_memory_user_range_valid(
+            frame->rsp,
+            0U
+        )
+    ) {
+        return false;
+    }
+
+    /*
+     * Publish the independent resume plan last.
+     *
+     * The original handoff remains pending and owned.
+     */
+    struct scheduler_handoff_resume_plan prepared = {
+        .owner = selected,
+        .address_space = user_space,
+        .frame = *frame,
+    };
+
+    *plan = prepared;
+
+    return true;
+}
+
 bool scheduler_prepare_kernel_worker_handoff(
     const struct interrupt_context *frame)
 {
@@ -352,6 +446,25 @@ bool scheduler_finish_kernel_worker_handoff(
         &kernel_handoff,
         owner,
         resume_frame
+    );
+}
+
+bool scheduler_kernel_worker_resume_preflight(
+    struct scheduler_handoff_resume_plan *plan)
+{
+    if (
+        current_process == NULL ||
+        plan == NULL
+    ) {
+        return false;
+    }
+
+    return scheduler_kernel_handoff_resume_preflight(
+        &kernel_handoff,
+        current_process,
+        paging_kernel_address_space(),
+        paging_read_cr3(),
+        plan
     );
 }
 

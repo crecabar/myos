@@ -164,6 +164,40 @@ struct scheduler_kernel_handoff {
 };
 
 /**
+ * Validated snapshot for a future return to Ring 3.
+ *
+ * The owner and address_space are borrowed references.
+ * Their lifetime must extend until the plan is consumed.
+ *
+ * Preparing a plan does not retire the pending handoff.
+ */
+struct scheduler_handoff_resume_plan {
+    const struct process *owner;
+    const struct paging_address_space *address_space;
+    struct interrupt_context frame;
+};
+
+/**
+ * Validates a pending handoff before restoring userspace.
+ *
+ * Requires the kernel address space to be active.
+ * The selected process must be the RUNNING owner.
+ *
+ * On success, publishes a snapshot into independent
+ * caller-owned storage. On failure, plan is unchanged.
+ *
+ * Does not change CR3, consume the handoff or execute IRETQ.
+ * plan must not overlap handoff storage.
+ */
+bool scheduler_kernel_handoff_resume_preflight(
+    const struct scheduler_kernel_handoff *handoff,
+    const struct process *selected,
+    const struct paging_address_space *kernel_space,
+    uint64_t active_cr3,
+    struct scheduler_handoff_resume_plan *plan
+);
+
+/**
  * Initializes an empty handoff request.
  *
  * Must not be called on a live pending request.
@@ -244,6 +278,19 @@ bool scheduler_prepare_kernel_worker_handoff(
 bool scheduler_finish_kernel_worker_handoff(
     const struct process *owner,
     struct interrupt_context *resume_frame
+);
+
+/**
+ * Preflights the scheduler-owned pending handoff.
+ *
+ * Uses current_process, the active CR3 and the MyOS
+ * kernel address space.
+ *
+ * Does not consume the request or change CPU state.
+ * Caller must execute with interrupts disabled.
+ */
+bool scheduler_kernel_worker_resume_preflight(
+    struct scheduler_handoff_resume_plan *plan
 );
 
 /**

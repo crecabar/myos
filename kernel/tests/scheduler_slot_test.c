@@ -11,6 +11,7 @@
 #include "scheduler_slot_test.h"
 
 #include "../arch/x86_64/cpu_identity.h"
+#include "../arch/x86_64/gdt.h"
 #include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/kernel_switch.h"
 #include "../arch/x86_64/timer.h"
@@ -868,6 +869,294 @@ static void scheduler_slot_test_handoff_completion(void)
     );
 }
 
+static void scheduler_slot_test_handoff_resume_preflight(void)
+{
+    /*
+     * Synthetic page-table roots are used only as
+     * metadata. They must never be activated as CR3.
+     */
+    uint64_t kernel_root = 0U;
+    uint64_t user_root = 0U;
+
+    struct paging_address_space kernel_space = {
+        .pml4_physical = 0x1000U,
+        .pml4_virtual = &kernel_root,
+    };
+
+    struct process_memory memory = {
+        .address_space = {
+            .pml4_physical = 0x2000U,
+            .pml4_virtual = &user_root,
+            .kernel_half_shared = true,
+        },
+    };
+
+    struct process owner = {
+        .id = 300U,
+        .state = PROCESS_STATE_RUNNING,
+        .memory = &memory,
+    };
+
+    struct process other = {
+        .id = 301U,
+        .state = PROCESS_STATE_RUNNING,
+        .memory = &memory,
+    };
+
+    struct interrupt_context frame = {
+        .vector = 0x20U,
+        .rip = 0x400000ULL,
+        .cs = GDT_USER_CODE_SELECTOR,
+        .rflags = 0x202ULL,
+        .rsp = 0x70000000ULL,
+        .ss = GDT_USER_DATA_SELECTOR,
+        .rax = 0x1122334455667788ULL,
+    };
+
+    struct scheduler_kernel_handoff handoff;
+    scheduler_kernel_handoff_init(&handoff);
+
+    struct scheduler_handoff_resume_plan plan = {
+        .owner = &other,
+        .address_space = &kernel_space,
+        .frame = {
+            .rax = 0xDEADBEEFULL,
+        },
+    };
+
+    /*
+     * No request, no plan.
+     */
+    if (scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        &kernel_space,
+        0x1000U,
+        &plan
+    )) {
+        kernel_panic(
+            "Resume preflight accepted absent handoff"
+        );
+    }
+
+    if (!scheduler_kernel_handoff_prepare(
+        &handoff,
+        &owner,
+        &frame
+    )) {
+        kernel_panic(
+            "Resume preflight setup failed"
+        );
+    }
+
+    /*
+     * A valid request produces a snapshot without
+     * releasing the original.
+     */
+    if (!scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        &kernel_space,
+        0x1000U,
+        &plan
+    )) {
+        kernel_panic(
+            "Resume preflight rejected valid owner"
+        );
+    }
+
+    if (
+        plan.owner != &owner ||
+        plan.address_space !=
+            &memory.address_space ||
+        !scheduler_slot_test_frames_equal(
+            &plan.frame,
+            &frame
+        ) ||
+        !handoff.pending ||
+        handoff.owner != &owner
+    ) {
+        kernel_panic(
+            "Resume preflight corrupted ownership or frame"
+        );
+    }
+
+    /*
+     * The pending frame and the prepared snapshot
+     * must be independent.
+     */
+    frame.rax = 0U;
+
+    if (
+        plan.frame.rax !=
+            0x1122334455667788ULL ||
+        handoff.frame.rax !=
+            0x1122334455667788ULL
+    ) {
+        kernel_panic(
+            "Resume preflight retained borrowed IRQ frame"
+        );
+    }
+
+    /*
+     * Neither another owner nor a wrong active CR3
+     * may produce a new plan.
+     */
+    if (
+        scheduler_kernel_handoff_resume_preflight(
+            &handoff,
+            &other,
+            &kernel_space,
+            0x1000U,
+            &plan
+        ) ||
+        scheduler_kernel_handoff_resume_preflight(
+            &handoff,
+            &owner,
+            &kernel_space,
+            0x2000U,
+            &plan
+        )
+    ) {
+        kernel_panic(
+            "Resume preflight accepted invalid CPU ownership"
+        );
+    }
+
+    owner.state = PROCESS_STATE_READY;
+
+    if (scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        &kernel_space,
+        0x1000U,
+        &plan
+    )) {
+        kernel_panic(
+            "Resume preflight accepted non-running owner"
+        );
+    }
+
+    owner.state = PROCESS_STATE_RUNNING;
+
+    /*
+     * A private user PML4 must remain distinct from
+     * the kernel root and share the kernel higher half.
+     */
+    memory.address_space.kernel_half_shared = false;
+
+    if (scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        &kernel_space,
+        0x1000U,
+        &plan
+    )) {
+        kernel_panic(
+            "Resume preflight accepted non-shared kernel mapping"
+        );
+    }
+
+    memory.address_space.kernel_half_shared = true;
+    memory.address_space.pml4_physical = 0x2001U;
+
+    if (scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        &kernel_space,
+        0x1000U,
+        &plan
+    )) {
+        kernel_panic(
+            "Resume preflight accepted unaligned PML4"
+        );
+    }
+
+    memory.address_space.pml4_physical = 0x2000U;
+
+    /*
+     * Reject invalid privilege selectors.
+     */
+    handoff.frame.cs = GDT_KERNEL_CODE_SELECTOR;
+
+    if (scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        &kernel_space,
+        0x1000U,
+        &plan
+    )) {
+        kernel_panic(
+            "Resume preflight accepted kernel CS"
+        );
+    }
+
+    handoff.frame.cs = GDT_USER_CODE_SELECTOR;
+
+    /*
+     * A kernel address is not a valid user RIP.
+     */
+    handoff.frame.rip =
+        0xFFFF800000000000ULL;
+
+    if (scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        &kernel_space,
+        0x1000U,
+        &plan
+    )) {
+        kernel_panic(
+            "Resume preflight accepted kernel RIP"
+        );
+    }
+
+    handoff.frame.rip = 0x400000ULL;
+
+    /*
+     * Failed attempts must not change the previously
+     * prepared plan or release the original request.
+     */
+    if (
+        plan.owner != &owner ||
+        plan.address_space !=
+            &memory.address_space ||
+        plan.frame.rax !=
+            0x1122334455667788ULL ||
+        !handoff.pending ||
+        handoff.owner != &owner
+    ) {
+        kernel_panic(
+            "Rejected resume preflight mutated state"
+        );
+    }
+
+    /*
+     * The scheduler-owned wrapper has no current
+     * RUNNING process during this regression.
+     */
+    if (scheduler_kernel_worker_resume_preflight(
+        &plan
+    )) {
+        kernel_panic(
+            "Resume preflight ignored scheduler selection"
+        );
+    }
+
+    if (!scheduler_kernel_handoff_release(
+        &handoff,
+        &owner
+    )) {
+        kernel_panic(
+            "Resume preflight cleanup failed"
+        );
+    }
+
+    diagnostics_write(
+        "[scheduler] Kernel handoff resume preflight tests passed\n"
+    );
+}
+
 static void scheduler_slot_test_timer_decision(void)
 {
     /*
@@ -1170,6 +1459,7 @@ void scheduler_slot_test_run(void)
     scheduler_slot_test_handoff_capture();
     scheduler_slot_test_handoff_ownership();
     scheduler_slot_test_handoff_completion();
+    scheduler_slot_test_handoff_resume_preflight();
     scheduler_slot_test_timer_decision();
 
         /*
