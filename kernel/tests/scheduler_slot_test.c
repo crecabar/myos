@@ -684,6 +684,190 @@ static void scheduler_slot_test_handoff_ownership(void)
     );
 }
 
+static void scheduler_slot_test_handoff_completion(void)
+{
+    struct scheduler_kernel_handoff handoff;
+
+    scheduler_kernel_handoff_init(&handoff);
+
+    struct process owner = {
+        .id = 200U,
+        .state = PROCESS_STATE_RUNNING,
+    };
+
+    struct process other = {
+        .id = 201U,
+        .state = PROCESS_STATE_RUNNING,
+    };
+
+    struct interrupt_context original = {
+        .vector = 0x20U,
+        .error_code = 0U,
+        .rip = 0x400000ULL,
+        .cs = 0x1BU,
+        .rflags = 0x202ULL,
+        .rsp = 0x70000000ULL,
+        .ss = 0x23U,
+        .rax = 0x1122334455667788ULL,
+        .r12 = 0x8877665544332211ULL,
+    };
+
+    struct interrupt_context source = original;
+
+    struct interrupt_context resumed = {
+        .rax = 0xDEADBEEFULL,
+    };
+
+    struct interrupt_context sentinel = resumed;
+
+    /*
+     * Completion without a pending request is invalid.
+     */
+    if (scheduler_kernel_handoff_complete(
+        &handoff,
+        &owner,
+        &resumed
+    )) {
+        kernel_panic(
+            "Scheduler completed absent handoff"
+        );
+    }
+
+    if (!scheduler_kernel_handoff_prepare(
+        &handoff,
+        &owner,
+        &source
+    )) {
+        kernel_panic(
+            "Scheduler handoff completion setup failed"
+        );
+    }
+
+    /*
+     * The source IRQ frame must no longer be required.
+     */
+    source.rax = 0U;
+    source.rip = 0U;
+
+    /*
+     * Reject another owner, invalid destinations and
+     * attempts to overwrite the owned frame itself.
+     */
+    if (
+        scheduler_kernel_handoff_complete(
+            &handoff,
+            &other,
+            &resumed
+        ) ||
+        scheduler_kernel_handoff_complete(
+            &handoff,
+            &owner,
+            NULL
+        ) ||
+        scheduler_kernel_handoff_complete(
+            &handoff,
+            &owner,
+            &handoff.frame
+        )
+    ) {
+        kernel_panic(
+            "Scheduler accepted invalid handoff completion"
+        );
+    }
+
+    /*
+     * A process that stopped being RUNNING cannot
+     * complete the request.
+     */
+    owner.state = PROCESS_STATE_READY;
+
+    if (scheduler_kernel_handoff_complete(
+        &handoff,
+        &owner,
+        &resumed
+    )) {
+        kernel_panic(
+            "Scheduler completed handoff for READY owner"
+        );
+    }
+
+    owner.state = PROCESS_STATE_RUNNING;
+
+    if (
+        !handoff.pending ||
+        handoff.owner != &owner ||
+        !scheduler_slot_test_frames_equal(
+            &handoff.frame,
+            &original
+        ) ||
+        !scheduler_slot_test_frames_equal(
+            &resumed,
+            &sentinel
+        )
+    ) {
+        kernel_panic(
+            "Rejected completion mutated handoff state"
+        );
+    }
+
+    /*
+     * Only the original owner can extract the frame
+     * and retire the request.
+     */
+    if (!scheduler_kernel_handoff_complete(
+        &handoff,
+        &owner,
+        &resumed
+    )) {
+        kernel_panic(
+            "Scheduler could not complete owned handoff"
+        );
+    }
+
+    if (
+        handoff.pending ||
+        handoff.owner != NULL ||
+        !scheduler_slot_test_frames_equal(
+            &resumed,
+            &original
+        )
+    ) {
+        kernel_panic(
+            "Scheduler handoff completion lost user frame"
+        );
+    }
+
+    /*
+     * Completion is one-shot.
+     */
+    if (scheduler_kernel_handoff_complete(
+        &handoff,
+        &owner,
+        &resumed
+    )) {
+        kernel_panic(
+            "Scheduler accepted duplicate handoff completion"
+        );
+    }
+
+    /*
+     * The scheduler-owned wrapper must reject a request
+     * when there is no current process.
+     */
+    if (scheduler_finish_kernel_worker_handoff(
+        &owner,
+        &resumed
+    )) {
+        kernel_panic(
+            "Scheduler completed handoff without current process"
+        );
+    }
+
+    diagnostics_write(
+        "[scheduler] Kernel handoff completion tests passed\n"
+    );
+}
+
 static void scheduler_slot_test_timer_decision(void)
 {
     /*
@@ -985,6 +1169,7 @@ void scheduler_slot_test_run(void)
     scheduler_slot_test_bsp_supervisor();
     scheduler_slot_test_handoff_capture();
     scheduler_slot_test_handoff_ownership();
+    scheduler_slot_test_handoff_completion();
     scheduler_slot_test_timer_decision();
 
         /*

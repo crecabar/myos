@@ -262,6 +262,56 @@ bool scheduler_kernel_handoff_release(
     return true;
 }
 
+bool scheduler_kernel_handoff_complete(
+    struct scheduler_kernel_handoff *handoff,
+    const struct process *owner,
+    struct interrupt_context *resume_frame)
+{
+    if (
+        handoff == NULL ||
+        owner == NULL ||
+        resume_frame == NULL ||
+        resume_frame == &handoff->frame ||
+        !handoff->pending ||
+        handoff->owner != owner ||
+        owner->state != PROCESS_STATE_RUNNING
+    ) {
+        return false;
+    }
+
+    /*
+     * The saved interrupt frame must remain a valid
+     * Ring 3 frame throughout the handoff lifecycle.
+     *
+     * First capture into independent local storage.
+     */
+    struct interrupt_context captured;
+
+    if (!scheduler_capture_user_interrupt(
+        &handoff->frame,
+        &captured
+    )) {
+        return false;
+    }
+
+    /*
+     * Release ownership only after successful capture.
+     *
+     * The single-CPU caller must keep interrupts disabled
+     * throughout this operation.
+     */
+    if (!scheduler_kernel_handoff_release(
+        handoff,
+        owner
+    )) {
+        return false;
+    }
+
+    *resume_frame = captured;
+
+    return true;
+}
+
 bool scheduler_prepare_kernel_worker_handoff(
     const struct interrupt_context *frame)
 {
@@ -283,6 +333,25 @@ bool scheduler_prepare_kernel_worker_handoff(
         &kernel_handoff,
         current_process,
         frame
+    );
+}
+
+bool scheduler_finish_kernel_worker_handoff(
+    const struct process *owner,
+    struct interrupt_context *resume_frame)
+{
+    if (
+        owner == NULL ||
+        current_process != owner ||
+        owner->state != PROCESS_STATE_RUNNING
+    ) {
+        return false;
+    }
+
+    return scheduler_kernel_handoff_complete(
+        &kernel_handoff,
+        owner,
+        resume_frame
     );
 }
 

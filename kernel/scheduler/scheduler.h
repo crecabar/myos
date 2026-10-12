@@ -198,6 +198,26 @@ bool scheduler_kernel_handoff_release(
 );
 
 /**
+ * Completes an owned handoff and extracts its saved user frame.
+ *
+ * The owner must still be RUNNING and must match the pending
+ * request. The destination must not overlap handoff storage.
+ *
+ * On success, copies the saved frame to independent storage
+ * and clears the pending request.
+ *
+ * On failure, neither the request nor destination is modified.
+ *
+ * Does not activate an address space or resume userspace.
+ * Caller serializes access with interrupts disabled.
+ */
+bool scheduler_kernel_handoff_complete(
+    struct scheduler_kernel_handoff *handoff,
+    const struct process *owner,
+    struct interrupt_context *resume_frame
+);
+
+/**
  * Prepares the scheduler-owned kernel worker handoff.
  *
  * The owner is necessarily current_process.
@@ -210,6 +230,20 @@ bool scheduler_kernel_handoff_release(
  */
 bool scheduler_prepare_kernel_worker_handoff(
     const struct interrupt_context *frame
+);
+
+/**
+ * Completes the scheduler-owned kernel worker handoff.
+ *
+ * Only the currently selected RUNNING process may complete
+ * its pending request.
+ *
+ * Does not switch CR3 or perform IRETQ.
+ * Caller must execute with interrupts disabled.
+ */
+bool scheduler_finish_kernel_worker_handoff(
+    const struct process *owner,
+    struct interrupt_context *resume_frame
 );
 
 /**
