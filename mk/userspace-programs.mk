@@ -106,3 +106,17 @@ test-sh-parser:
 		$(SH_TEST_DIR)/parser_test.c \
 		-o $(BUILD_DIR)/host-tests/sh-parser-test
 	$(BUILD_DIR)/host-tests/sh-parser-test
+
+.PHONY: test-sh-builtins
+
+test-sh-builtins:
+	mkdir -p $(BUILD_DIR)/host-tests
+	cc -std=c11 \
+		-Wall -Wextra -Werror -Wpedantic \
+		-I$(MYOS_INCLUDE_DIR) \
+		-I$(USER_RUNTIME_INCLUDE_DIR) \
+		-I$(SH_INCLUDE_DIR) \
+		$(SH_SOURCE_DIR)/builtin.c \
+		$(SH_TEST_DIR)/builtin_test.c \
+		-o $(BUILD_DIR)/host-tests/sh-builtin-test
+	$(BUILD_DIR)/host-tests/sh-builtin-test
