@@ -316,6 +316,28 @@ bool scheduler_kernel_handoff_activate_resume_space(
 );
 
 /**
+ * Commits a validated handoff resume after CR3 activation.
+ *
+ * Requires interrupts disabled and the owner's address
+ * space active. The plan must still match the pending
+ * request exactly.
+ *
+ * On success, copies the saved frame into independent
+ * storage and retires the handoff exactly once.
+ *
+ * On rejection, destination and handoff remain unchanged.
+ *
+ * Does not switch CR3 or execute IRETQ.
+ * Frame destinations must not overlap plan/handoff storage.
+ */
+bool scheduler_kernel_handoff_commit_resume(
+    struct scheduler_kernel_handoff *handoff,
+    const struct process *selected,
+    const struct scheduler_handoff_resume_plan *plan,
+    struct interrupt_context *resume_frame
+);
+
+/**
  * Activates the current handoff owner's address space.
  *
  * Requires an existing scheduler-owned pending request
@@ -325,6 +347,17 @@ bool scheduler_kernel_handoff_activate_resume_space(
  */
 bool scheduler_activate_kernel_worker_resume_space(
     const struct scheduler_handoff_resume_plan *plan
+);
+
+/**
+ * Commits the scheduler-owned handoff for current_process.
+ *
+ * Called after activating the validated owner's CR3,
+ * immediately before restoring user execution.
+ */
+bool scheduler_commit_kernel_worker_resume(
+    const struct scheduler_handoff_resume_plan *plan,
+    struct interrupt_context *resume_frame
 );
 
 /**

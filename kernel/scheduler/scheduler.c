@@ -499,6 +499,88 @@ bool scheduler_kernel_handoff_activate_resume_space(
     return true;
 }
 
+bool scheduler_kernel_handoff_commit_resume(
+    struct scheduler_kernel_handoff *handoff,
+    const struct process *selected,
+    const struct scheduler_handoff_resume_plan *plan,
+    struct interrupt_context *resume_frame)
+{
+    if (
+        handoff == NULL ||
+        selected == NULL ||
+        plan == NULL ||
+        resume_frame == NULL ||
+        resume_frame == &handoff->frame ||
+        resume_frame == &plan->frame ||
+        !handoff->pending ||
+        handoff->owner != selected ||
+        selected->state != PROCESS_STATE_RUNNING ||
+        selected->memory == NULL ||
+        plan->owner != selected ||
+        plan->address_space !=
+            &selected->memory->address_space
+    ) {
+        return false;
+    }
+
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0U) {
+        return false;
+    }
+
+    const struct paging_address_space *space =
+        plan->address_space;
+
+    if (
+        space->pml4_virtual == NULL ||
+        !space->kernel_half_shared ||
+        space->pml4_physical == 0U ||
+        (space->pml4_physical &
+            ~PAGE_ADDRESS_MASK_4K) != 0U ||
+        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+            space->pml4_physical
+    ) {
+        return false;
+    }
+
+    /*
+     * The plan must still describe the exact frame
+     * published by the original handoff.
+     */
+    const unsigned char *saved =
+        (const unsigned char *) &handoff->frame;
+
+    const unsigned char *planned =
+        (const unsigned char *) &plan->frame;
+
+    for (size_t index = 0;
+         index < sizeof(handoff->frame);
+         ++index) {
+        if (saved[index] != planned[index]) {
+            return false;
+        }
+    }
+
+    /*
+     * Every validation has succeeded.
+     * Completion copies the frame and retires the request.
+     */
+    return scheduler_kernel_handoff_complete(
+        handoff,
+        selected,
+        resume_frame
+    );
+}
+
 bool scheduler_activate_kernel_worker_resume_space(
     const struct scheduler_handoff_resume_plan *plan)
 {
@@ -514,6 +596,26 @@ bool scheduler_activate_kernel_worker_resume_space(
         &kernel_handoff,
         current_process,
         plan
+    );
+}
+
+bool scheduler_commit_kernel_worker_resume(
+    const struct scheduler_handoff_resume_plan *plan,
+    struct interrupt_context *resume_frame)
+{
+    if (
+        current_process == NULL ||
+        plan == NULL ||
+        plan->owner != current_process
+    ) {
+        return false;
+    }
+
+    return scheduler_kernel_handoff_commit_resume(
+        &kernel_handoff,
+        current_process,
+        plan,
+        resume_frame
     );
 }
 

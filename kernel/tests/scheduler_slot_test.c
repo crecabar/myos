@@ -1188,6 +1188,252 @@ static void scheduler_slot_test_handoff_resume_preflight(void)
     );
 }
 
+static void scheduler_slot_test_handoff_resume_commit(void)
+{
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (kernel_space == NULL) {
+        kernel_panic("Resume commit missing kernel space");
+    }
+
+    uint64_t kernel_cr3 =
+        paging_read_cr3() & PAGE_ADDRESS_MASK_4K;
+
+    if (kernel_cr3 != kernel_space->pml4_physical) {
+        kernel_panic("Resume commit wrong initial CR3");
+    }
+
+    struct process_memory memory = {0};
+
+    if (!process_memory_create(&memory)) {
+        kernel_panic("Resume commit memory setup failed");
+    }
+
+    struct process owner = {
+        .id = 500U,
+        .state = PROCESS_STATE_RUNNING,
+        .memory = &memory,
+    };
+
+    struct process other = {
+        .id = 501U,
+        .state = PROCESS_STATE_RUNNING,
+        .memory = &memory,
+    };
+
+    struct interrupt_context frame = {
+        .vector = 0x20U,
+        .rip = 0x400000ULL,
+        .cs = GDT_USER_CODE_SELECTOR,
+        .rflags = 0x202ULL,
+        .rsp = 0x70000000ULL,
+        .ss = GDT_USER_DATA_SELECTOR,
+        .rax = 0x1122334455667788ULL,
+        .r12 = 0x8877665544332211ULL,
+    };
+
+    struct scheduler_kernel_handoff handoff;
+    scheduler_kernel_handoff_init(&handoff);
+
+    uint64_t original_rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(original_rflags)
+        :
+        : "memory"
+    );
+
+    interrupts_disable();
+
+    if (!scheduler_kernel_handoff_prepare(
+        &handoff,
+        &owner,
+        &frame
+    )) {
+        kernel_panic("Resume commit preparation failed");
+    }
+
+    struct scheduler_handoff_resume_plan plan = {0};
+
+    if (!scheduler_kernel_handoff_resume_preflight(
+        &handoff,
+        &owner,
+        kernel_space,
+        paging_read_cr3(),
+        &plan
+    )) {
+        kernel_panic("Resume commit preflight failed");
+    }
+
+    struct interrupt_context resumed = {
+        .rax = 0xDEADBEEFULL,
+    };
+
+    struct interrupt_context sentinel = resumed;
+
+    /*
+     * The kernel CR3 is still active. Completion is
+     * forbidden before activating the owner space.
+     */
+    if (scheduler_kernel_handoff_commit_resume(
+        &handoff,
+        &owner,
+        &plan,
+        &resumed
+    )) {
+        kernel_panic(
+            "Resume commit accepted kernel CR3"
+        );
+    }
+
+    if (
+        !scheduler_slot_test_frames_equal(
+            &resumed,
+            &sentinel
+        ) ||
+        !handoff.pending
+    ) {
+        kernel_panic(
+            "Rejected resume commit changed state"
+        );
+    }
+
+    if (!scheduler_kernel_handoff_activate_resume_space(
+        &handoff,
+        &owner,
+        &plan
+    )) {
+        kernel_panic(
+            "Resume commit could not activate owner CR3"
+        );
+    }
+
+    /*
+     * No other process may commit the request.
+     */
+    if (scheduler_kernel_handoff_commit_resume(
+        &handoff,
+        &other,
+        &plan,
+        &resumed
+    )) {
+        kernel_panic(
+            "Resume commit accepted wrong owner"
+        );
+    }
+
+    /*
+     * Rejected modifications must preserve the
+     * original handoff and output.
+     */
+    struct scheduler_handoff_resume_plan stale = plan;
+    stale.frame.rax ^= 1U;
+
+    if (scheduler_kernel_handoff_commit_resume(
+        &handoff,
+        &owner,
+        &stale,
+        &resumed
+    )) {
+        kernel_panic(
+            "Resume commit accepted modified plan"
+        );
+    }
+
+    handoff.frame.r12 ^= 1U;
+
+    if (scheduler_kernel_handoff_commit_resume(
+        &handoff,
+        &owner,
+        &plan,
+        &resumed
+    )) {
+        kernel_panic(
+            "Resume commit accepted modified request"
+        );
+    }
+
+    handoff.frame.r12 ^= 1U;
+
+    if (
+        !handoff.pending ||
+        handoff.owner != &owner ||
+        !scheduler_slot_test_frames_equal(
+            &resumed,
+            &sentinel
+        )
+    ) {
+        kernel_panic(
+            "Rejected resume commit corrupted state"
+        );
+    }
+
+    /*
+     * Current owner, correct CR3 and unchanged plan:
+     * consume the request exactly once.
+     */
+    if (!scheduler_kernel_handoff_commit_resume(
+        &handoff,
+        &owner,
+        &plan,
+        &resumed
+    )) {
+        kernel_panic(
+            "Resume commit rejected valid request"
+        );
+    }
+
+    if (
+        handoff.pending ||
+        handoff.owner != NULL ||
+        !scheduler_slot_test_frames_equal(
+            &resumed,
+            &frame
+        )
+    ) {
+        kernel_panic(
+            "Resume commit lost saved user frame"
+        );
+    }
+
+    if (scheduler_kernel_handoff_commit_resume(
+        &handoff,
+        &owner,
+        &plan,
+        &resumed
+    )) {
+        kernel_panic(
+            "Resume commit accepted duplicate completion"
+        );
+    }
+
+    /*
+     * The synthetic test never enters Ring 3.
+     * Restore kernel CR3 before destroying memory.
+     */
+    if (
+        !paging_address_space_activate(kernel_space) ||
+        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+            kernel_cr3 ||
+        !process_memory_destroy(&memory)
+    ) {
+        kernel_panic(
+            "Resume commit cleanup failed"
+        );
+    }
+
+    if ((original_rflags & (1ULL << 9)) != 0U) {
+        interrupts_enable();
+    }
+
+    diagnostics_write(
+        "[scheduler] Kernel handoff resume commit tests passed\n"
+    );
+}
+
 static void scheduler_slot_test_timer_decision(void)
 {
     /*
@@ -2051,6 +2297,7 @@ void scheduler_slot_test_run(void)
     scheduler_slot_test_handoff_completion();
     scheduler_slot_test_handoff_resume_preflight();
     scheduler_slot_test_handoff_cr3_activation();
+    scheduler_slot_test_handoff_resume_commit();
     scheduler_slot_test_timer_decision();
 
         /*
