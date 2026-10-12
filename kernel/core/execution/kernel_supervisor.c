@@ -6,6 +6,7 @@
 #include "kernel_supervisor.h"
 
 #include "../../arch/x86_64/cpu_identity.h"
+#include "../../arch/x86_64/irq_supervisor.h"
 #include "../../arch/x86_64/paging.h"
 #include "../../arch/x86_64/kernel_switch.h"
 #include "../cpu/cpu_local.h"
@@ -23,6 +24,10 @@ struct kernel_supervisor_bsp {
 
     bool initialized;
     bool dispatching;
+
+    kernel_supervisor_dispatch_fn one_way_dispatch;
+    kernel_supervisor_completion_fn one_way_completion;
+    void *one_way_argument;
 };
 
 struct kernel_supervisor_invocation {
@@ -238,4 +243,163 @@ bool kernel_supervisor_bsp_dispatch(
     bsp_supervisor.dispatching = false;
 
     return invocation.completed;
+}
+
+static _Noreturn void kernel_supervisor_bsp_one_way_entry(
+    void *argument)
+{
+    struct kernel_supervisor_bsp *supervisor = argument;
+
+    uintptr_t rsp;
+
+    __asm__ volatile (
+        "movq %%rsp, %0"
+        : "=r"(rsp)
+        :
+        : "memory"
+    );
+
+    uintptr_t bottom =
+        (uintptr_t) bsp_supervisor_stack;
+
+    uintptr_t top =
+        bottom + sizeof(bsp_supervisor_stack);
+
+    if (
+        supervisor != &bsp_supervisor ||
+        !supervisor->initialized ||
+        !supervisor->dispatching ||
+        supervisor->one_way_dispatch == NULL ||
+        supervisor->one_way_completion == NULL ||
+        rsp < bottom ||
+        rsp >= top ||
+        !cpu_local_matches_current_cpu(
+            &supervisor->cpu
+        ) ||
+        (kernel_supervisor_rflags() &
+            X86_RFLAGS_IF) != 0
+    ) {
+        kernel_panic(
+            "BSP one-way supervisor entry invariant failed"
+        );
+    }
+
+    /*
+     * We may have entered from a Ring 3 process's
+     * address space. The independent supervisor stack
+     * and kernel higher half remain mapped there.
+     */
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (kernel_space == NULL) {
+        kernel_panic(
+            "BSP one-way supervisor has no kernel CR3"
+        );
+    }
+
+    if (!kernel_supervisor_kernel_cr3_active()) {
+        if (!paging_address_space_activate(
+            kernel_space
+        )) {
+            kernel_panic(
+                "BSP one-way supervisor could not activate kernel CR3"
+            );
+        }
+    }
+
+    if (!kernel_supervisor_kernel_cr3_active()) {
+        kernel_panic(
+            "BSP one-way supervisor activated incorrect CR3"
+        );
+    }
+
+    /*
+     * Dispatch can suspend or terminate the worker.
+     * In either case it returns physically to this
+     * supervisor stack.
+     */
+    bool dispatched =
+        supervisor->one_way_dispatch(&supervisor->cpu);
+
+    if (
+        cpu_local_active_kernel_context(
+            &supervisor->cpu
+        ) != NULL ||
+        (kernel_supervisor_rflags() &
+            X86_RFLAGS_IF) != 0 ||
+        !kernel_supervisor_kernel_cr3_active()
+    ) {
+        kernel_panic(
+            "BSP one-way supervisor dispatch invariant failed"
+        );
+    }
+
+    kernel_supervisor_completion_fn completion =
+        supervisor->one_way_completion;
+
+    void *completion_argument =
+        supervisor->one_way_argument;
+
+    /*
+     * The worker no longer owns the CPU.
+     *
+     * Retire this invocation before transferring
+     * execution to the non-returning continuation.
+     */
+    supervisor->one_way_dispatch = NULL;
+    supervisor->one_way_completion = NULL;
+    supervisor->one_way_argument = NULL;
+    supervisor->dispatching = false;
+
+    completion(dispatched, completion_argument);
+
+    kernel_panic(
+        "BSP one-way supervisor completion returned"
+    );
+}
+
+_Noreturn void kernel_supervisor_bsp_enter(
+    kernel_supervisor_dispatch_fn dispatch,
+    kernel_supervisor_completion_fn completion,
+    void *argument)
+{
+    if (
+        !bsp_supervisor.initialized ||
+        bsp_supervisor.dispatching ||
+        dispatch == NULL ||
+        completion == NULL ||
+        !cpu_local_matches_current_cpu(
+            &bsp_supervisor.cpu
+        ) ||
+        cpu_local_active_kernel_context(
+            &bsp_supervisor.cpu
+        ) != NULL ||
+        (kernel_supervisor_rflags() &
+            X86_RFLAGS_IF) != 0
+    ) {
+        kernel_panic(
+            "Invalid BSP one-way supervisor request"
+        );
+    }
+
+    /*
+     * All invocation metadata is stored persistently.
+     * Nothing is borrowed from the abandoned caller stack
+     * except the separately lifetime-guaranteed argument.
+     */
+    bsp_supervisor.one_way_dispatch = dispatch;
+    bsp_supervisor.one_way_completion = completion;
+    bsp_supervisor.one_way_argument = argument;
+    bsp_supervisor.dispatching = true;
+
+    uintptr_t stack_top =
+        (uintptr_t) bsp_supervisor_stack +
+        sizeof(bsp_supervisor_stack);
+
+    irq_supervisor_enter(
+        stack_top,
+        kernel_supervisor_bsp_one_way_entry,
+        &bsp_supervisor
+    );
 }

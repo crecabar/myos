@@ -17,6 +17,19 @@ typedef bool (*kernel_supervisor_dispatch_fn)(
 );
 
 /**
+ * Final continuation after a one-way supervisor dispatch.
+ *
+ * The continuation must not return. It is responsible
+ * for transferring execution to a valid next context.
+ *
+ * It receives whether a worker was actually dispatched.
+ */
+typedef void (*kernel_supervisor_completion_fn)(
+    bool dispatched,
+    void *argument
+);
+
+/**
  * Initializes the persistent bootstrap CPU supervisor.
  *
  * Initialization is idempotent on the same CPU.
@@ -47,6 +60,32 @@ kernel_supervisor_bsp_context(void);
  */
 bool kernel_supervisor_bsp_dispatch(
     kernel_supervisor_dispatch_fn dispatch
+);
+
+/**
+ * Enters the BSP supervisor through a one-way stack transition.
+ *
+ * Preconditions:
+ * - BSP supervisor initialized.
+ * - Running on the BSP in Ring 0.
+ * - Maskable interrupts disabled.
+ * - Kernel mappings available in the active address space.
+ * - No supervisor dispatch already active.
+ *
+ * The original stack is abandoned. The supervisor switches
+ * to the kernel address space before dispatching the worker.
+ *
+ * completion must transfer execution elsewhere and never
+ * return. Its argument must remain valid after the original
+ * stack has been abandoned.
+ *
+ * This function does not consume scheduler handoffs,
+ * perform IRETQ or acknowledge an IRQ.
+ */
+_Noreturn void kernel_supervisor_bsp_enter(
+    kernel_supervisor_dispatch_fn dispatch,
+    kernel_supervisor_completion_fn completion,
+    void *argument
 );
 
 #endif

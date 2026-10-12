@@ -93,6 +93,37 @@ struct scheduler_worker_test_probe {
     unsigned int stage;
 };
 
+#define SCHEDULER_ONE_WAY_ENTRY_STACK_SIZE 8192U
+
+static _Alignas(16)
+unsigned char scheduler_one_way_entry_stack[
+    SCHEDULER_ONE_WAY_ENTRY_STACK_SIZE
+];
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char scheduler_one_way_worker_stack[
+    SCHEDULER_WORKER_TEST_STACK_SIZE
+];
+
+struct scheduler_one_way_test_probe {
+    struct kernel_switch_context caller;
+    struct kernel_switch_context entry;
+    struct kernel_switch_context completion_context;
+
+    struct kernel_context worker;
+    struct scheduler_worker_test_probe worker_probe;
+    struct process_memory memory;
+
+    uint64_t kernel_cr3;
+
+    unsigned int completions;
+    bool enter_from_user_cr3;
+    bool last_dispatched;
+};
+
+static struct scheduler_one_way_test_probe
+    scheduler_one_way_probe;
+
 static void scheduler_worker_test_entry(
     void *argument)
 {
@@ -1722,6 +1753,282 @@ static void scheduler_slot_test_bsp_supervisor(void)
     );
 }
 
+static void scheduler_one_way_completion(
+    bool dispatched,
+    void *argument)
+{
+    struct scheduler_one_way_test_probe *probe =
+        argument;
+
+    if (
+        probe != &scheduler_one_way_probe ||
+        !dispatched ||
+        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+            probe->kernel_cr3
+    ) {
+        kernel_panic(
+            "One-way BSP supervisor completion invalid"
+        );
+    }
+
+    uint64_t rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(rflags)
+        :
+        : "memory"
+    );
+
+    if ((rflags & (1ULL << 9)) != 0) {
+        kernel_panic(
+            "One-way BSP supervisor completion enabled interrupts"
+        );
+    }
+
+    ++probe->completions;
+    probe->last_dispatched = dispatched;
+
+    /*
+     * Synthetic test exit:
+     * transfer control back to the original test runner.
+     *
+     * The original entry stack is not resumed.
+     */
+    kernel_context_switch(
+        &probe->completion_context,
+        &probe->caller
+    );
+
+    kernel_panic(
+        "One-way BSP supervisor test continuation resumed"
+    );
+}
+
+static _Noreturn void scheduler_one_way_test_entry(void)
+{
+    struct scheduler_one_way_test_probe *probe =
+        &scheduler_one_way_probe;
+
+    if (probe->enter_from_user_cr3) {
+        if (!paging_address_space_activate(
+            &probe->memory.address_space
+        )) {
+            kernel_panic(
+                "One-way BSP test could not activate user CR3"
+            );
+        }
+
+        if (
+            (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+            probe->memory.address_space.pml4_physical
+        ) {
+            kernel_panic(
+                "One-way BSP test activated wrong source CR3"
+            );
+        }
+    }
+
+    kernel_supervisor_bsp_enter(
+        scheduler_dispatch_kernel_worker,
+        scheduler_one_way_completion,
+        probe
+    );
+}
+
+static void scheduler_one_way_test_enter(void)
+{
+    struct scheduler_one_way_test_probe *probe =
+        &scheduler_one_way_probe;
+
+    uintptr_t bottom =
+        (uintptr_t) scheduler_one_way_entry_stack;
+
+    uintptr_t top =
+        bottom + sizeof(scheduler_one_way_entry_stack);
+
+    if (!kernel_switch_prepare(
+        &probe->entry,
+        bottom,
+        top,
+        scheduler_one_way_test_entry
+    )) {
+        kernel_panic(
+            "Unable to prepare one-way BSP test entry"
+        );
+    }
+
+    /*
+     * The synthetic entry abandons its stack.
+     * Only the supervisor's explicit continuation
+     * can resume this caller.
+     */
+    kernel_context_switch(
+        &probe->caller,
+        &probe->entry
+    );
+}
+
+static void scheduler_slot_test_bsp_one_way(void)
+{
+    struct scheduler_one_way_test_probe *probe =
+        &scheduler_one_way_probe;
+
+    *probe = (struct scheduler_one_way_test_probe) {0};
+
+    if (!kernel_supervisor_bsp_initialize()) {
+        kernel_panic(
+            "One-way BSP supervisor initialization failed"
+        );
+    }
+
+    struct paging_address_space *kernel_space =
+        paging_kernel_address_space();
+
+    if (kernel_space == NULL) {
+        kernel_panic(
+            "One-way BSP test has no kernel address space"
+        );
+    }
+
+    probe->kernel_cr3 =
+        kernel_space->pml4_physical;
+
+    if (
+        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+        probe->kernel_cr3
+    ) {
+        kernel_panic(
+            "One-way BSP test started outside kernel CR3"
+        );
+    }
+
+    if (
+        !process_memory_create(&probe->memory) ||
+        !kernel_context_init(
+            &probe->worker,
+            scheduler_one_way_worker_stack,
+            sizeof(scheduler_one_way_worker_stack),
+            scheduler_worker_test_entry,
+            &probe->worker_probe
+        ) ||
+        !kernel_context_prepare(
+            &probe->worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &probe->worker,
+            kernel_supervisor_bsp_context()
+        )
+    ) {
+        kernel_panic(
+            "One-way BSP worker setup failed"
+        );
+    }
+
+    probe->worker_probe.worker = &probe->worker;
+
+    uint64_t original_rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(original_rflags)
+        :
+        : "memory"
+    );
+
+    interrupts_disable();
+
+    if (!scheduler_register_kernel_worker(
+        &probe->worker
+    )) {
+        kernel_panic(
+            "One-way BSP worker registration failed"
+        );
+    }
+
+    /*
+     * First pass:
+     * kernel CR3 -> supervisor -> worker WAITING.
+     */
+    probe->enter_from_user_cr3 = false;
+
+    scheduler_one_way_test_enter();
+
+    if (
+        probe->completions != 1U ||
+        !probe->last_dispatched ||
+        probe->worker.state != KERNEL_CONTEXT_WAITING ||
+        probe->worker_probe.stage != 1U ||
+        kernel_context_owner(&probe->worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+            probe->kernel_cr3
+    ) {
+        kernel_panic(
+            "One-way BSP supervisor first pass failed"
+        );
+    }
+
+    /*
+     * Resume the same worker from its saved context.
+     */
+    probe->worker_probe.stage = 2U;
+
+    if (!kernel_context_wake(&probe->worker)) {
+        kernel_panic(
+            "One-way BSP worker wake failed"
+        );
+    }
+
+    /*
+     * Second pass:
+     * user CR3 -> supervisor -> kernel CR3 ->
+     * worker TERMINATED.
+     */
+    probe->enter_from_user_cr3 = true;
+
+    scheduler_one_way_test_enter();
+
+    if (
+        probe->completions != 2U ||
+        !probe->last_dispatched ||
+        probe->worker.state !=
+            KERNEL_CONTEXT_TERMINATED ||
+        probe->worker_probe.stage != 3U ||
+        probe->worker_probe.entries != 1U ||
+        kernel_context_owner(&probe->worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        (paging_read_cr3() & PAGE_ADDRESS_MASK_4K) !=
+            probe->kernel_cr3
+    ) {
+        kernel_panic(
+            "One-way BSP supervisor second pass failed"
+        );
+    }
+
+    if (
+        !scheduler_unregister_kernel_worker(
+            &probe->worker
+        ) ||
+        !process_memory_destroy(&probe->memory)
+    ) {
+        kernel_panic(
+            "One-way BSP supervisor cleanup failed"
+        );
+    }
+
+    if ((original_rflags & (1ULL << 9)) != 0) {
+        interrupts_enable();
+    }
+
+    diagnostics_write(
+        "[scheduler] BSP one-way supervisor tests passed\n"
+    );
+}
+
 void scheduler_slot_test_run(void)
 {
     if (scheduler_current() != NULL) {
@@ -1738,6 +2045,7 @@ void scheduler_slot_test_run(void)
     scheduler_slot_test_kernel_worker_dispatch();
     scheduler_slot_test_nested_supervisor();
     scheduler_slot_test_bsp_supervisor();
+    scheduler_slot_test_bsp_one_way();
     scheduler_slot_test_handoff_capture();
     scheduler_slot_test_handoff_ownership();
     scheduler_slot_test_handoff_completion();
