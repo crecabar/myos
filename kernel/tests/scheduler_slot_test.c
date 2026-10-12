@@ -678,6 +678,132 @@ static void scheduler_slot_test_handoff_ownership(void)
     );
 }
 
+static void scheduler_slot_test_timer_decision(void)
+{
+    /*
+     * Normal user execution with available quantum.
+     */
+    if (
+        scheduler_timer_decide(
+            true, false, false, 1U, 10U
+        ) != SCHEDULER_TIMER_CONTINUE
+    ) {
+        kernel_panic(
+            "Timer decision rejected remaining quantum"
+        );
+    }
+
+    /*
+     * Exhausted quantum without kernel work.
+     */
+    if (
+        scheduler_timer_decide(
+            true, false, false, 10U, 10U
+        ) != SCHEDULER_TIMER_PREEMPT
+    ) {
+        kernel_panic(
+            "Timer decision missed preemption"
+        );
+    }
+
+    /*
+     * Kernel handoff has priority over preemption.
+     */
+    if (
+        scheduler_timer_decide(
+            true, true, false, 10U, 10U
+        ) != SCHEDULER_TIMER_HANDOFF
+    ) {
+        kernel_panic(
+            "Timer decision missed handoff priority"
+        );
+    }
+
+    /*
+     * Handoff may run before the quantum expires.
+     */
+    if (
+        scheduler_timer_decide(
+            true, true, false, 1U, 10U
+        ) != SCHEDULER_TIMER_HANDOFF
+    ) {
+        kernel_panic(
+            "Timer decision delayed eligible handoff"
+        );
+    }
+
+    /*
+     * A pending request cannot be published again.
+     * Ordinary preemption remains the policy result
+     * at the quantum boundary.
+     *
+     * The future caller must not act on PREEMPT while
+     * a handoff is actually pending.
+     */
+    if (
+        scheduler_timer_decide(
+            true, true, true, 10U, 10U
+        ) != SCHEDULER_TIMER_PREEMPT
+    ) {
+        kernel_panic(
+            "Timer decision duplicated pending handoff"
+        );
+    }
+
+    /*
+     * Without a running user process, no user scheduling
+     * action should be selected.
+     */
+    if (
+        scheduler_timer_decide(
+            false, true, false, 10U, 10U
+        ) != SCHEDULER_TIMER_CONTINUE
+    ) {
+        kernel_panic(
+            "Timer decision scheduled absent user process"
+        );
+    }
+
+    /*
+     * Invalid policy input must be conservative.
+     */
+    if (
+        scheduler_timer_decide(
+            true, true, false, 10U, 0U
+        ) != SCHEDULER_TIMER_CONTINUE
+    ) {
+        kernel_panic(
+            "Timer decision accepted zero quantum"
+        );
+    }
+
+    /*
+     * No current process exists while scheduler
+     * registration tests are running.
+     */
+    struct interrupt_context frame = {
+        .cs = 0x1BU,
+        .ss = 0x23U,
+    };
+
+    if (
+        scheduler_timer_decision_for(
+            &frame
+        ) != SCHEDULER_TIMER_CONTINUE ||
+        scheduler_timer_decision_for(
+            NULL
+        ) != SCHEDULER_TIMER_CONTINUE
+    ) {
+        kernel_panic(
+            "Timer decision selected action without current process"
+        );
+    }
+
+    diagnostics_write(
+        "[scheduler] Timer decision policy tests passed\n"
+    );
+}
+
 void scheduler_slot_test_run(void)
 {
     if (scheduler_current() != NULL) {
@@ -695,6 +821,7 @@ void scheduler_slot_test_run(void)
     scheduler_slot_test_nested_supervisor();
     scheduler_slot_test_handoff_capture();
     scheduler_slot_test_handoff_ownership();
+    scheduler_slot_test_timer_decision();
 
         /*
      * Exercise the production idle-work dispatch helper

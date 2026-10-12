@@ -476,6 +476,40 @@ bool scheduler_block_current_preserve_context(
  */
 void scheduler_preempt_current(struct interrupt_context *context);
 
+enum scheduler_timer_decision {
+    SCHEDULER_TIMER_CONTINUE,
+    SCHEDULER_TIMER_PREEMPT,
+    SCHEDULER_TIMER_HANDOFF,
+};
+
+/**
+ * Pure scheduling policy for a timer decision.
+ *
+ * elapsed_ticks represents the current process quantum
+ * after accounting for the incoming timer tick.
+ *
+ * Does not inspect or modify scheduler global state.
+ */
+enum scheduler_timer_decision scheduler_timer_decide(
+    bool user_running,
+    bool worker_ready,
+    bool handoff_pending,
+    uint64_t elapsed_ticks,
+    uint64_t quantum_ticks
+);
+
+/**
+ * Evaluates the timer decision against current scheduler state.
+ *
+ * The incoming timer tick has not yet been accounted for.
+ * Does not modify the quantum, process state, CR3 or frame.
+ *
+ * Caller must serialize scheduler state with interrupts disabled.
+ */
+enum scheduler_timer_decision scheduler_timer_decision_for(
+    const struct interrupt_context *context
+);
+
 /**
  * Accounts for one scheduler timer tick.
  *

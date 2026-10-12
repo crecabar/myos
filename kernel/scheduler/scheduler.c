@@ -1139,6 +1139,50 @@ void scheduler_preempt_current(struct interrupt_context *context)
     );
 }
 
+enum scheduler_timer_decision scheduler_timer_decide(
+    bool user_running,
+    bool worker_ready,
+    bool handoff_pending,
+    uint64_t elapsed_ticks,
+    uint64_t quantum_ticks)
+{
+    if (!user_running || quantum_ticks == 0U) {
+        return SCHEDULER_TIMER_CONTINUE;
+    }
+
+    if (worker_ready && !handoff_pending) {
+        return SCHEDULER_TIMER_HANDOFF;
+    }
+
+    if (elapsed_ticks >= quantum_ticks) {
+        return SCHEDULER_TIMER_PREEMPT;
+    }
+
+    return SCHEDULER_TIMER_CONTINUE;
+}
+
+enum scheduler_timer_decision scheduler_timer_decision_for(
+    const struct interrupt_context *context)
+{
+    if (
+        context == NULL ||
+        (context->cs & 0x3U) != 3U ||
+        (context->ss & 0x3U) != 3U ||
+        current_process == NULL ||
+        current_process->state != PROCESS_STATE_RUNNING
+    ) {
+        return SCHEDULER_TIMER_CONTINUE;
+    }
+
+    return scheduler_timer_decide(
+        true,
+        scheduler_kernel_worker_ready(),
+        kernel_handoff.pending,
+        current_quantum_ticks + 1U,
+        SCHEDULER_QUANTUM_TICKS
+    );
+}
+
 void scheduler_tick(struct interrupt_context *context)
 {
     if (context == NULL) return;
