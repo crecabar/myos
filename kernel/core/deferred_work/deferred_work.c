@@ -36,6 +36,17 @@ void deferred_work_request(
         true,
         __ATOMIC_RELEASE
     );
+
+    /*
+     * Notify only after publishing the request.
+     * The consumer decides whether a worker needs
+     * to transition from WAITING to READY.
+     */
+    if (work->notification != NULL) {
+        work->notification(
+            work->notification_context
+        );
+    }
 }
 
 size_t deferred_work_dispatch(
@@ -128,4 +139,38 @@ bool deferred_work_pending(
         &work->pending,
         __ATOMIC_ACQUIRE
     );
+}
+
+bool deferred_work_notification_set(
+    struct deferred_work *work,
+    deferred_work_notification_fn notification,
+    void *context)
+{
+    if (
+        work == NULL ||
+        work->handler == NULL
+    ) {
+        return false;
+    }
+
+    /*
+     * This bootstrap setter requires serialization
+     * with request producers. It does not support
+     * concurrent reconfiguration.
+     */
+    work->notification_context = context;
+    work->notification = notification;
+
+    /*
+     * The request may have arrived before the
+     * notification was installed.
+     */
+    if (
+        notification != NULL &&
+        deferred_work_pending(work)
+    ) {
+        notification(context);
+    }
+
+    return true;
 }

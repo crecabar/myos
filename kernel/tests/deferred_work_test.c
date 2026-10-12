@@ -21,6 +21,29 @@ struct deferred_work_test_context {
     bool reentry_rejected;
 };
 
+struct deferred_work_notification_probe {
+    struct deferred_work *work;
+    size_t notifications;
+};
+
+static void deferred_work_test_notification_callback(
+    void *argument)
+{
+    struct deferred_work_notification_probe *probe =
+        argument;
+
+    if (
+        probe == NULL ||
+        !deferred_work_pending(probe->work)
+    ) {
+        kernel_panic(
+            "Deferred work notification preceded publication"
+        );
+    }
+
+    ++probe->notifications;
+}
+
 static enum deferred_work_result deferred_work_test_handler(
     void *argument)
 {
@@ -276,6 +299,123 @@ static void deferred_work_test_request_during_wait(void)
     }
 }
 
+static void deferred_work_test_notification(void)
+{
+    struct deferred_work work;
+
+    struct deferred_work_test_context context = {
+        .work = &work,
+        .result = DEFERRED_WORK_COMPLETED,
+    };
+
+    struct deferred_work_notification_probe probe = {
+        .work = &work,
+    };
+
+    if (
+        !deferred_work_init(
+            &work,
+            deferred_work_test_handler,
+            &context
+        ) ||
+        !deferred_work_notification_set(
+            &work,
+            deferred_work_test_notification_callback,
+            &probe
+        )
+    ) {
+        kernel_panic(
+            "Deferred work notification setup failed"
+        );
+    }
+
+    deferred_work_request(&work);
+    deferred_work_request(&work);
+
+    if (
+        probe.notifications != 2U ||
+        deferred_work_dispatch(&work, 1U) != 1U ||
+        context.calls != 1U ||
+        deferred_work_pending(&work)
+    ) {
+        kernel_panic(
+            "Deferred work notification coalescing failed"
+        );
+    }
+
+    /*
+     * Publish before installing a notification.
+     * Installing it must report the outstanding work.
+     */
+    if (!deferred_work_notification_set(
+        &work,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Deferred work notification removal failed"
+        );
+    }
+
+    deferred_work_request(&work);
+
+    if (
+        probe.notifications != 2U ||
+        !deferred_work_notification_set(
+            &work,
+            deferred_work_test_notification_callback,
+            &probe
+        ) ||
+        probe.notifications != 3U ||
+        !deferred_work_pending(&work)
+    ) {
+        kernel_panic(
+            "Deferred work pending notification lost"
+        );
+    }
+
+    if (
+        deferred_work_dispatch(&work, 1U) != 1U ||
+        context.calls != 2U
+    ) {
+        kernel_panic(
+            "Deferred work pending recovery failed"
+        );
+    }
+
+    /*
+     * Requests made by a handler returning MORE must
+     * also generate notifications.
+     */
+    context.result = DEFERRED_WORK_MORE;
+
+    deferred_work_request(&work);
+
+    if (
+        deferred_work_dispatch(&work, 1U) != 1U ||
+        probe.notifications != 5U ||
+        !deferred_work_pending(&work)
+    ) {
+        kernel_panic(
+            "Deferred work continuation notification lost"
+        );
+    }
+
+    if (!deferred_work_notification_set(
+        &work,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Deferred work final notification removal failed"
+        );
+    }
+
+    diagnostics_write(
+        "[deferred] Work notification tests passed\n"
+    );
+}
+
 void deferred_work_test_run(void)
 {
     deferred_work_test_requests();
@@ -285,6 +425,7 @@ void deferred_work_test_run(void)
     deferred_work_test_request_during_callback();
     deferred_work_test_invalid();
     deferred_work_test_request_during_wait();
+    deferred_work_test_notification();
 
     diagnostics_write(
         "[deferred] Work state tests passed\n"

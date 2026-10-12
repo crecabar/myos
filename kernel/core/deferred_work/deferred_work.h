@@ -18,12 +18,25 @@ enum deferred_work_result {
 typedef enum deferred_work_result
 (*deferred_work_handler_fn)(void *context);
 
+/**
+ * Lightweight notification after deferred work is requested.
+ *
+ * May run in IRQ context. Must not block, dispatch
+ * work, or perform a context switch.
+ */
+typedef void (*deferred_work_notification_fn)(
+    void *context
+);
+
 struct deferred_work {
     deferred_work_handler_fn handler;
     void *context;
 
     bool pending;
     bool running;
+
+    deferred_work_notification_fn notification;
+    void *notification_context;
 };
 
 bool deferred_work_init(
@@ -43,6 +56,23 @@ size_t deferred_work_dispatch(
 
 bool deferred_work_pending(
     const struct deferred_work *work
+);
+
+/**
+ * Installs an optional request notification.
+ *
+ * Configuration must be serialized with producers.
+ * If work is already pending, the notification is
+ * invoked immediately to avoid missing that request.
+ *
+ * Passing NULL disables notifications.
+ *
+ * Does not execute deferred work.
+ */
+bool deferred_work_notification_set(
+    struct deferred_work *work,
+    deferred_work_notification_fn notification,
+    void *context
 );
 
 #endif
