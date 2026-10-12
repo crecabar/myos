@@ -40,6 +40,7 @@ struct kernel_context {
     bool prepared;
 
     _Atomic uint32_t owner_cpu_id;
+    _Atomic bool reschedule_requested;
 };
 
 bool kernel_context_init(
@@ -97,6 +98,23 @@ bool kernel_context_yield_wait(struct kernel_context *context);
  * Makes a waiting context runnable again.
  */
 bool kernel_context_wake(struct kernel_context *context);
+
+/**
+ * Requests execution of a prepared kernel context.
+ *
+ * READY:    already runnable; request succeeds.
+ * WAITING:  becomes READY if CPU ownership was released.
+ * RUNNING:  remembers a request for the next yield.
+ * TERMINATED: request is rejected.
+ *
+ * A RUNNING worker is never switched or interrupted here.
+ *
+ * Bootstrap contract: callers serialize lifecycle changes
+ * on the BSP with interrupts disabled.
+ */
+bool kernel_context_request_run(
+    struct kernel_context *context
+);
 
 /**
  * Marks a running context permanently terminated.

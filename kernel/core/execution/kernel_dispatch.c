@@ -9,6 +9,7 @@
 #include "../panic.h"
 #include "kernel_context.h"
 
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -143,6 +144,31 @@ bool kernel_context_dispatch(
         cpu->logical_id
     )) {
         kernel_panic("Unable to release dispatched kernel context");
+    }
+
+    /*
+     * A work notification may have arrived while the
+     * worker was RUNNING.
+     *
+     * Consume the latched request only after CPU ownership
+     * has returned to the supervisor.
+     */
+    bool reschedule =
+        atomic_exchange_explicit(
+            &context->reschedule_requested,
+            false,
+            memory_order_acq_rel
+        );
+
+    if (
+        reschedule &&
+        context->state == KERNEL_CONTEXT_WAITING
+    ) {
+        if (!kernel_context_wake(context)) {
+            kernel_panic(
+                "Unable to rearm yielded kernel worker"
+            );
+        }
     }
 
     return true;

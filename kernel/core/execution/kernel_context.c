@@ -52,6 +52,7 @@ bool kernel_context_init(
         .state = KERNEL_CONTEXT_READY,
         .prepared = false,
         .owner_cpu_id = KERNEL_CONTEXT_NO_CPU,
+        .reschedule_requested = false,
     };
 
     return true;
@@ -233,6 +234,59 @@ bool kernel_context_wake(struct kernel_context *context)
     context->state = KERNEL_CONTEXT_READY;
 
     return true;
+}
+
+bool kernel_context_request_run(
+    struct kernel_context *context)
+{
+    if (
+        context == NULL ||
+        !context->prepared ||
+        context->supervisor == NULL
+    ) {
+        return false;
+    }
+
+    switch (context->state) {
+    case KERNEL_CONTEXT_READY:
+        return true;
+
+    case KERNEL_CONTEXT_WAITING:
+        /*
+         * The worker may have yielded while its
+         * supervisor is still retiring CPU ownership.
+         */
+        if (
+            kernel_context_owner(context) !=
+            KERNEL_CONTEXT_NO_CPU
+        ) {
+            atomic_store_explicit(
+                &context->reschedule_requested,
+                true,
+                memory_order_release
+            );
+
+            return true;
+        }
+
+        return kernel_context_wake(context);
+
+    case KERNEL_CONTEXT_RUNNING:
+        /*
+         * Preserve the request until dispatch
+         * returns to the supervisor.
+         */
+        atomic_store_explicit(
+            &context->reschedule_requested,
+            true,
+            memory_order_release
+        );
+
+        return true;
+
+    default:
+        return false;
+    }
 }
 
 bool kernel_context_terminate(struct kernel_context *context)

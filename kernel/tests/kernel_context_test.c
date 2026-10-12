@@ -1360,6 +1360,19 @@ static void kernel_context_test_dispatch_resume_entry(void *argument)
     probe->first_identity_valid = true;
     probe->stage = 1U;
 
+    /*
+     * Two requests while RUNNING must coalesce into
+     * one additional dispatch after the worker yields.
+     */
+    if (
+        !kernel_context_request_run(probe->worker) ||
+        !kernel_context_request_run(probe->worker)
+    ) {
+        kernel_panic(
+            "Kernel worker rejected running wake request"
+        );
+    }
+
     if (!kernel_context_yield_wait(probe->worker)) {
         kernel_panic("Kernel dispatch worker yield failed");
     }
@@ -1433,7 +1446,8 @@ static void kernel_context_test_dispatch_resume(void)
     }
 
     if (
-        worker.state != KERNEL_CONTEXT_WAITING ||
+        worker.state != KERNEL_CONTEXT_READY ||
+        worker.reschedule_requested ||
         cpu_local_active_kernel_context(&cpu) != NULL ||
         kernel_context_owner(&worker) != KERNEL_CONTEXT_NO_CPU ||
         probe.entry_calls != 1U ||
@@ -1442,14 +1456,6 @@ static void kernel_context_test_dispatch_resume(void)
         probe.resumed_identity_valid
     ) {
         kernel_panic("Kernel dispatch waiting contract failed");
-    }
-
-    /*
-     * Wakeup changes WAITING to READY.
-     * It does not execute the worker immediately.
-     */
-    if (!kernel_context_wake(&worker)) {
-        kernel_panic("Kernel dispatch wake failed");
     }
 
     if (
@@ -1476,6 +1482,7 @@ static void kernel_context_test_dispatch_resume(void)
 
     if (
         worker.state != KERNEL_CONTEXT_TERMINATED ||
+        worker.reschedule_requested ||
         cpu_local_active_kernel_context(&cpu) != NULL ||
         kernel_context_owner(&worker) != KERNEL_CONTEXT_NO_CPU ||
         probe.entry_calls != 1U ||
