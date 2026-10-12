@@ -1071,6 +1071,18 @@ void scheduler_preempt_current(struct interrupt_context *context)
         kernel_panic("Scheduler has no current process to preempt");
     }
 
+    /*
+     * A pending supervisor handoff owns the interrupted
+     * userspace context.
+     *
+     * Ordinary preemption must never replace its owner.
+     */
+    if (kernel_handoff.pending) {
+        kernel_panic(
+            "Scheduler preemption during pending kernel handoff"
+        );
+    }
+
     struct process *preempted_process = current_process;
 
 #if MYOS_KERNEL_TESTS
@@ -1196,16 +1208,64 @@ enum scheduler_timer_decision scheduler_timer_decision_for(
 
 void scheduler_tick(struct interrupt_context *context)
 {
-    if (context == NULL) return;
-    if (current_process == NULL) return;
-    if (current_process->state != PROCESS_STATE_RUNNING) return;
-
-    ++current_quantum_ticks;
-
-    if (current_quantum_ticks < SCHEDULER_QUANTUM_TICKS) {
+    if (
+        context == NULL ||
+        current_process == NULL ||
+        current_process->state != PROCESS_STATE_RUNNING
+    ) {
         return;
     }
 
+    /*
+     * The current interrupt return path cannot yet
+     * transfer control to the kernel supervisor.
+     *
+     * A pending request here would make an ordinary
+     * return to userspace unsafe.
+     */
+    if (kernel_handoff.pending) {
+        kernel_panic(
+            "Timer reached pending kernel handoff without supervisor"
+        );
+    }
+
+    enum scheduler_timer_decision decision =
+        scheduler_timer_decision_for(context);
+
+    /*
+     * Account for exactly one interrupted user tick.
+     */
+    ++current_quantum_ticks;
+
+    if (decision == SCHEDULER_TIMER_CONTINUE) {
+        /*
+         * The timer entered without a valid user frame,
+         * or no scheduling action was necessary.
+         */
+        return;
+    }
+
+    if (decision == SCHEDULER_TIMER_HANDOFF) {
+        /*
+         * The policy recognizes an eligible worker,
+         * but the architecture handoff is not installed.
+         *
+         * Fall back to ordinary quantum scheduling.
+         * Do not publish a request or execute the worker
+         * from the IRQ handler.
+         */
+        if (
+            current_quantum_ticks <
+            SCHEDULER_QUANTUM_TICKS
+        ) {
+            return;
+        }
+    }
+
+    /*
+     * PREEMPT, or the temporary HANDOFF fallback,
+     * both use the existing process-switching path.
+     */
     current_quantum_ticks = 0;
 
     scheduler_preempt_current(context);

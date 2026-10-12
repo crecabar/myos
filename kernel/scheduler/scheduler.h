@@ -518,8 +518,13 @@ enum scheduler_timer_decision scheduler_timer_decision_for(
 /**
  * Accounts for one scheduler timer tick.
  *
- * User-mode execution is preempted when the current process exhausts its
- * scheduling quantum.
+ * Uses the scheduler timer decision policy while preserving
+ * ordinary quantum preemption until supervisor handoff is
+ * implemented.
+ *
+ * HANDOFF currently falls back to normal quantum scheduling.
+ * A pending handoff is a fatal invariant violation because
+ * the timer return path cannot yet consume it.
  *
  * @param context CPU context interrupted by the timer.
  */
