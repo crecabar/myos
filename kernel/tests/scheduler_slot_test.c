@@ -1922,11 +1922,19 @@ static void scheduler_slot_test_bsp_supervisor(void)
     uintptr_t caller_rsp =
         scheduler_nested_test_rsp();
 
+    /*
+     * With no registered worker, idle must not
+     * attempt to dispatch anything.
+     */
+    if (scheduler_test_dispatch_idle_kernel_worker()) {
+        kernel_panic(
+            "Idle dispatched unregistered kernel worker"
+        );
+    }
+
     if (
         !scheduler_register_kernel_worker(&worker) ||
-        !kernel_supervisor_bsp_dispatch(
-            scheduler_dispatch_kernel_worker
-        )
+        !scheduler_test_dispatch_idle_kernel_worker()
     ) {
         kernel_panic(
             "BSP supervisor first dispatch failed"
@@ -1947,6 +1955,16 @@ static void scheduler_slot_test_bsp_supervisor(void)
     }
 
     /*
+     * A suspended worker with no new request must
+     * not be dispatched again.
+     */
+    if (scheduler_test_dispatch_idle_kernel_worker()) {
+        kernel_panic(
+            "Idle dispatched waiting kernel worker"
+        );
+    }
+
+    /*
      * Resume the worker from its saved continuation.
      */
     probe.stage = 2U;
@@ -1957,9 +1975,7 @@ static void scheduler_slot_test_bsp_supervisor(void)
         );
     }
 
-    if (!kernel_supervisor_bsp_dispatch(
-        scheduler_dispatch_kernel_worker
-    )) {
+    if (!scheduler_test_dispatch_idle_kernel_worker()) {
         kernel_panic(
             "BSP supervisor second dispatch failed"
         );
@@ -1982,13 +1998,20 @@ static void scheduler_slot_test_bsp_supervisor(void)
     /*
      * No worker remains registered.
      */
-    if (kernel_supervisor_bsp_dispatch(
-        scheduler_dispatch_kernel_worker
-    )) {
+    if (
+        scheduler_test_dispatch_idle_kernel_worker() ||
+        kernel_supervisor_bsp_dispatch(
+            scheduler_dispatch_kernel_worker
+        )
+    ) {
         kernel_panic(
-            "BSP supervisor dispatched absent worker"
+            "BSP dispatched absent kernel worker"
         );
     }
+
+    diagnostics_write(
+    "[scheduler] BSP idle worker dispatch tests passed\n"
+    );
 
     if ((original_rflags & (1ULL << 9)) != 0) {
         interrupts_enable();

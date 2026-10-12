@@ -775,6 +775,16 @@ uint64_t scheduler_test_cross_address_space_preemption_count(void);
  * by the registered callback.
  */
 bool scheduler_test_dispatch_idle_work(void);
+
+/**
+ * Exercises the production idle kernel-worker dispatch
+ * without entering the non-returning idle loop.
+ *
+ * Requires interrupts disabled and kernel CR3 active.
+ *
+ * Returns false when no worker is eligible.
+ */
+bool scheduler_test_dispatch_idle_kernel_worker(void);
 #endif
 
 #endif

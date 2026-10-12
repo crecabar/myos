@@ -42,6 +42,7 @@ static struct process *scheduler_find_next_ready(void);
 static _Noreturn void scheduler_enter_process(struct process *process);
 static _Noreturn void scheduler_idle(void);
 static bool scheduler_dispatch_idle_work(void);
+static bool scheduler_dispatch_idle_kernel_worker(void);
 
 static void scheduler_save_context(
     struct process *process,
@@ -841,6 +842,41 @@ static bool scheduler_dispatch_idle_work(void)
     return idle_work_handler();
 }
 
+static bool scheduler_dispatch_idle_kernel_worker(void)
+{
+    /*
+     * Nothing is dispatched unless the registered
+     * worker is executable and has no CPU owner.
+     */
+    if (!scheduler_kernel_worker_ready()) {
+        return false;
+    }
+
+    /*
+     * Idle already owns the kernel address space
+     * and executes with interrupts disabled.
+     *
+     * Unlike the Ring 3 timer handoff, this call
+     * must return to the original idle stack.
+     */
+    if (!kernel_supervisor_bsp_dispatch(
+        scheduler_dispatch_kernel_worker
+    )) {
+        kernel_panic(
+            "Unable to dispatch idle kernel worker"
+        );
+    }
+
+    return true;
+}
+
+#if MYOS_KERNEL_TESTS
+bool scheduler_test_dispatch_idle_kernel_worker(void)
+{
+    return scheduler_dispatch_idle_kernel_worker();
+}
+#endif
+
 #if MYOS_KERNEL_TESTS
 bool scheduler_test_dispatch_idle_work(void)
 {
@@ -1215,6 +1251,23 @@ static _Noreturn void scheduler_idle(void)
 
         if (next != NULL) {
             scheduler_enter_process(next);
+        }
+
+        /*
+         * Run a READY kernel worker even when no userspace
+         * process can currently own the CPU.
+         *
+         * The supervisor returns to this idle stack after
+         * the worker suspends or terminates.
+         */
+        if (scheduler_dispatch_idle_kernel_worker()) {
+            /*
+             * The worker may have changed process readiness,
+             * or may have been rearmed by pending work.
+             *
+             * Reevaluate scheduling before entering HLT.
+             */
+            continue;
         }
 
         /*
