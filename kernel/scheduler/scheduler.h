@@ -135,6 +135,21 @@ bool scheduler_kernel_worker_handoff_needed(
 );
 
 /**
+ * Copies a Ring 3 interrupt frame into independent storage.
+ *
+ * The destination must not overlap the source.
+ * This function does not change process state, CPU state,
+ * address spaces, or the original interrupt frame.
+ *
+ * Returns false without changing destination when the
+ * arguments are invalid or the frame is not from Ring 3.
+ */
+bool scheduler_capture_user_interrupt(
+    const struct interrupt_context *source,
+    struct interrupt_context *destination
+);
+
+/**
  * Registers one borrowed idle-work handler.
  *
  * Passing NULL disables idle work execution.

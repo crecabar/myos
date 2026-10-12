@@ -165,6 +165,31 @@ bool scheduler_kernel_worker_handoff_needed(
     return scheduler_kernel_worker_ready();
 }
 
+bool scheduler_capture_user_interrupt(
+    const struct interrupt_context *source,
+    struct interrupt_context *destination)
+{
+    if (
+        source == NULL ||
+        destination == NULL ||
+        source == destination ||
+        (source->cs & 0x3U) != 3U ||
+        (source->ss & 0x3U) != 3U
+    ) {
+        return false;
+    }
+
+    /*
+     * Store the complete architectural interrupt frame.
+     *
+     * The destination must have independent storage
+     * whose lifetime covers the future handoff.
+     */
+    *destination = *source;
+
+    return true;
+}
+
 void scheduler_set_terminated_handler(
     scheduler_terminated_handler handler)
 {

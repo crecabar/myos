@@ -373,6 +373,120 @@ static void scheduler_slot_test_nested_supervisor(void)
     interrupts_enable();
 }
 
+static bool scheduler_slot_test_frames_equal(
+    const struct interrupt_context *left,
+    const struct interrupt_context *right)
+{
+    const unsigned char *a =
+        (const unsigned char *) left;
+
+    const unsigned char *b =
+        (const unsigned char *) right;
+
+    for (size_t index = 0;
+         index < sizeof(*left);
+         ++index) {
+        if (a[index] != b[index]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void scheduler_slot_test_handoff_capture(void)
+{
+    struct interrupt_context original = {
+        .r15 = 0x1111222233334444ULL,
+        .r12 = 0x5555666677778888ULL,
+        .rax = 0xAAAABBBBCCCCDDDDULL,
+        .rbx = 0xEEEEFFFF11112222ULL,
+        .vector = 0x20U,
+        .error_code = 0U,
+        .rip = 0x400000ULL,
+        .cs = 0x1BU,
+        .rflags = 0x202ULL,
+        .rsp = 0x70000000ULL,
+        .ss = 0x23U,
+    };
+
+    struct interrupt_context captured = {0};
+
+    if (!scheduler_capture_user_interrupt(
+        &original,
+        &captured
+    )) {
+        kernel_panic(
+            "Scheduler rejected valid Ring 3 frame"
+        );
+    }
+
+    if (!scheduler_slot_test_frames_equal(
+        &original,
+        &captured
+    )) {
+        kernel_panic(
+            "Scheduler corrupted captured user frame"
+        );
+    }
+
+    /*
+     * Prove that the capture does not borrow storage
+     * from the original interrupt frame.
+     */
+    original.rax = 0;
+    original.rip = 0;
+
+    if (
+        captured.rax !=
+            0xAAAABBBBCCCCDDDDULL ||
+        captured.rip != 0x400000ULL
+    ) {
+        kernel_panic(
+            "Scheduler retained borrowed interrupt frame"
+        );
+    }
+
+    struct interrupt_context before = captured;
+
+    struct interrupt_context kernel_frame = {
+        .cs = 0x08U,
+        .ss = 0x10U,
+    };
+
+    if (
+        scheduler_capture_user_interrupt(
+            &kernel_frame,
+            &captured
+        ) ||
+        scheduler_capture_user_interrupt(
+            NULL,
+            &captured
+        ) ||
+        scheduler_capture_user_interrupt(
+            &original,
+            NULL
+        ) ||
+        scheduler_capture_user_interrupt(
+            &original,
+            &original
+        )
+    ) {
+        kernel_panic(
+            "Scheduler accepted invalid handoff capture"
+        );
+    }
+
+    if (!scheduler_slot_test_frames_equal(
+        &before,
+        &captured
+    )) {
+        kernel_panic(
+            "Rejected capture modified destination"
+        );
+    }
+}
+
 void scheduler_slot_test_run(void)
 {
     if (scheduler_current() != NULL) {
@@ -387,8 +501,8 @@ void scheduler_slot_test_run(void)
     scheduler_init();
 
     scheduler_slot_test_kernel_worker_dispatch();
-
     scheduler_slot_test_nested_supervisor();
+    scheduler_slot_test_handoff_capture();
 
         /*
      * Exercise the production idle-work dispatch helper
