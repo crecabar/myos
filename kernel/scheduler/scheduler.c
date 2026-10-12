@@ -1750,15 +1750,13 @@ void scheduler_tick(struct interrupt_context *context)
     }
 
     /*
-     * The current interrupt return path cannot yet
-     * transfer control to the kernel supervisor.
-     *
-     * A pending request here would make an ordinary
-     * return to userspace unsafe.
+     * The pending handoff owns the interrupted user
+     * context. Returning through the ordinary timer
+     * path while it remains pending is forbidden.
      */
     if (kernel_handoff.pending) {
         kernel_panic(
-            "Timer reached pending kernel handoff without supervisor"
+            "Timer reached pending kernel handoff"
         );
     }
 
@@ -1771,33 +1769,48 @@ void scheduler_tick(struct interrupt_context *context)
     ++current_quantum_ticks;
 
     if (decision == SCHEDULER_TIMER_CONTINUE) {
-        /*
-         * The timer entered without a valid user frame,
-         * or no scheduling action was necessary.
-         */
         return;
     }
 
     if (decision == SCHEDULER_TIMER_HANDOFF) {
         /*
-         * The policy recognizes an eligible worker,
-         * but the architecture handoff is not installed.
+         * timer_handle_interrupt() has already sent
+         * the LAPIC EOI.
          *
-         * Fall back to ordinary quantum scheduling.
-         * Do not publish a request or execute the worker
-         * from the IRQ handler.
+         * Capture the entire Ring 3 interrupt frame
+         * before abandoning the original IRQ stack.
          */
-        if (
-            current_quantum_ticks <
-            SCHEDULER_QUANTUM_TICKS
-        ) {
-            return;
+        if (!scheduler_prepare_kernel_worker_handoff(
+            context
+        )) {
+            kernel_panic(
+                "Unable to prepare timer kernel handoff"
+            );
         }
+
+        /*
+         * This entry never returns to scheduler_tick().
+         *
+         * The BSP supervisor dispatches the worker,
+         * restores the owning process address space,
+         * commits the handoff and resumes Ring 3.
+         */
+        kernel_supervisor_bsp_enter(
+            scheduler_dispatch_kernel_worker,
+            scheduler_kernel_worker_resume_completion,
+            NULL
+        );
+    }
+
+    if (decision != SCHEDULER_TIMER_PREEMPT) {
+        kernel_panic(
+            "Scheduler received invalid timer decision"
+        );
     }
 
     /*
-     * PREEMPT, or the temporary HANDOFF fallback,
-     * both use the existing process-switching path.
+     * Ordinary quantum preemption continues using
+     * the existing interrupt-return path.
      */
     current_quantum_ticks = 0;
 

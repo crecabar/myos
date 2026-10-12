@@ -689,17 +689,25 @@ enum scheduler_timer_decision scheduler_timer_decision_for(
 );
 
 /**
- * Accounts for one scheduler timer tick.
+ * Accounts for one timer tick interrupted from Ring 3.
  *
- * Uses the scheduler timer decision policy while preserving
- * ordinary quantum preemption until supervisor handoff is
- * implemented.
+ * CONTINUE leaves the current interrupt frame unchanged.
  *
- * HANDOFF currently falls back to normal quantum scheduling.
- * A pending handoff is a fatal invariant violation because
- * the timer return path cannot yet consume it.
+ * PREEMPT uses the ordinary scheduler context-switch path
+ * and returns through the timer interrupt frame.
  *
- * @param context CPU context interrupted by the timer.
+ * HANDOFF captures the interrupted process context and
+ * transfers execution to the non-returning BSP supervisor.
+ * The supervisor dispatches the worker and explicitly
+ * resumes the owning process through IRETQ.
+ *
+ * The hardware timer EOI must already have been sent
+ * before this function is called.
+ *
+ * An existing pending handoff is a fatal invariant
+ * violation on this entry path.
+ *
+ * Caller executes on the BSP with interrupts disabled.
  */
 void scheduler_tick(struct interrupt_context *context);
 
