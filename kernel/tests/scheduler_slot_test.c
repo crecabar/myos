@@ -15,6 +15,7 @@
 #include "../arch/x86_64/kernel_switch.h"
 #include "../arch/x86_64/timer.h"
 #include "../core/cpu/cpu_local.h"
+#include "../core/execution/kernel_supervisor.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/process.h"
@@ -62,6 +63,11 @@ unsigned char scheduler_supervisor_test_stack[
 
 static _Alignas(16)
 unsigned char scheduler_nested_worker_stack[
+    SCHEDULER_WORKER_TEST_STACK_SIZE
+];
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char scheduler_bsp_worker_stack[
     SCHEDULER_WORKER_TEST_STACK_SIZE
 ];
 
@@ -824,6 +830,143 @@ static void scheduler_slot_test_timer_decision(void)
     );
 }
 
+static void scheduler_slot_test_bsp_supervisor(void)
+{
+    struct kernel_context worker;
+
+    struct scheduler_worker_test_probe probe = {
+        .worker = &worker,
+    };
+
+    /*
+     * The persistent BSP supervisor must support
+     * repeated initialization without resetting
+     * its execution context.
+     */
+    if (
+        !kernel_supervisor_bsp_initialize() ||
+        !kernel_supervisor_bsp_initialize() ||
+        kernel_supervisor_bsp_context() == NULL
+    ) {
+        kernel_panic(
+            "BSP supervisor initialization failed"
+        );
+    }
+
+    if (
+        !kernel_context_init(
+            &worker,
+            scheduler_bsp_worker_stack,
+            sizeof(scheduler_bsp_worker_stack),
+            scheduler_worker_test_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            kernel_supervisor_bsp_context()
+        )
+    ) {
+        kernel_panic(
+            "BSP supervisor worker setup failed"
+        );
+    }
+
+    uint64_t original_rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(original_rflags)
+        :
+        : "memory"
+    );
+
+    interrupts_disable();
+
+    uintptr_t caller_rsp =
+        scheduler_nested_test_rsp();
+
+    if (
+        !scheduler_register_kernel_worker(&worker) ||
+        !kernel_supervisor_bsp_dispatch(
+            scheduler_dispatch_kernel_worker
+        )
+    ) {
+        kernel_panic(
+            "BSP supervisor first dispatch failed"
+        );
+    }
+
+    if (
+        scheduler_nested_test_rsp() != caller_rsp ||
+        worker.state != KERNEL_CONTEXT_WAITING ||
+        probe.stage != 1U ||
+        probe.entries != 1U ||
+        kernel_context_owner(&worker) !=
+            KERNEL_CONTEXT_NO_CPU
+    ) {
+        kernel_panic(
+            "BSP supervisor first dispatch contract failed"
+        );
+    }
+
+    /*
+     * Resume the worker from its saved continuation.
+     */
+    probe.stage = 2U;
+
+    if (!kernel_context_wake(&worker)) {
+        kernel_panic(
+            "BSP supervisor worker wake failed"
+        );
+    }
+
+    if (!kernel_supervisor_bsp_dispatch(
+        scheduler_dispatch_kernel_worker
+    )) {
+        kernel_panic(
+            "BSP supervisor second dispatch failed"
+        );
+    }
+
+    if (
+        scheduler_nested_test_rsp() != caller_rsp ||
+        worker.state != KERNEL_CONTEXT_TERMINATED ||
+        probe.stage != 3U ||
+        probe.entries != 1U ||
+        kernel_context_owner(&worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        !scheduler_unregister_kernel_worker(&worker)
+    ) {
+        kernel_panic(
+            "BSP supervisor completion contract failed"
+        );
+    }
+
+    /*
+     * No worker remains registered.
+     */
+    if (kernel_supervisor_bsp_dispatch(
+        scheduler_dispatch_kernel_worker
+    )) {
+        kernel_panic(
+            "BSP supervisor dispatched absent worker"
+        );
+    }
+
+    if ((original_rflags & (1ULL << 9)) != 0) {
+        interrupts_enable();
+    }
+
+    diagnostics_write(
+        "[scheduler] BSP supervisor dispatch tests passed\n"
+    );
+}
+
 void scheduler_slot_test_run(void)
 {
     if (scheduler_current() != NULL) {
@@ -839,6 +982,7 @@ void scheduler_slot_test_run(void)
 
     scheduler_slot_test_kernel_worker_dispatch();
     scheduler_slot_test_nested_supervisor();
+    scheduler_slot_test_bsp_supervisor();
     scheduler_slot_test_handoff_capture();
     scheduler_slot_test_handoff_ownership();
     scheduler_slot_test_timer_decision();

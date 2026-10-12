@@ -11,6 +11,7 @@
 #include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/timer.h"
 #include "../core/execution/kernel_dispatch.h"
+#include "../core/execution/kernel_supervisor.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/lifecycle.h"
@@ -633,6 +634,18 @@ static _Noreturn void scheduler_enter_process(struct process *process)
 
 _Noreturn void scheduler_run(void)
 {
+    /*
+     * The BSP supervisor must exist before the first
+     * transition into userspace.
+     *
+     * Kernel tests may have initialized it earlier.
+     */
+    if (!kernel_supervisor_bsp_initialize()) {
+        kernel_panic(
+            "Unable to initialize BSP kernel supervisor"
+        );
+    }
+
     struct process *next = scheduler_find_next_ready();
 
     if (next == NULL) {
