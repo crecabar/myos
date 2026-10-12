@@ -1150,7 +1150,18 @@ enum scheduler_timer_decision scheduler_timer_decide(
         return SCHEDULER_TIMER_CONTINUE;
     }
 
-    if (worker_ready && !handoff_pending) {
+    /*
+     * An outstanding handoff owns the interrupted
+     * process context.
+     *
+     * No new handoff or ordinary preemption may
+     * be selected until that request is resolved.
+     */
+    if (handoff_pending) {
+        return SCHEDULER_TIMER_CONTINUE;
+    }
+
+    if (worker_ready) {
         return SCHEDULER_TIMER_HANDOFF;
     }
 

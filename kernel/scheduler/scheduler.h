@@ -488,6 +488,11 @@ enum scheduler_timer_decision {
  * elapsed_ticks represents the current process quantum
  * after accounting for the incoming timer tick.
  *
+ * A pending handoff takes precedence over both worker
+ * dispatch and ordinary preemption. CONTINUE means no
+ * additional scheduling action, not permission to
+ * return to userspace while a handoff is pending.
+ *
  * Does not inspect or modify scheduler global state.
  */
 enum scheduler_timer_decision scheduler_timer_decide(

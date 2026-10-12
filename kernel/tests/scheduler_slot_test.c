@@ -733,20 +733,40 @@ static void scheduler_slot_test_timer_decision(void)
     }
 
     /*
-     * A pending request cannot be published again.
-     * Ordinary preemption remains the policy result
-     * at the quantum boundary.
-     *
-     * The future caller must not act on PREEMPT while
-     * a handoff is actually pending.
+     * A pending request excludes both a new handoff
+     * and ordinary preemption, even at the quantum
+     * boundary.
      */
     if (
         scheduler_timer_decide(
             true, true, true, 10U, 10U
+        ) != SCHEDULER_TIMER_CONTINUE ||
+        scheduler_timer_decide(
+            true, false, true, 10U, 10U
+        ) != SCHEDULER_TIMER_CONTINUE ||
+        scheduler_timer_decide(
+            true, true, true, 1U, 10U
+        ) != SCHEDULER_TIMER_CONTINUE
+    ) {
+        kernel_panic(
+            "Timer decision failed to protect pending handoff"
+        );
+    }
+
+    /*
+     * With no pending request, normal scheduling
+     * decisions must remain available.
+     */
+    if (
+        scheduler_timer_decide(
+            true, true, false, 10U, 10U
+        ) != SCHEDULER_TIMER_HANDOFF ||
+        scheduler_timer_decide(
+            true, false, false, 10U, 10U
         ) != SCHEDULER_TIMER_PREEMPT
     ) {
         kernel_panic(
-            "Timer decision duplicated pending handoff"
+            "Timer decision did not restore normal policy"
         );
     }
 
