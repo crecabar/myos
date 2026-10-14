@@ -10,6 +10,11 @@
 
 #include "console_device_test.h"
 
+#include "../arch/x86_64/cpu_identity.h"
+#include "../arch/x86_64/interrupts.h"
+#include "../console/console_input_worker.h"
+#include "../core/cpu/cpu_local.h"
+#include "../core/execution/kernel_dispatch.h"
 #include "../console/console.h"
 #include "../console/console_device.h"
 #include "../core/device/character_device.h"
@@ -42,6 +47,10 @@ static void console_device_test_registration_and_write(void);
 static void console_device_test_deferred_input(void);
 
 static void console_device_test_input_notification(void);
+
+static void console_device_test_kernel_worker(
+    struct console_device *device
+    );
 
 static void console_device_test_registration_rollback(void);
 
@@ -1041,6 +1050,12 @@ static void console_device_test_deferred_input(void)
 
     console_device_test_notification_target = NULL;
 
+    /*
+     * The global notification handler has been removed,
+     * and this fixture still owns a live console device.
+     */
+    console_device_test_kernel_worker(&device);
+
     console_device_test_unregister(
         &registry,
         &device.device
@@ -1054,6 +1069,279 @@ static void console_device_test_deferred_input(void)
             "Deferred console device cleanup leaked ownership"
         );
     }
+}
+
+static void console_device_test_kernel_worker(
+    struct console_device *device)
+{
+    /*
+     * Static lifetime avoids allocating the worker's
+     * execution stack on the kernel test runner stack.
+     */
+    static struct console_input_worker worker;
+
+    struct cpu_local cpu = {0};
+    struct kernel_switch_context supervisor = {0};
+
+    uint32_t apic_id;
+
+    if (
+        device == NULL ||
+        !arch_cpu_apic_id(&apic_id) ||
+        !cpu_local_init(&cpu, 0U, apic_id) ||
+        !console_input_worker_initialize(
+            &worker,
+            device,
+            &supervisor
+        )
+    ) {
+        kernel_panic(
+            "Console worker fixture initialization failed"
+        );
+    }
+
+    uint64_t original_rflags;
+
+    __asm__ volatile (
+        "pushfq\n\t"
+        "popq %0"
+        : "=r"(original_rflags)
+        :
+        : "memory"
+    );
+
+    interrupts_disable();
+
+    /*
+     * First dispatch without pending work.
+     *
+     * The worker must suspend and remain available
+     * for subsequent notifications.
+     */
+    if (
+        !kernel_context_dispatch(
+            &cpu,
+            &worker.context
+        ) ||
+        worker.context.state != KERNEL_CONTEXT_WAITING ||
+        kernel_context_owner(&worker.context) !=
+            KERNEL_CONTEXT_NO_CPU
+    ) {
+        kernel_panic(
+            "Console worker initial suspension failed"
+        );
+    }
+
+    /*
+     * Publish more events than one console work
+     * invocation can process.
+     *
+     * Notification is deliberately not installed yet.
+     */
+    struct input_event letter = {
+        .type = INPUT_EVENT_KEY,
+        .key = {
+            .code = INPUT_KEY_H,
+            .state = INPUT_KEY_PRESSED,
+        },
+    };
+
+    struct input_event enter = {
+        .type = INPUT_EVENT_KEY,
+        .key = {
+            .code = INPUT_KEY_ENTER,
+            .state = INPUT_KEY_PRESSED,
+        },
+    };
+
+    for (size_t index = 0; index < 17U; ++index) {
+        if (!input_event_submit(&letter)) {
+            kernel_panic(
+                "Console worker letter submission failed"
+            );
+        }
+    }
+
+    if (!input_event_submit(&enter)) {
+        kernel_panic(
+            "Console worker Enter submission failed"
+        );
+    }
+
+    console_device_request_input(device);
+
+    if (
+        input_event_pending() != 18U ||
+        !deferred_work_pending(&device->input_work) ||
+        worker.context.state != KERNEL_CONTEXT_WAITING
+    ) {
+        kernel_panic(
+            "Console worker lost request before registration"
+        );
+    }
+
+    /*
+     * Late notification registration must wake the
+     * suspended worker without processing events.
+     */
+    if (
+        !console_input_worker_notifications_enable(
+            &worker
+        ) ||
+        worker.context.state != KERNEL_CONTEXT_READY ||
+        input_event_pending() != 18U
+    ) {
+        kernel_panic(
+            "Console worker late notification failed"
+        );
+    }
+
+    /*
+     * The first actual work dispatch processes 16
+     * events and publishes DEFERRED_WORK_MORE.
+     *
+     * That notification occurs while the worker is
+     * RUNNING and must rearm it after yielding.
+     */
+    if (
+        !kernel_context_dispatch(
+            &cpu,
+            &worker.context
+        ) ||
+        worker.context.state != KERNEL_CONTEXT_READY ||
+        worker.context.reschedule_requested ||
+        input_event_pending() != 2U ||
+        !deferred_work_pending(&device->input_work) ||
+        device->input.completed_count != 0U
+    ) {
+        kernel_panic(
+            "Console worker bounded continuation failed"
+        );
+    }
+
+    /*
+     * Second work dispatch consumes the remaining
+     * events and returns the worker to WAITING.
+     */
+    if (
+        !kernel_context_dispatch(
+            &cpu,
+            &worker.context
+        ) ||
+        worker.context.state != KERNEL_CONTEXT_WAITING ||
+        worker.context.reschedule_requested ||
+        input_event_pending() != 0U ||
+        deferred_work_pending(&device->input_work) ||
+        device->input.completed_count != 1U ||
+        kernel_context_owner(&worker.context) !=
+            KERNEL_CONTEXT_NO_CPU
+    ) {
+        kernel_panic(
+            "Console worker continuation completion failed"
+        );
+    }
+
+    uint8_t line[20] = {0};
+    size_t bytes_read = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device->character,
+            line,
+            sizeof(line),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        bytes_read != 18U ||
+        line[17] != '\n'
+    ) {
+        kernel_panic(
+            "Console worker produced incorrect canonical line"
+        );
+    }
+
+    for (size_t index = 0; index < 17U; ++index) {
+        if (line[index] != 'h') {
+            kernel_panic(
+                "Console worker corrupted canonical input"
+            );
+        }
+    }
+
+    /*
+     * A new request must wake the same suspended
+     * worker, not create another execution context.
+     */
+    if (
+        !input_event_submit(&letter) ||
+        !input_event_submit(&enter)
+    ) {
+        kernel_panic(
+            "Console worker repeated input submission failed"
+        );
+    }
+
+    console_device_request_input(device);
+
+    if (
+        worker.context.state != KERNEL_CONTEXT_READY ||
+        !kernel_context_dispatch(
+            &cpu,
+            &worker.context
+        ) ||
+        worker.context.state != KERNEL_CONTEXT_WAITING ||
+        device->input.completed_count != 1U
+    ) {
+        kernel_panic(
+            "Console worker repeated wake failed"
+        );
+    }
+
+    uint8_t repeated_line[2] = {0};
+    size_t repeated_length = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device->character,
+            repeated_line,
+            sizeof(repeated_line),
+            &repeated_length
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        repeated_length != 2U ||
+        repeated_line[0] != 'h' ||
+        repeated_line[1] != '\n'
+    ) {
+        kernel_panic(
+            "Console worker repeated input mismatch"
+        );
+    }
+
+    /*
+     * The fixture must not leave a callback borrowing
+     * a console device that will soon be retired.
+     */
+    if (
+        !console_input_worker_notifications_disable(
+            &worker
+        ) ||
+        device->input_work.notification != NULL ||
+        worker.context.state != KERNEL_CONTEXT_WAITING ||
+        kernel_context_owner(&worker.context) !=
+            KERNEL_CONTEXT_NO_CPU
+    ) {
+        kernel_panic(
+            "Console worker fixture cleanup failed"
+        );
+    }
+
+    if (
+        (original_rflags & (1ULL << 9)) != 0
+    ) {
+        interrupts_enable();
+    }
+
+    diagnostics_write(
+        "[console] Persistent input worker tests passed\n"
+    );
 }
 
 static void console_device_test_registration_rollback(void)
