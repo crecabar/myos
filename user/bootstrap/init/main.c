@@ -9,9 +9,50 @@
  */
 
 #include <myos/abi/syscall.h>
+#include <myos/file.h>
 #include <myos/process.h>
 
 #include <stdint.h>
+
+static int init_configure_stdin(void)
+{
+    static const char console_path[] =
+        "/dev/console";
+
+    /*
+     * The initial process starts with stdin connected
+     * to /dev/null.
+     *
+     * Replace that descriptor through the ordinary
+     * userspace file API before creating the shell.
+     */
+    if (myos_fd_close(0U) != 0) {
+        return -1;
+    }
+
+    syscall_result_t descriptor =
+        myos_fd_open(
+            console_path,
+            sizeof(console_path) - 1U,
+            SYSCALL_OPEN_ACCESS_READ
+        );
+
+    /*
+     * The descriptor allocator uses the lowest
+     * available slot. Stdin must remain descriptor 0.
+     */
+    if (descriptor != 0) {
+        if (descriptor > 0) {
+            (void) myos_fd_close(
+                (uint64_t) descriptor
+            );
+        }
+
+        return -1;
+    }
+
+    return 0;
+}
 
 /**
  * Entry point for the first userspace process.
@@ -37,6 +78,16 @@
     (void) argc;
     (void) argv;
     (void) envp;
+
+    /*
+     * Establish the shell's standard input before fork().
+     *
+     * The child inherits this descriptor and execve()
+     * preserves it across image replacement.
+     */
+    if (init_configure_stdin() != 0) {
+        return 1;
+    }
 
     static const char shell_path[] = "/bin/sh";
 
