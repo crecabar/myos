@@ -119,6 +119,39 @@ enum process_file_result process_file_read_ready(
 );
 
 /**
+ * Registers one read-availability wait through a descriptor.
+ *
+ * The process must not already have an active read wait or
+ * a pending child wait.
+ *
+ * On success, the process owns an active logical request
+ * and VFS retains the corresponding open-file description.
+ *
+ * Registration alone does not block or wake the process.
+ * Callers must serialize registration, readiness recheck,
+ * and the eventual scheduler transition with event delivery.
+ */
+enum process_file_result process_file_read_wait_register(
+    struct process_instance *instance,
+    size_t descriptor
+);
+
+/**
+ * Clears the process's active read wait.
+ *
+ * If notification has not arrived, cancels its VFS
+ * registration and releases the retained file.
+ *
+ * If notification already arrived, only clears the
+ * logical process request.
+ *
+ * Returns false if no active request exists.
+ */
+bool process_file_read_wait_cancel(
+    struct process_instance *instance
+);
+
+/**
  * Writes bytes through one process file descriptor.
  *
  * buffer is a kernel address. Userspace copy-in belongs to the syscall layer.

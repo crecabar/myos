@@ -42,6 +42,10 @@ static enum process_file_result process_file_map_readiness_result(
     enum vfs_readiness_result result
 );
 
+static void process_file_read_wait_notification(
+    void *context
+);
+
 // Public functions implementations
 enum process_file_result process_file_open(
     struct process_instance *instance,
@@ -287,6 +291,135 @@ enum process_file_result process_file_read_ready(
     *ready = available;
 
     return PROCESS_FILE_RESULT_SUCCESS;
+}
+
+enum process_file_result process_file_read_wait_register(
+    struct process_instance *instance,
+    size_t descriptor)
+{
+    if (
+        instance == NULL ||
+        instance->process.instance != instance ||
+        instance->process.state ==
+            PROCESS_STATE_TERMINATED ||
+        instance->wait_active ||
+        instance->read_wait_active ||
+        instance->read_wait_notified ||
+        instance->read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &instance->read_wait.entry
+        )
+    ) {
+        return PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_file *file =
+        process_fd_table_get(
+            &instance->file_descriptors,
+            descriptor
+        );
+
+    if (file == NULL) {
+        return PROCESS_FILE_RESULT_BAD_DESCRIPTOR;
+    }
+
+    /*
+     * The VFS registration retains the underlying
+     * open-file description.
+     *
+     * Backend registration must not invoke the callback
+     * synchronously. Event delivery must be serialized
+     * against this operation.
+     */
+    enum vfs_readiness_result result =
+        vfs_file_read_wait_register(
+            file,
+            &instance->read_wait,
+            process_file_read_wait_notification,
+            instance
+        );
+
+    if (result != VFS_READINESS_RESULT_SUCCESS) {
+        return process_file_map_readiness_result(result);
+    }
+
+    instance->read_wait_notified = false;
+    instance->read_wait_active = true;
+
+    return PROCESS_FILE_RESULT_SUCCESS;
+}
+
+bool process_file_read_wait_cancel(
+    struct process_instance *instance)
+{
+    if (
+        instance == NULL ||
+        instance->process.instance != instance ||
+        !instance->read_wait_active
+    ) {
+        return false;
+    }
+
+    /*
+     * Delivery detaches the VFS registration before
+     * notifying this layer.
+     *
+     * A delivered request therefore has no remaining
+     * file reference to cancel.
+     */
+    if (instance->read_wait_notified) {
+        if (
+            instance->read_wait.file != NULL ||
+            wait_queue_entry_registered(
+                &instance->read_wait.entry
+            )
+        ) {
+            kernel_panic(
+                "Delivered process read wait retained VFS state"
+            );
+        }
+    } else {
+        if (!vfs_read_wait_cancel(
+            &instance->read_wait
+        )) {
+            return false;
+        }
+    }
+
+    instance->read_wait_active = false;
+    instance->read_wait_notified = false;
+
+    return true;
+}
+
+static void process_file_read_wait_notification(
+    void *context)
+{
+    struct process_instance *instance = context;
+
+    if (
+        instance == NULL ||
+        instance->process.instance != instance ||
+        !instance->read_wait_active ||
+        instance->read_wait_notified ||
+        instance->read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &instance->read_wait.entry
+        )
+    ) {
+        kernel_panic(
+            "Process read wait received invalid notification"
+        );
+    }
+
+    /*
+     * The VFS has detached this registration already.
+     *
+     * Record the event without changing scheduler state.
+     * The scheduler integration will be implemented in
+     * the following slices.
+     */
+    instance->read_wait_notified = true;
 }
 
 enum process_file_result process_file_write(
