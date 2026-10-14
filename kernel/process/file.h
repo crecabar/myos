@@ -19,6 +19,7 @@
 
 #include "../vfs/vfs.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -95,6 +96,26 @@ enum process_file_result process_file_read(
     void *buffer,
     size_t size,
     size_t *bytes_read
+);
+
+/**
+ * Queries read availability through a process descriptor.
+ *
+ * SUCCESS with ready=false means that the file supports
+ * readiness queries but currently has no readable data.
+ *
+ * NOT_SUPPORTED means the underlying open file does not
+ * implement the capability.
+ *
+ * This operation does not consume data, change the shared
+ * file offset, or acquire ownership of the open file.
+ *
+ * On failure, ready remains unchanged.
+ */
+enum process_file_result process_file_read_ready(
+    struct process_instance *instance,
+    size_t descriptor,
+    bool *ready
 );
 
 /**

@@ -17,6 +17,7 @@
 #include "../process/namespace.h"
 #include "../vfs/vfs.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -32,6 +33,12 @@ struct process_file_test_fixture {
     struct vfs_file file_storage;
 
     struct process_file_test_directory root_directory;
+};
+
+struct process_file_readiness_probe {
+    enum vfs_readiness_result result;
+    bool available;
+    size_t calls;
 };
 
 static struct vfs_file *process_file_test_open_storage;
@@ -73,6 +80,11 @@ static enum vfs_io_result process_file_test_read_callback(
     size_t *bytes_read
 );
 
+static enum vfs_readiness_result process_file_test_read_ready_callback(
+    struct vfs_file *file,
+    bool *ready
+);
+
 static enum vfs_io_result process_file_test_write_callback(
     struct vfs_file *file,
     uint64_t offset,
@@ -110,6 +122,8 @@ static void process_file_test_io_failures(void);
 
 static void process_file_test_seek_stat_failures(void);
 
+static void process_file_test_read_ready(void);
+
 static const struct vfs_node_operations
     process_file_test_root_operations = {
         .lookup =
@@ -139,6 +153,7 @@ void process_file_test_run(void)
     process_file_test_open_close();
     process_file_test_io_success();
     process_file_test_io_failures();
+    process_file_test_read_ready();
     process_file_test_would_block();
     process_file_test_seek_stat_failures();
     process_file_test_failures();
@@ -291,6 +306,32 @@ static enum vfs_io_result process_file_test_read_callback(
 
     return
         VFS_IO_RESULT_SUCCESS;
+}
+
+static enum vfs_readiness_result process_file_test_read_ready_callback(
+    struct vfs_file *file,
+    bool *ready)
+{
+    if (
+        file == NULL ||
+        ready == NULL ||
+        file->private_data == NULL
+    ) {
+        return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct process_file_readiness_probe *probe =
+        file->private_data;
+
+    ++probe->calls;
+
+    /*
+     * Deliberately write the callback-local output even
+     * on failure. The layers above must isolate it.
+     */
+    *ready = probe->available;
+
+    return probe->result;
 }
 
 static enum vfs_io_result process_file_test_write_callback(
@@ -1406,6 +1447,281 @@ static void process_file_test_seek_stat_failures(void)
         &fixture
     );
 }
+
+
+static void process_file_test_read_ready(void)
+{
+    struct process_file_test_fixture fixture;
+
+    process_file_test_fixture_initialize(&fixture);
+
+    struct process_file_readiness_probe probe = {
+        .result = VFS_READINESS_RESULT_SUCCESS,
+        .available = false,
+        .calls = 0U,
+    };
+
+    bool ready = true;
+
+    /*
+     * Invalid process, output and descriptor requests
+     * must fail before reaching the VFS.
+     */
+    if (
+        process_file_read_ready(
+            NULL,
+            0U,
+            &ready
+        ) != PROCESS_FILE_RESULT_INVALID_ARGUMENT ||
+        process_file_read_ready(
+            &fixture.instance,
+            0U,
+            NULL
+        ) != PROCESS_FILE_RESULT_INVALID_ARGUMENT ||
+        process_file_read_ready(
+            &fixture.instance,
+            PROCESS_FD_TABLE_CAPACITY,
+            &ready
+        ) != PROCESS_FILE_RESULT_BAD_DESCRIPTOR ||
+        !ready ||
+        probe.calls != 0U
+    ) {
+        kernel_panic(
+            "Process readiness invalid request handling failed"
+        );
+    }
+
+    size_t descriptor = SIZE_MAX;
+
+    if (
+        process_file_open(
+            &fixture.instance,
+            "/file",
+            sizeof("/file") - 1U,
+            VFS_OPEN_ACCESS_READ,
+            &descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        descriptor != 0U
+    ) {
+        kernel_panic(
+            "Process readiness fixture open failed"
+        );
+    }
+
+    /*
+     * Reuse the ordinary VFS fixture, replacing only
+     * its per-open operations and private test state.
+     */
+    struct vfs_file_operations operations =
+        process_file_test_io_operations;
+
+    operations.read_ready =
+        process_file_test_read_ready_callback;
+
+    fixture.file_storage.operations = &operations;
+    fixture.file_storage.private_data = &probe;
+    fixture.file_storage.offset = 19U;
+
+    /*
+     * Supported capability with no available data.
+     */
+    if (
+        process_file_read_ready(
+            &fixture.instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        ready ||
+        probe.calls != 1U ||
+        process_file_test_read_call_count != 0U ||
+        fixture.file_storage.offset != 19U
+    ) {
+        kernel_panic(
+            "Process readiness empty query failed"
+        );
+    }
+
+    /*
+     * Available data must be reported without actually
+     * executing the read callback.
+     */
+    probe.available = true;
+
+    if (
+        process_file_read_ready(
+            &fixture.instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        !ready ||
+        probe.calls != 2U ||
+        process_file_test_read_call_count != 0U ||
+        fixture.file_storage.offset != 19U
+    ) {
+        kernel_panic(
+            "Process readiness available query failed"
+        );
+    }
+
+    /*
+     * Backend failures must preserve the caller's output.
+     */
+    probe.available = false;
+    probe.result = VFS_READINESS_RESULT_NOT_SUPPORTED;
+
+    if (
+        process_file_read_ready(
+            &fixture.instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_NOT_SUPPORTED ||
+        !ready ||
+        probe.calls != 3U
+    ) {
+        kernel_panic(
+            "Process readiness unsupported mapping failed"
+        );
+    }
+
+    probe.result = VFS_READINESS_RESULT_INVALID_ARGUMENT;
+
+    if (
+        process_file_read_ready(
+            &fixture.instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_INVALID_ARGUMENT ||
+        !ready ||
+        probe.calls != 4U
+    ) {
+        kernel_panic(
+            "Process readiness invalid mapping failed"
+        );
+    }
+
+    probe.result = VFS_READINESS_RESULT_ACCESS_DENIED;
+
+    if (
+        process_file_read_ready(
+            &fixture.instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_ACCESS_DENIED ||
+        !ready ||
+        probe.calls != 5U
+    ) {
+        kernel_panic(
+            "Process readiness denied mapping failed"
+        );
+    }
+
+    /*
+     * A missing readiness operation is distinct from
+     * a successfully queried empty stream.
+     */
+    operations.read_ready = NULL;
+
+    if (
+        process_file_read_ready(
+            &fixture.instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_NOT_SUPPORTED ||
+        !ready ||
+        probe.calls != 5U ||
+        fixture.file_storage.offset != 19U
+    ) {
+        kernel_panic(
+            "Process readiness missing capability failed"
+        );
+    }
+
+    if (
+        process_file_close(
+            &fixture.instance,
+            descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        kernel_panic(
+            "Process readiness fixture close failed"
+        );
+    }
+
+    /*
+     * Once closed, the descriptor no longer identifies
+     * a valid open-file description.
+     */
+    if (
+        process_file_read_ready(
+            &fixture.instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_BAD_DESCRIPTOR ||
+        !ready ||
+        probe.calls != 5U
+    ) {
+        kernel_panic(
+            "Process readiness accepted closed descriptor"
+        );
+    }
+
+    /*
+     * Reopen with WRITE access to validate real descriptor
+     * permissions, rather than mutating file.access manually.
+     */
+    if (
+        process_file_open(
+            &fixture.instance,
+            "/file",
+            sizeof("/file") - 1U,
+            VFS_OPEN_ACCESS_WRITE,
+            &descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        descriptor != 0U
+    ) {
+        kernel_panic(
+            "Process readiness write-only open failed"
+        );
+    }
+
+    operations.read_ready =
+        process_file_test_read_ready_callback;
+
+    fixture.file_storage.operations = &operations;
+    fixture.file_storage.private_data = &probe;
+
+    probe.result = VFS_READINESS_RESULT_SUCCESS;
+
+    if (
+        process_file_read_ready(
+            &fixture.instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_ACCESS_DENIED ||
+        !ready ||
+        probe.calls != 5U ||
+        fixture.file_storage.offset != 0U
+    ) {
+        kernel_panic(
+            "Process readiness bypassed read permissions"
+        );
+    }
+
+    if (
+        process_file_close(
+            &fixture.instance,
+            descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        kernel_panic(
+            "Process readiness write-only close failed"
+        );
+    }
+
+    process_file_test_expect_baseline(&fixture);
+    process_file_test_fixture_release(&fixture);
+}
+
 
 static void process_file_test_failures(void)
 {

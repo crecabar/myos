@@ -22,6 +22,7 @@
 #include "../vfs/root.h"
 #include "../vfs/vfs.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -152,6 +153,21 @@ static void core_device_fd_test_null(
     ) {
         kernel_panic(
             "Unable to open /dev/null through process FD path"
+        );
+    }
+
+    bool ready = true;
+
+    if (
+        process_file_read_ready(
+            instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_NOT_SUPPORTED ||
+        !ready
+    ) {
+        kernel_panic(
+            "/dev/null process readiness contract failed"
         );
     }
 
@@ -287,6 +303,21 @@ static void core_device_fd_test_zero(
         );
     }
 
+    bool ready = true;
+
+    if (
+        process_file_read_ready(
+            instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_NOT_SUPPORTED ||
+        !ready
+    ) {
+        kernel_panic(
+            "/dev/zero process readiness contract failed"
+        );
+    }
+
     uint8_t buffer[8] = {
         0xa1U,
         0xa2U,
@@ -390,6 +421,21 @@ static void core_device_fd_test_console(
         );
     }
 
+    bool ready = true;
+
+    if (
+        process_file_read_ready(
+            instance,
+            read_descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        ready
+    ) {
+        kernel_panic(
+            "/dev/console empty readiness contract failed"
+        );
+    }
+
     uint8_t input_byte = 0xa5U;
     size_t bytes_read = SIZE_MAX;
 
@@ -436,6 +482,21 @@ static void core_device_fd_test_console(
     ) {
         kernel_panic(
             "Unable to open /dev/console through process FD path"
+        );
+    }
+
+    ready = true;
+
+    if (
+        process_file_read_ready(
+            instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_ACCESS_DENIED ||
+        !ready
+    ) {
+        kernel_panic(
+            "/dev/console write-only readiness contract failed"
         );
     }
 

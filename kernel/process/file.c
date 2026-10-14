@@ -38,6 +38,10 @@ static enum process_file_result process_file_map_stat_result(
     enum vfs_stat_result result
 );
 
+static enum process_file_result process_file_map_readiness_result(
+    enum vfs_readiness_result result
+);
+
 // Public functions implementations
 enum process_file_result process_file_open(
     struct process_instance *instance,
@@ -242,6 +246,47 @@ enum process_file_result process_file_read(
 
     return
         PROCESS_FILE_RESULT_SUCCESS;
+}
+
+enum process_file_result process_file_read_ready(
+    struct process_instance *instance,
+    size_t descriptor,
+    bool *ready)
+{
+    if (
+        instance == NULL ||
+        ready == NULL
+    ) {
+        return PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_file *file =
+        process_fd_table_get(
+            &instance->file_descriptors,
+            descriptor
+        );
+
+    if (file == NULL) {
+        return PROCESS_FILE_RESULT_BAD_DESCRIPTOR;
+    }
+
+    bool available = false;
+
+    enum vfs_readiness_result result =
+        vfs_file_read_ready(
+            file,
+            &available
+        );
+
+    if (result != VFS_READINESS_RESULT_SUCCESS) {
+        return process_file_map_readiness_result(
+            result
+        );
+    }
+
+    *ready = available;
+
+    return PROCESS_FILE_RESULT_SUCCESS;
 }
 
 enum process_file_result process_file_write(
@@ -572,4 +617,24 @@ static enum process_file_result process_file_map_stat_result(
 
     return
         PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+}
+
+static enum process_file_result process_file_map_readiness_result(
+    enum vfs_readiness_result result)
+{
+    switch (result) {
+    case VFS_READINESS_RESULT_SUCCESS:
+        return PROCESS_FILE_RESULT_SUCCESS;
+
+    case VFS_READINESS_RESULT_INVALID_ARGUMENT:
+        return PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+
+    case VFS_READINESS_RESULT_NOT_SUPPORTED:
+        return PROCESS_FILE_RESULT_NOT_SUPPORTED;
+
+    case VFS_READINESS_RESULT_ACCESS_DENIED:
+        return PROCESS_FILE_RESULT_ACCESS_DENIED;
+    }
+
+    return PROCESS_FILE_RESULT_INVALID_ARGUMENT;
 }
