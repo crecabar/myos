@@ -137,6 +137,61 @@ static int runtime_test_uname_invalid_destinations(void)
     return 0;
 }
 
+static int runtime_test_console_empty_read(void)
+{
+    static const char console_path[] =
+        "/dev/console";
+
+    syscall_result_t descriptor =
+        myos_fd_open(
+            console_path,
+            sizeof(console_path) - 1U,
+            SYSCALL_OPEN_ACCESS_READ
+        );
+
+    if (descriptor < 0) {
+        return 55;
+    }
+
+    uint8_t byte = 0xa5U;
+
+    syscall_result_t read_result =
+        myos_fd_read(
+            (uint64_t) descriptor,
+            &byte,
+            sizeof(byte)
+        );
+
+    syscall_result_t close_result =
+        myos_fd_close(
+            (uint64_t) descriptor
+        );
+
+    /*
+     * No completed console line is available.
+     *
+     * This must not be EOF, a successful read,
+     * or a kernel panic.
+     *
+     * A failed read must preserve the user buffer.
+     */
+    if (
+        read_result !=
+            syscall_result_error(
+                SYSCALL_ERROR_WOULD_BLOCK
+            ) ||
+        byte != 0xa5U
+    ) {
+        return 56;
+    }
+
+    if (close_result != 0) {
+        return 57;
+    }
+
+    return 0;
+}
+
 int main(
     int argc,
     char *argv[],
@@ -651,6 +706,13 @@ int main(
         )
     ) {
         return 32;
+    }
+
+    int console_read_result =
+    runtime_test_console_empty_read();
+
+    if (console_read_result != 0) {
+        return console_read_result;
     }
 
     int uname_result = runtime_test_uname();

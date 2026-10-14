@@ -163,7 +163,10 @@ void syscall_test_run(void)
         ) != -11 ||
         syscall_result_error(
             SYSCALL_ERROR_EXEC_FORMAT
-        ) != -12
+        ) != -12 ||
+        syscall_result_error(
+            SYSCALL_ERROR_WOULD_BLOCK
+        ) != -13
     ) {
         kernel_panic(
             "Syscall error encoding is unstable"
