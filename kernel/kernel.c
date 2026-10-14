@@ -105,6 +105,7 @@
 #include "tests/vfs_node_operations_test.h"
 #include "tests/vfs_parent_test.h"
 #include "tests/vfs_path_test.h"
+#include "tests/wait_queue_test.h"
 #endif
 
 #define KERNEL_RUNTIME_STACK_SIZE 32768
@@ -1167,6 +1168,7 @@ static _Noreturn void kernel_main_continue(void)
         console_input_test_run();
         console_input_consumer_test_run();
         deferred_work_test_run();
+        wait_queue_test_run();
         bus_test_run();
 
         acpi_test_run(
