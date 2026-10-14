@@ -33,6 +33,9 @@ struct character_device_test_state {
     uint8_t last_write_first_byte;
 
     uint8_t read_fill;
+
+    bool read_ready;
+    size_t read_ready_calls;
 };
 
 // Private functions and helpers declarations
@@ -49,6 +52,10 @@ static enum character_device_io_result character_device_test_write(
     size_t size,
     size_t *bytes_written
 );
+
+static bool character_device_test_read_ready(
+    struct character_device *character,
+    bool *ready);
 
 static void character_device_test_remove_generic(
     struct device *device
@@ -75,6 +82,8 @@ static const struct character_device_operations
             character_device_test_read,
         .write =
             character_device_test_write,
+        .read_ready =
+            character_device_test_read_ready,
     };
 
 static const struct character_device_operations
@@ -210,6 +219,27 @@ static enum character_device_io_result character_device_test_write(
 
     return
         CHARACTER_DEVICE_IO_RESULT_SUCCESS;
+}
+
+static bool character_device_test_read_ready(
+    struct character_device *character,
+    bool *ready)
+{
+    if (
+        character == NULL ||
+        ready == NULL ||
+        character->private_data == NULL
+    ) {
+        return false;
+    }
+
+    struct character_device_test_state *state =
+        character->private_data;
+
+    ++state->read_ready_calls;
+    *ready = state->read_ready;
+
+    return true;
 }
 
 static void character_device_test_remove_generic(
@@ -623,6 +653,36 @@ static void character_device_test_io_dispatch(void)
     size_t bytes_read =
         SIZE_MAX;
 
+    bool ready = true;
+
+    if (
+        !character_device_read_ready(
+            &character,
+            &ready
+        ) ||
+        ready ||
+        state.read_ready_calls != 1U
+    ) {
+        kernel_panic(
+            "Character-device empty readiness query failed"
+        );
+    }
+
+    state.read_ready = true;
+
+    if (
+        !character_device_read_ready(
+            &character,
+            &ready
+        ) ||
+        !ready ||
+        state.read_ready_calls != 2U
+    ) {
+        kernel_panic(
+            "Character-device ready query failed"
+        );
+    }
+
     if (
         character_device_read(
             &character,
@@ -767,6 +827,20 @@ static void character_device_test_missing_capability(void)
     ) {
         kernel_panic(
             "Character-device capability discovery failed"
+        );
+    }
+
+    bool ready = true;
+
+    if (
+        character_device_read_ready(
+            &character,
+            &ready
+        ) ||
+        !ready
+    ) {
+        kernel_panic(
+            "Unsupported read readiness query was accepted"
         );
     }
 

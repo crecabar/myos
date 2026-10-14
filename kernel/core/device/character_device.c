@@ -122,6 +122,34 @@ bool character_device_can_read(
             NULL;
 }
 
+bool character_device_read_ready(
+    struct character_device *character,
+    bool *ready)
+{
+    if (
+        ready == NULL ||
+        !character_device_can_read(character) ||
+        character->operations->read_ready == NULL
+    ) {
+        return false;
+    }
+
+    bool available = false;
+
+    if (
+        !character->operations->read_ready(
+            character,
+            &available
+        )
+    ) {
+        return false;
+    }
+
+    *ready = available;
+
+    return true;
+}
+
 bool character_device_can_write(
     const struct character_device *character)
 {

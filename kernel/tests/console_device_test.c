@@ -273,6 +273,25 @@ static void console_device_test_readability_expect_line(
     }
 }
 
+static void console_device_test_expect_read_ready(
+    struct console_device *device,
+    bool expected)
+{
+    bool ready = !expected;
+
+    if (
+        !character_device_read_ready(
+            &device->character,
+            &ready
+        ) ||
+        ready != expected
+    ) {
+        kernel_panic(
+            "Console character readiness state mismatch"
+        );
+    }
+}
+
 static void console_device_test_readability(
     struct console_device *device)
 {
@@ -287,6 +306,11 @@ static void console_device_test_readability(
             "Console readability fixture has dirty initial state"
         );
     }
+
+    console_device_test_expect_read_ready(
+        device,
+        false
+    );
 
     struct console_readability_probe probe = {
         .device = device,
@@ -336,6 +360,11 @@ static void console_device_test_readability(
         );
     }
 
+    console_device_test_expect_read_ready(
+        device,
+        false
+    );
+
     /*
      * 3. Enter completes the first canonical line.
      *
@@ -356,6 +385,11 @@ static void console_device_test_readability(
             "Console readability first transition failed"
         );
     }
+
+    console_device_test_expect_read_ready(
+        device,
+        true
+    );
 
     /*
      * 4. Additional input while a completed line remains
@@ -450,6 +484,11 @@ static void console_device_test_readability(
             "Console readability first line cleanup failed"
         );
     }
+
+    console_device_test_expect_read_ready(
+        device,
+        false
+    );
 
     /*
      * 7. Enter completes the second line.

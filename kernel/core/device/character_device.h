@@ -66,6 +66,18 @@ struct character_device_operations {
         size_t size,
         size_t *bytes_written
     );
+
+    /**
+     * Queries whether a positive-length read can currently
+     * transfer at least one byte without waiting.
+     *
+     * Optional capability. Must not consume input.
+     * On failure, ready remains unchanged.
+     */
+    bool (*read_ready)(
+        struct character_device *character,
+        bool *ready
+    );
 };
 
 /**
@@ -121,6 +133,19 @@ struct character_device *character_device_from_device(
  */
 bool character_device_can_read(
     const struct character_device *character
+);
+
+/**
+ * Queries current read availability.
+ *
+ * Returns false if the capability is unsupported,
+ * the device is invalid, or ready is NULL.
+ *
+ * On success, ready receives the availability state.
+ */
+bool character_device_read_ready(
+    struct character_device *character,
+    bool *ready
 );
 
 /**

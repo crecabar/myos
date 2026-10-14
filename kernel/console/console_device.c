@@ -43,11 +43,17 @@ static enum character_device_io_result console_device_read(
 static enum deferred_work_result console_device_input_work(
     void *context);
 
+static bool console_device_read_ready(
+    struct character_device *character,
+    bool *ready
+);
+
 // Static local variables
 static const struct character_device_operations
     console_device_character_operations = {
         .read = console_device_read,
         .write = console_device_write,
+        .read_ready = console_device_read_ready,
     };
 
 // Public functions implementations
@@ -327,6 +333,32 @@ static enum character_device_io_result console_device_read(
     }
 
     return CHARACTER_DEVICE_IO_RESULT_SUCCESS;
+}
+
+static bool console_device_read_ready(
+    struct character_device *character,
+    bool *ready)
+{
+    struct console_device *device =
+        console_device_from_character(character);
+
+    if (
+        device == NULL ||
+        ready == NULL
+    ) {
+        return false;
+    }
+
+    /*
+     * A canonical line becomes readable only
+     * after it has been completed.
+     *
+     * This query must never consume input.
+     */
+    *ready =
+        device->input.completed_count != 0U;
+
+    return true;
 }
 
 static enum character_device_io_result console_device_write(
