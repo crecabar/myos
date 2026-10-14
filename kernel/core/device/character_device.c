@@ -53,14 +53,13 @@ bool character_device_initialize(
      * binding fails, clear the candidate capability so no apparently valid
      * unbound character interface remains.
      */
-    character->device =
-        device;
+    character->device = device;
+    character->operations = operations;
+    character->private_data = private_data;
 
-    character->operations =
-        operations;
-
-    character->private_data =
-        private_data;
+    wait_queue_init(
+        &character->read_waiters
+    );
 
     if (!device_class_bind(
         device,
@@ -148,6 +147,42 @@ bool character_device_read_ready(
     *ready = available;
 
     return true;
+}
+
+bool character_device_read_wait_register(
+    struct character_device *character,
+    struct wait_queue_entry *entry,
+    wait_queue_notification_fn notification,
+    void *context)
+{
+    if (
+        !character_device_can_read(character) ||
+        character->operations->read_ready == NULL
+    ) {
+        return false;
+    }
+
+    return wait_queue_register(
+        &character->read_waiters,
+        entry,
+        notification,
+        context
+    );
+}
+
+size_t character_device_read_wait_notify(
+    struct character_device *character)
+{
+    if (
+        !character_device_can_read(character) ||
+        character->operations->read_ready == NULL
+    ) {
+        return 0U;
+    }
+
+    return wait_queue_notify_all(
+        &character->read_waiters
+    );
 }
 
 bool character_device_can_write(

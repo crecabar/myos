@@ -38,6 +38,11 @@ struct character_device_test_state {
     size_t read_ready_calls;
 };
 
+struct character_device_read_wait_probe {
+    size_t calls;
+};
+
+
 // Private functions and helpers declarations
 static enum character_device_io_result character_device_test_read(
     struct character_device *character,
@@ -75,6 +80,11 @@ static void character_device_test_overreport_rejection(void);
 
 static void character_device_test_class_discovery(void);
 
+static void character_device_test_read_wait_notification(
+    void *context);
+
+static void character_device_test_read_wait(void);
+
 // Static local variables
 static const struct character_device_operations
     character_device_test_operations = {
@@ -103,6 +113,7 @@ void character_device_test_run(void)
     character_device_test_class_discovery();
     character_device_test_invalid_initialization();
     character_device_test_io_dispatch();
+    character_device_test_read_wait();
     character_device_test_missing_capability();
     character_device_test_backend_failure();
     character_device_test_would_block();
@@ -505,6 +516,212 @@ static void character_device_test_class_discovery(void)
     }
 }
 
+static void character_device_test_read_wait_notification(
+    void *context)
+{
+    struct character_device_read_wait_probe *probe =
+        context;
+
+    if (probe == NULL) {
+        kernel_panic(
+            "Character read wait notification has invalid context"
+        );
+    }
+
+    ++probe->calls;
+}
+
+static void character_device_test_read_wait(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6470,
+        "char-read-wait",
+        sizeof("char-read-wait") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character read wait device initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result = CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result = CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .read_ready = false,
+    };
+
+    struct character_device character;
+
+    if (!character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        &state
+    )) {
+        kernel_panic(
+            "Character read wait capability initialization failed"
+        );
+    }
+
+    struct wait_queue_entry first;
+    struct wait_queue_entry second;
+
+    wait_queue_entry_init(&first);
+    wait_queue_entry_init(&second);
+
+    struct character_device_read_wait_probe a = {0};
+    struct character_device_read_wait_probe b = {0};
+
+    if (
+        !character_device_read_wait_register(
+            &character,
+            &first,
+            character_device_test_read_wait_notification,
+            &a
+        ) ||
+        !character_device_read_wait_register(
+            &character,
+            &second,
+            character_device_test_read_wait_notification,
+            &b
+        ) ||
+        !wait_queue_entry_registered(&first) ||
+        !wait_queue_entry_registered(&second) ||
+        state.read_ready_calls != 0U
+    ) {
+        kernel_panic(
+            "Character read wait registration failed"
+        );
+    }
+
+    /*
+     * Duplicate registration must not replace
+     * an existing reader.
+     */
+    if (
+        character_device_read_wait_register(
+            &character,
+            &first,
+            character_device_test_read_wait_notification,
+            &b
+        )
+    ) {
+        kernel_panic(
+            "Character read wait accepted duplicate entry"
+        );
+    }
+
+    /*
+     * One event wakes both readers.
+     *
+     * Notification must not execute the read callback
+     * or consume the device's input.
+     */
+    if (
+        character_device_read_wait_notify(
+            &character
+        ) != 2U ||
+        a.calls != 1U ||
+        b.calls != 1U ||
+        wait_queue_entry_registered(&first) ||
+        wait_queue_entry_registered(&second) ||
+        state.read_calls != 0U ||
+        state.read_ready_calls != 0U
+    ) {
+        kernel_panic(
+            "Character read wait broadcast failed"
+        );
+    }
+
+    /*
+     * Registrations are one-shot.
+     */
+    if (
+        character_device_read_wait_notify(
+            &character
+        ) != 0U ||
+        a.calls != 1U ||
+        b.calls != 1U
+    ) {
+        kernel_panic(
+            "Character read wait duplicated notification"
+        );
+    }
+
+    /*
+     * Registrations can be reused after delivery.
+     */
+    if (
+        !character_device_read_wait_register(
+            &character,
+            &first,
+            character_device_test_read_wait_notification,
+            &a
+        ) ||
+        !character_device_read_wait_register(
+            &character,
+            &second,
+            character_device_test_read_wait_notification,
+            &b
+        ) ||
+        !wait_queue_cancel(&first) ||
+        character_device_read_wait_notify(
+            &character
+        ) != 1U ||
+        a.calls != 1U ||
+        b.calls != 2U ||
+        wait_queue_entry_registered(&first) ||
+        wait_queue_entry_registered(&second)
+    ) {
+        kernel_panic(
+            "Character read wait cancellation failed"
+        );
+    }
+
+    /*
+     * Invalid registrations are rejected without
+     * leaving pending entries.
+     */
+    if (
+        character_device_read_wait_register(
+            NULL,
+            &first,
+            character_device_test_read_wait_notification,
+            &a
+        ) ||
+        character_device_read_wait_register(
+            &character,
+            NULL,
+            character_device_test_read_wait_notification,
+            &a
+        ) ||
+        character_device_read_wait_register(
+            &character,
+            &first,
+            NULL,
+            &a
+        ) ||
+        character_device_read_wait_notify(
+            NULL
+        ) != 0U ||
+        character.read_waiters.head != NULL ||
+        character.read_waiters.tail != NULL
+    ) {
+        kernel_panic(
+            "Character read wait invalid request contract failed"
+        );
+    }
+
+    character_device_test_remove_generic(
+        &generic
+    );
+}
+
 static void character_device_test_invalid_initialization(void)
 {
     struct device generic;
@@ -827,6 +1044,30 @@ static void character_device_test_missing_capability(void)
     ) {
         kernel_panic(
             "Character-device capability discovery failed"
+        );
+    }
+
+    struct wait_queue_entry unsupported_entry;
+
+    wait_queue_entry_init(&unsupported_entry);
+
+    struct character_device_read_wait_probe unsupported_probe = {0};
+
+    if (
+        character_device_read_wait_register(
+            &character,
+            &unsupported_entry,
+            character_device_test_read_wait_notification,
+            &unsupported_probe
+        ) ||
+        character_device_read_wait_notify(
+            &character
+        ) != 0U ||
+        wait_queue_entry_registered(&unsupported_entry) ||
+        unsupported_probe.calls != 0U
+    ) {
+        kernel_panic(
+            "Character write-only device accepted read wait"
         );
     }
 
