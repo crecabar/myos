@@ -6,6 +6,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "arch/x86_64/interrupts.h"
+#include "console/console_input_worker.h"
+#include "core/execution/kernel_supervisor.h"
 #include "arch/x86_64/arch.h"
 #include "arch/x86_64/cpu.h"
 #include "arch/x86_64/paging.h"
@@ -115,6 +118,8 @@ static struct vfs_mount_table kernel_mount_table;
 static struct device_registry kernel_device_registry;
 static struct pseudo_devices kernel_pseudo_devices;
 static struct console_device kernel_console_device;
+static struct console_input_worker
+    kernel_console_input_worker;
 
 static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
@@ -143,6 +148,14 @@ static void kernel_rollback_bootstrap_device_namespace(
     struct vfs_mount_table *mounts,
     struct devfs *device_filesystem,
     struct vfs_node *device_mountpoint
+);
+
+static void kernel_console_input_observer(
+    void *context,
+    const struct console_device *device,
+    size_t events_before,
+    size_t dispatched,
+    size_t events_after
 );
 
 static _Noreturn void kernel_main_continue(void);
@@ -284,6 +297,42 @@ static void kernel_input_event_notification(void)
     );
 }
 
+static void kernel_console_input_observer(
+    void *context,
+    const struct console_device *device,
+    size_t events_before,
+    size_t dispatched,
+    size_t events_after)
+{
+    (void) context;
+
+    if (device != &kernel_console_device) {
+        kernel_panic(
+            "Console input observer received unexpected device"
+        );
+    }
+
+    if (
+        dispatched == 0U ||
+        kernel_boot_config.log_level !=
+            KERNEL_LOG_LEVEL_DEBUG
+    ) {
+        return;
+    }
+
+    diagnostics_printf(
+        "[console-debug] dispatched=%u "
+        "events-before=%u events-after=%u "
+        "completed-lines=%u retained=%u\n",
+        (uint64_t) dispatched,
+        (uint64_t) events_before,
+        (uint64_t) events_after,
+        (uint64_t) device->input.completed_count,
+        (uint64_t)
+            device->input_consumer.has_pending_event
+    );
+}
+
 /*
  * Dispatches one bounded console input work invocation
  * from the scheduler's idle path.
@@ -299,10 +348,30 @@ static void kernel_input_event_notification(void)
  */
 static bool kernel_dispatch_idle_work(void)
 {
-    return console_device_dispatch_input(
-        &kernel_console_device,
-        1U
-    ) != 0U;
+    size_t pending_before =
+        input_event_pending();
+
+    size_t dispatched =
+        console_device_dispatch_input(
+            &kernel_console_device,
+            1U
+        );
+
+    if (
+        dispatched != 0U &&
+        kernel_boot_config.log_level ==
+            KERNEL_LOG_LEVEL_DEBUG
+    ) {
+        kernel_console_input_observer(
+            NULL,
+            &kernel_console_device,
+            pending_before,
+            dispatched,
+            input_event_pending()
+        );
+    }
+
+    return dispatched != 0U;
 }
 
 static bool kernel_mount_bootstrap_device_namespace(
@@ -1173,6 +1242,61 @@ static _Noreturn void kernel_main_continue(void)
         }
     }
 
+    /*
+     * Configure console input execution after kernel tests.
+     *
+     * Normal boot uses the persistent worker.
+     * Test boot retains the existing idle-work handler.
+     */
+    if (
+        kernel_boot_config.mode ==
+        KERNEL_BOOT_MODE_NORMAL
+    ) {
+        /*
+         * Serialize worker registration and notification
+         * configuration with PS/2 IRQ producers.
+         */
+        interrupts_disable();
+
+        if (
+            !kernel_supervisor_bsp_initialize() ||
+            !console_input_worker_initialize(
+                &kernel_console_input_worker,
+                &kernel_console_device,
+                kernel_supervisor_bsp_context()
+            ) ||
+            !console_input_worker_observer_set(
+                &kernel_console_input_worker,
+                kernel_console_input_observer,
+                NULL
+            ) ||
+            !scheduler_register_kernel_worker(
+                &kernel_console_input_worker.context
+            ) ||
+            !console_input_worker_notifications_enable(
+                &kernel_console_input_worker
+            )
+        ) {
+            kernel_panic(
+                "Unable to initialize production console input worker"
+            );
+        }
+
+        scheduler_set_idle_work_handler(NULL);
+
+        diagnostics_write(
+            "[console] Persistent input worker registered\n"
+        );
+    } else {
+        /*
+         * Test mode retains its original idle-work
+         * processing path.
+         */
+        scheduler_set_idle_work_handler(
+            kernel_dispatch_idle_work
+        );
+    }
+
     input_system_action_handler_set(
         kernel_input_system_action
     );
@@ -1202,16 +1326,6 @@ static _Noreturn void kernel_main_continue(void)
             &kernel_console_device
         );
     }
-
-    /*
-     * Enable bounded console input processing from scheduler idle.
-     *
-     * This handler is registered after all kernel test fixtures
-     * have completed and before the scheduler starts.
-     */
-    scheduler_set_idle_work_handler(
-        kernel_dispatch_idle_work
-    );
 
     /*
      * A chord may have been recognized before the immediate handler
