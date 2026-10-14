@@ -82,6 +82,8 @@ enum console_device_initialize_result console_device_initialize(
     console_device->console = console;
     console_line_buffer_init(&console_device->input);
     console_input_consumer_init(&console_device->input_consumer);
+    console_device->readable_notification = NULL;
+    console_device->readable_notification_context = NULL;
 
     if (!character_device_initialize(
         &console_device->character,
@@ -158,11 +160,35 @@ size_t console_device_drain_input(
         return 0;
     }
 
-    return console_input_consumer_drain(
-        &device->input_consumer,
-        &device->input,
-        budget
-    );
+    size_t completed_before =
+        device->input.completed_count;
+
+    size_t processed =
+        console_input_consumer_drain(
+            &device->input_consumer,
+            &device->input,
+            budget
+        );
+
+    /*
+     * Notify only when input transitions from
+     * unavailable to readable.
+     *
+     * Processing ordinary keystrokes does not make
+     * a canonical line readable until Enter arrives.
+     */
+    if (
+        completed_before == 0U &&
+        device->input.completed_count != 0U &&
+        device->readable_notification != NULL
+    ) {
+        device->readable_notification(
+            device->readable_notification_context,
+            device
+        );
+    }
+
+    return processed;
 }
 
 void console_device_request_input(
@@ -380,4 +406,44 @@ static enum deferred_work_result console_device_input_work(
     (void) processed;
 
     return DEFERRED_WORK_COMPLETED;
+}
+
+bool console_device_readable_notification_set(
+    struct console_device *device,
+    console_device_readable_notification_fn notification,
+    void *context)
+{
+    if (
+        device == NULL ||
+        console_device_from_character(
+            &device->character
+        ) != device
+    ) {
+        return false;
+    }
+
+    if (
+        notification != NULL &&
+        device->readable_notification != NULL
+    ) {
+        return false;
+    }
+
+    device->readable_notification = notification;
+
+    device->readable_notification_context =
+        notification != NULL ? context : NULL;
+
+    /*
+     * Do not lose readability that existed before
+     * notification registration.
+     */
+    if (
+        notification != NULL &&
+        device->input.completed_count != 0U
+    ) {
+        notification(context, device);
+    }
+
+    return true;
 }

@@ -72,6 +72,30 @@ static void console_device_test_worker_observer(
     probe->after[index] = after;
 }
 
+struct console_readability_probe {
+    struct console_device *device;
+    size_t calls;
+};
+
+static void console_device_test_readable_notification(
+    void *context,
+    struct console_device *device)
+{
+    struct console_readability_probe *probe =
+        context;
+
+    if (
+        probe == NULL ||
+        probe->device != device
+    ) {
+        kernel_panic(
+            "Console readability notification received invalid state"
+        );
+    }
+
+    ++probe->calls;
+}
+
 // Private functions and helpers declarations
 static void console_device_test_unregister(
     struct device_registry *registry,
@@ -89,6 +113,21 @@ static void console_device_test_kernel_worker(
     );
 
 static void console_device_test_registration_rollback(void);
+
+static void console_device_test_readability(
+    struct console_device *device
+);
+
+static void console_device_test_readability_key(
+    struct console_device *device,
+    enum input_key_code code
+);
+
+static void console_device_test_readability_expect_line(
+    struct console_device *device,
+    const char *expected,
+    size_t expected_length
+);
 
 // Public functions implementations
 void console_device_test_run(void)
@@ -162,6 +201,350 @@ static void console_device_test_input_notification(void)
         console_device_test_notification_target
     );
 }
+
+
+static void console_device_test_readability_key(
+    struct console_device *device,
+    enum input_key_code code)
+{
+    struct input_event event = {
+        .type = INPUT_EVENT_KEY,
+        .key = {
+            .code = code,
+            .state = INPUT_KEY_PRESSED,
+        },
+    };
+
+    if (
+        !input_event_submit(&event) ||
+        console_device_drain_input(device, 1U) != 1U ||
+        input_event_pending() != 0U
+    ) {
+        kernel_panic(
+            "Console readability key dispatch failed"
+        );
+    }
+}
+
+static void console_device_test_readability_expect_line(
+    struct console_device *device,
+    const char *expected,
+    size_t expected_length)
+{
+    uint8_t buffer[4] = {0};
+    size_t bytes_read = SIZE_MAX;
+
+    if (
+        expected == NULL ||
+        expected_length > sizeof(buffer)
+    ) {
+        kernel_panic(
+            "Console readability expected line is invalid"
+        );
+    }
+
+    if (
+        character_device_read(
+            &device->character,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        bytes_read != expected_length
+    ) {
+        kernel_panic(
+            "Console readability line read failed"
+        );
+    }
+
+    for (
+        size_t index = 0;
+        index < expected_length;
+        ++index
+    ) {
+        if (
+            buffer[index] !=
+                (uint8_t) expected[index]
+        ) {
+            kernel_panic(
+                "Console readability line contents mismatch"
+            );
+        }
+    }
+}
+
+static void console_device_test_readability(
+    struct console_device *device)
+{
+    if (
+        device == NULL ||
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 0U ||
+        input_event_pending() != 0U ||
+        deferred_work_pending(&device->input_work)
+    ) {
+        kernel_panic(
+            "Console readability fixture has dirty initial state"
+        );
+    }
+
+    struct console_readability_probe probe = {
+        .device = device,
+        .calls = 0U,
+    };
+
+    /*
+     * 1. Register on an empty queue.
+     *
+     * No notification should occur.
+     */
+    if (
+        !console_device_readable_notification_set(
+            device,
+            console_device_test_readable_notification,
+            &probe
+        ) ||
+        probe.calls != 0U
+    ) {
+        kernel_panic(
+            "Console readability empty registration failed"
+        );
+    }
+
+    /*
+     * 2. Ordinary key presses are not yet readable.
+     *
+     * Canonical input requires Enter.
+     */
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_H
+    );
+
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_I
+    );
+
+    if (
+        probe.calls != 0U ||
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 2U
+    ) {
+        kernel_panic(
+            "Console readability notified before Enter"
+        );
+    }
+
+    /*
+     * 3. Enter completes the first canonical line.
+     *
+     * The empty-to-readable transition must notify
+     * exactly once.
+     */
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_ENTER
+    );
+
+    if (
+        probe.calls != 1U ||
+        device->input.completed_count != 1U ||
+        device->input.editing_length != 0U
+    ) {
+        kernel_panic(
+            "Console readability first transition failed"
+        );
+    }
+
+    /*
+     * 4. Additional input while a completed line remains
+     * available must not produce a new notification.
+     *
+     * Start editing the next line without Enter.
+     */
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_H
+    );
+
+    if (
+        probe.calls != 1U ||
+        device->input.completed_count != 1U ||
+        device->input.editing_length != 1U
+    ) {
+        kernel_panic(
+            "Console readability duplicated notification"
+        );
+    }
+
+    /*
+     * 5. A second subscriber must be rejected.
+     *
+     * The original callback and context remain installed.
+     */
+    struct console_readability_probe rejected = {
+        .device = device,
+        .calls = 0U,
+    };
+
+    if (
+        console_device_readable_notification_set(
+            device,
+            console_device_test_readable_notification,
+            &rejected
+        ) ||
+        probe.calls != 1U ||
+        rejected.calls != 0U
+    ) {
+        kernel_panic(
+            "Console readability accepted duplicate subscriber"
+        );
+    }
+
+    /*
+     * 6. Unregister and register again while readable.
+     *
+     * The replacement registration must immediately
+     * observe the already completed line.
+     */
+    if (
+        !console_device_readable_notification_set(
+            device,
+            NULL,
+            NULL
+        ) ||
+        !console_device_readable_notification_set(
+            device,
+            console_device_test_readable_notification,
+            &probe
+        ) ||
+        probe.calls != 2U ||
+        rejected.calls != 0U
+    ) {
+        kernel_panic(
+            "Console readability immediate notification failed"
+        );
+    }
+
+    /*
+     * Consume the first line completely.
+     *
+     * The second line still has one character being
+     * edited, but no completed line remains readable.
+     */
+    static const char first_line[] = "hi\n";
+
+    console_device_test_readability_expect_line(
+        device,
+        first_line,
+        sizeof(first_line) - 1U
+    );
+
+    if (
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 1U ||
+        probe.calls != 2U
+    ) {
+        kernel_panic(
+            "Console readability first line cleanup failed"
+        );
+    }
+
+    /*
+     * 7. Enter completes the second line.
+     *
+     * Since readability returned to empty, the next
+     * completed line must produce a new notification.
+     */
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_ENTER
+    );
+
+    if (
+        probe.calls != 3U ||
+        device->input.completed_count != 1U
+    ) {
+        kernel_panic(
+            "Console readability second transition failed"
+        );
+    }
+
+    /*
+     * 8. Remove the subscriber.
+     *
+     * Subsequent completed lines must not invoke the
+     * old callback.
+     */
+    if (
+        !console_device_readable_notification_set(
+            device,
+            NULL,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Console readability notification removal failed"
+        );
+    }
+
+    static const char second_line[] = "h\n";
+
+    console_device_test_readability_expect_line(
+        device,
+        second_line,
+        sizeof(second_line) - 1U
+    );
+
+    /*
+     * An empty canonical line is still readable.
+     * No observer is installed now.
+     */
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_ENTER
+    );
+
+    if (
+        probe.calls != 3U ||
+        rejected.calls != 0U ||
+        device->input.completed_count != 1U
+    ) {
+        kernel_panic(
+            "Console readability notified after removal"
+        );
+    }
+
+    static const char empty_line[] = "\n";
+
+    console_device_test_readability_expect_line(
+        device,
+        empty_line,
+        sizeof(empty_line) - 1U
+    );
+
+    /*
+     * Leave the shared deferred-input fixture clean.
+     *
+     * The notification was removed before this
+     * function's stack-owned probe goes out of scope.
+     */
+    if (
+        device->readable_notification != NULL ||
+        device->readable_notification_context != NULL ||
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 0U ||
+        device->input_consumer.has_pending_event ||
+        input_event_pending() != 0U ||
+        deferred_work_pending(&device->input_work)
+    ) {
+        kernel_panic(
+            "Console readability fixture leaked state"
+        );
+    }
+}
+
 
 static void console_device_test_registration_and_write(void)
 {
@@ -613,6 +996,15 @@ static void console_device_test_deferred_input(void)
             "Deferred console executed unrequested work"
         );
     }
+
+    /*
+     * Verify canonical readability transitions,
+     * subscriber ownership and notification lifecycle.
+     *
+     * This test leaves the device input state empty,
+     * preserving the original deferred-input fixture.
+     */
+    console_device_test_readability(&device);
 
     struct input_event events[] = {
         {

@@ -58,6 +58,22 @@ enum console_device_initialize_result {
     CONSOLE_DEVICE_INITIALIZE_RESULT_ROLLBACK_FAILED,
 };
 
+struct console_device;
+
+/**
+ * Called when console input becomes readable.
+ *
+ * Executes synchronously in the input consumer's
+ * serialized execution context, not from the PS/2 IRQ.
+ *
+ * The callback must not block, consume input,
+ * or initiate a context switch.
+ */
+typedef void (*console_device_readable_notification_fn)(
+    void *context,
+    struct console_device *device
+);
+
 /**
  * Caller-owned system-console device.
  *
@@ -89,6 +105,11 @@ struct console_device {
     struct console_input_consumer input_consumer;
 
     struct deferred_work input_work;
+
+    console_device_readable_notification_fn
+        readable_notification;
+
+    void *readable_notification_context;
 };
 
 /**
@@ -165,6 +186,24 @@ void console_device_request_input(
 size_t console_device_dispatch_input(
     struct console_device *device,
     size_t budget
+);
+
+/**
+ * Registers or removes the console readability notification.
+ *
+ * Only one subscriber is supported by this bootstrap device.
+ * Registering while another subscriber exists is rejected.
+ *
+ * Registration is serialized with input processing.
+ * If a completed line already exists, the newly registered
+ * callback is invoked immediately.
+ *
+ * Passing NULL removes the notification.
+ */
+bool console_device_readable_notification_set(
+    struct console_device *device,
+    console_device_readable_notification_fn notification,
+    void *context
 );
 
 #endif
