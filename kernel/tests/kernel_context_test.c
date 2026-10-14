@@ -43,6 +43,11 @@ static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char dispatch_resume_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 
 static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
+unsigned char dispatch_waiting_owned_stack[
+    KERNEL_CONTEXT_EXEC_STACK_SIZE
+];
+
+static _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
 unsigned char yield_irq_stack[KERNEL_CONTEXT_EXEC_STACK_SIZE];
 
 #define KERNEL_SUPERVISOR_TEST_STACK_SIZE 8192U
@@ -90,6 +95,14 @@ struct kernel_context_dispatch_resume_probe {
 
     bool first_identity_valid;
     bool resumed_identity_valid;
+};
+
+struct kernel_context_waiting_owned_probe {
+    struct cpu_local *cpu;
+    struct kernel_context *worker;
+
+    unsigned int entries;
+    unsigned int stage;
 };
 
 struct kernel_context_dispatch_probe {
@@ -1494,6 +1507,236 @@ static void kernel_context_test_dispatch_resume(void)
     }
 }
 
+static void kernel_context_test_waiting_owned_entry(
+    void *argument)
+{
+    struct kernel_context_waiting_owned_probe *probe =
+        argument;
+
+    volatile uint64_t stack_marker =
+        0x1122334455667788ULL;
+
+    if (
+        probe == NULL ||
+        probe->cpu == NULL ||
+        probe->worker == NULL ||
+        probe->stage != 0U
+    ) {
+        kernel_panic(
+            "Waiting-owned worker received invalid argument"
+        );
+    }
+
+    ++probe->entries;
+
+    if (
+        probe->entries != 1U ||
+        probe->worker->state != KERNEL_CONTEXT_RUNNING ||
+        kernel_context_owner(probe->worker) !=
+            probe->cpu->logical_id ||
+        cpu_local_active_kernel_context(probe->cpu) !=
+            probe->worker
+    ) {
+        kernel_panic(
+            "Waiting-owned worker started in invalid state"
+        );
+    }
+
+    /*
+     * Reproduce the transition performed by
+     * kernel_context_yield_wait(), but place two
+     * run requests precisely between WAITING and
+     * the physical switch back to the supervisor.
+     *
+     * This is test-only lifecycle instrumentation.
+     */
+    if (!kernel_context_wait(probe->worker)) {
+        kernel_panic(
+            "Waiting-owned worker could not enter WAITING"
+        );
+    }
+
+    if (
+        probe->worker->state != KERNEL_CONTEXT_WAITING ||
+        kernel_context_owner(probe->worker) !=
+            probe->cpu->logical_id ||
+        !kernel_context_request_run(probe->worker) ||
+        !kernel_context_request_run(probe->worker)
+    ) {
+        kernel_panic(
+            "Waiting-owned worker rejected pending request"
+        );
+    }
+
+    /*
+     * The request must remain latched. The worker
+     * still owns the CPU and cannot become READY yet.
+     */
+    if (
+        probe->worker->state != KERNEL_CONTEXT_WAITING ||
+        !probe->worker->reschedule_requested ||
+        kernel_context_owner(probe->worker) !=
+            probe->cpu->logical_id
+    ) {
+        kernel_panic(
+            "Waiting-owned request bypassed CPU ownership"
+        );
+    }
+
+    probe->stage = 1U;
+
+    /*
+     * Return physically to the supervisor.
+     *
+     * kernel_context_dispatch() must release ownership,
+     * consume the pending request and make us READY.
+     */
+    kernel_context_switch(
+        &probe->worker->cpu,
+        probe->worker->supervisor
+    );
+
+    /*
+     * Second dispatch resumes here, retaining the
+     * original stack and execution context.
+     */
+    if (
+        probe->stage != 2U ||
+        probe->entries != 1U ||
+        stack_marker != 0x1122334455667788ULL ||
+        probe->worker->state != KERNEL_CONTEXT_RUNNING ||
+        probe->worker->reschedule_requested ||
+        kernel_context_owner(probe->worker) !=
+            probe->cpu->logical_id ||
+        cpu_local_active_kernel_context(probe->cpu) !=
+            probe->worker
+    ) {
+        kernel_panic(
+            "Waiting-owned worker continuation invalid"
+        );
+    }
+
+    probe->stage = 3U;
+}
+
+static void kernel_context_test_waiting_owned_request(void)
+{
+    struct cpu_local cpu = {0};
+    struct kernel_context worker;
+    struct kernel_switch_context supervisor = {0};
+
+    struct kernel_context_waiting_owned_probe probe = {
+        .cpu = &cpu,
+        .worker = &worker,
+    };
+
+    uint32_t apic_id;
+
+    if (
+        !arch_cpu_apic_id(&apic_id) ||
+        !cpu_local_init(
+            &cpu,
+            0U,
+            apic_id
+        ) ||
+        !kernel_context_init(
+            &worker,
+            dispatch_waiting_owned_stack,
+            sizeof(dispatch_waiting_owned_stack),
+            kernel_context_test_waiting_owned_entry,
+            &probe
+        ) ||
+        !kernel_context_prepare(
+            &worker,
+            kernel_context_bootstrap
+        ) ||
+        !kernel_context_bind_supervisor(
+            &worker,
+            &supervisor
+        )
+    ) {
+        kernel_panic(
+            "Waiting-owned regression setup failed"
+        );
+    }
+
+    uint64_t original_rflags =
+        kernel_context_test_rflags();
+
+    interrupts_disable();
+
+    /*
+     * First dispatch must suspend the worker and
+     * return to the supervisor.
+     *
+     * The supervisor must convert the latched
+     * request into READY after releasing ownership.
+     */
+    if (!kernel_context_dispatch(
+        &cpu,
+        &worker
+    )) {
+        kernel_panic(
+            "Waiting-owned first dispatch failed"
+        );
+    }
+
+    if (
+        worker.state != KERNEL_CONTEXT_READY ||
+        worker.reschedule_requested ||
+        kernel_context_owner(&worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        probe.entries != 1U ||
+        probe.stage != 1U
+    ) {
+        kernel_panic(
+            "Waiting-owned request was not rearmed"
+        );
+    }
+
+    probe.stage = 2U;
+
+    /*
+     * No explicit wake is performed here.
+     *
+     * The second dispatch is possible only because
+     * the supervisor honored the latched request.
+     */
+    if (!kernel_context_dispatch(
+        &cpu,
+        &worker
+    )) {
+        kernel_panic(
+            "Waiting-owned second dispatch failed"
+        );
+    }
+
+    if (
+        worker.state != KERNEL_CONTEXT_TERMINATED ||
+        worker.reschedule_requested ||
+        kernel_context_owner(&worker) !=
+            KERNEL_CONTEXT_NO_CPU ||
+        cpu_local_active_kernel_context(&cpu) != NULL ||
+        probe.entries != 1U ||
+        probe.stage != 3U
+    ) {
+        kernel_panic(
+            "Waiting-owned worker completion failed"
+        );
+    }
+
+    if (
+        (original_rflags & KERNEL_CONTEXT_RFLAGS_IF) != 0
+    ) {
+        interrupts_enable();
+    }
+
+    diagnostics_write(
+        "[kernel-context] Waiting-owned run request passed\n"
+    );
+}
+
 static void kernel_context_test_dispatch_invalid(void)
 {
     struct cpu_local cpu = {0};
@@ -2068,6 +2311,7 @@ void kernel_context_test_run(void)
 
     kernel_context_test_dispatch();
     kernel_context_test_dispatch_resume();
+    kernel_context_test_waiting_owned_request();
     kernel_context_test_dispatch_invalid();
 
     kernel_context_test_dispatch_interrupts();
