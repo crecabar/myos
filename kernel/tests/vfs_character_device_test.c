@@ -19,15 +19,17 @@
 #include "../vfs/character_device.h"
 #include "../vfs/vfs.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 struct vfs_would_block_probe {
     size_t read_calls;
+    size_t readiness_calls;
+    bool readable;
 };
 
-static enum character_device_io_result
-vfs_would_block_read(
+static enum character_device_io_result vfs_would_block_read(
     struct character_device *character,
     void *buffer,
     size_t size,
@@ -49,10 +51,33 @@ vfs_would_block_read(
     return CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK;
 }
 
+static bool vfs_would_block_read_ready(
+    struct character_device *character,
+    bool *ready)
+{
+    if (
+        character == NULL ||
+        character->private_data == NULL ||
+        ready == NULL
+    ) {
+        return false;
+    }
+
+    struct vfs_would_block_probe *probe =
+        character->private_data;
+
+    ++probe->readiness_calls;
+
+    *ready = probe->readable;
+
+    return true;
+}
+
 static const struct character_device_operations
     vfs_would_block_operations = {
         .read = vfs_would_block_read,
         .write = NULL,
+        .read_ready = vfs_would_block_read_ready,
     };
 
 // Private functions and helpers declarations
@@ -188,6 +213,26 @@ static void vfs_character_device_test_null(void)
     ) {
         kernel_panic(
             "Character VFS null open failed"
+        );
+    }
+
+    /*
+     * /dev/null does not yet expose read_ready.
+     *
+     * Unsupported capability must not be confused
+     * with an empty readable stream.
+     */
+    bool ready = true;
+
+    if (
+        vfs_file_read_ready(
+            file,
+            &ready
+        ) != VFS_READINESS_RESULT_NOT_SUPPORTED ||
+        !ready
+    ) {
+        kernel_panic(
+            "Character VFS unsupported readiness failed"
         );
     }
 
@@ -466,6 +511,26 @@ static void vfs_character_device_test_would_block(void)
         kernel_panic("VFS WOULD_BLOCK open failed");
     }
 
+    /*
+     * An empty backend reports unreadable without
+     * consuming input.
+     */
+    bool ready = true;
+
+    if (
+        vfs_file_read_ready(
+            file,
+            &ready
+        ) != VFS_READINESS_RESULT_SUCCESS ||
+        ready ||
+        probe.readiness_calls != 1U ||
+        probe.read_calls != 0U
+    ) {
+        kernel_panic(
+            "Character VFS empty readiness query failed"
+        );
+    }
+
     uint8_t buffer[4] = {
         0x11U, 0x22U, 0x33U, 0x44U,
     };
@@ -489,6 +554,28 @@ static void vfs_character_device_test_would_block(void)
         buffer[3] != 0x44U
     ) {
         kernel_panic("VFS WOULD_BLOCK propagation failed");
+    }
+
+    /*
+     * Simulate a later availability transition.
+     *
+     * The readiness query must not execute the
+     * device's read callback.
+     */
+    probe.readable = true;
+
+    if (
+        vfs_file_read_ready(
+            file,
+            &ready
+        ) != VFS_READINESS_RESULT_SUCCESS ||
+        !ready ||
+        probe.readiness_calls != 2U ||
+        probe.read_calls != 1U
+    ) {
+        kernel_panic(
+            "Character VFS ready transition failed"
+        );
     }
 
     /*

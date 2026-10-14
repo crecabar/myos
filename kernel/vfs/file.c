@@ -138,6 +138,71 @@ bool vfs_file_release(
     );
 }
 
+enum vfs_readiness_result vfs_file_read_ready(
+    struct vfs_file *file,
+    bool *ready)
+{
+    if (
+        ready == NULL ||
+        !vfs_file_state_valid(file)
+    ) {
+        return
+            VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        (file->access & VFS_OPEN_ACCESS_READ) == 0
+    ) {
+        return
+            VFS_READINESS_RESULT_ACCESS_DENIED;
+    }
+
+    if (
+        file->operations == NULL ||
+        file->operations->read == NULL ||
+        file->operations->read_ready == NULL
+    ) {
+        return
+            VFS_READINESS_RESULT_NOT_SUPPORTED;
+    }
+
+    uint64_t original_offset =
+        file->offset;
+
+    bool available = false;
+
+    enum vfs_readiness_result result =
+        file->operations->read_ready(
+            file,
+            &available
+        );
+
+    /*
+     * Reject a backend that modifies shared offset
+     * state during a non-consuming query.
+     */
+    if (file->offset != original_offset) {
+        file->offset = original_offset;
+
+        return
+            VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    switch (result) {
+    case VFS_READINESS_RESULT_SUCCESS:
+        *ready = available;
+        return result;
+
+    case VFS_READINESS_RESULT_INVALID_ARGUMENT:
+    case VFS_READINESS_RESULT_NOT_SUPPORTED:
+    case VFS_READINESS_RESULT_ACCESS_DENIED:
+        return result;
+    }
+
+    return
+        VFS_READINESS_RESULT_INVALID_ARGUMENT;
+}
+
 enum vfs_io_result vfs_file_read(
     struct vfs_file *file,
     void *buffer,

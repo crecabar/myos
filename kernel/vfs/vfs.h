@@ -96,6 +96,13 @@ enum vfs_io_result {
     VFS_IO_RESULT_WOULD_BLOCK,
 };
 
+enum vfs_readiness_result {
+    VFS_READINESS_RESULT_SUCCESS,
+    VFS_READINESS_RESULT_INVALID_ARGUMENT,
+    VFS_READINESS_RESULT_NOT_SUPPORTED,
+    VFS_READINESS_RESULT_ACCESS_DENIED,
+};
+
 enum vfs_open_result {
     VFS_OPEN_RESULT_OPENED,
     VFS_OPEN_RESULT_INVALID_ARGUMENT,
@@ -287,6 +294,20 @@ struct vfs_file_operations {
         void *buffer,
         size_t size,
         size_t *bytes_read
+    );
+
+    /**
+     * Queries whether a positive-length read can currently
+     * complete without waiting.
+     *
+     * This operation does not consume data or modify
+     * the open-file offset.
+     *
+     * On failure, ready must remain unchanged.
+     */
+    enum vfs_readiness_result (*read_ready)(
+        struct vfs_file *file,
+        bool *ready
     );
 
     /**
@@ -562,6 +583,23 @@ enum vfs_open_result vfs_node_open(
     struct vfs_node *node,
     enum vfs_open_access access,
     struct vfs_file **result
+);
+
+/**
+ * Queries readability through one open-file description.
+ *
+ * SUCCESS with ready=false means that no data is
+ * currently available. NOT_SUPPORTED means that the
+ * file has no readiness-query capability.
+ *
+ * This operation does not consume data or change
+ * the shared file offset.
+ *
+ * On failure, ready remains unchanged.
+ */
+enum vfs_readiness_result vfs_file_read_ready(
+    struct vfs_file *file,
+    bool *ready
 );
 
 enum vfs_io_result vfs_file_read(

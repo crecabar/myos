@@ -43,6 +43,11 @@ static enum vfs_open_result vfs_character_device_open(
     struct vfs_file **result
 );
 
+static enum vfs_readiness_result vfs_character_device_read_ready(
+    struct vfs_file *file,
+    bool *ready
+);
+
 static enum vfs_stat_result vfs_character_device_stat(
     struct vfs_node *node,
     struct vfs_stat *result
@@ -91,6 +96,8 @@ static const struct vfs_file_operations
     vfs_character_device_file_operations = {
         .read =
             vfs_character_device_read,
+        .read_ready =
+            vfs_character_device_read_ready,
         .write =
             vfs_character_device_write,
         .destroy =
@@ -427,6 +434,40 @@ static enum vfs_io_result vfs_character_device_read(
                 bytes_read
             )
         );
+}
+
+static enum vfs_readiness_result
+vfs_character_device_read_ready(
+    struct vfs_file *file,
+    bool *ready)
+{
+    struct vfs_character_device_file *open_file =
+        vfs_character_device_file_from_vfs(file);
+
+    if (
+        open_file == NULL ||
+        ready == NULL
+    ) {
+        return
+            VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    bool available = false;
+
+    if (
+        !character_device_read_ready(
+            open_file->node->character,
+            &available
+        )
+    ) {
+        return
+            VFS_READINESS_RESULT_NOT_SUPPORTED;
+    }
+
+    *ready = available;
+
+    return
+        VFS_READINESS_RESULT_SUCCESS;
 }
 
 static enum vfs_io_result vfs_character_device_write(
