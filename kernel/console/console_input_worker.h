@@ -11,8 +11,25 @@
 #include "../core/execution/kernel_context.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #define CONSOLE_INPUT_WORKER_STACK_SIZE 8192U
+
+/**
+ * Optional observer called after one bounded input dispatch.
+ *
+ * Executes on the worker stack, outside IRQ context,
+ * with maskable interrupts disabled.
+ *
+ * Must not block, dispatch another worker, or switch contexts.
+ */
+typedef void (*console_input_worker_observer_fn)(
+    void *context,
+    const struct console_device *device,
+    size_t events_before,
+    size_t dispatched,
+    size_t events_after
+);
 
 /*
  * Persistent execution context for deferred console input.
@@ -25,6 +42,9 @@
 struct console_input_worker {
     struct console_device *device;
     struct kernel_context context;
+
+    console_input_worker_observer_fn observer;
+    void *observer_context;
 
     _Alignas(KERNEL_CONTEXT_STACK_ALIGNMENT)
     unsigned char stack[CONSOLE_INPUT_WORKER_STACK_SIZE];
@@ -58,6 +78,20 @@ bool console_input_worker_notifications_enable(
  */
 bool console_input_worker_notifications_disable(
     struct console_input_worker *worker
+);
+
+/**
+ * Configures an optional dispatch observer.
+ *
+ * May only be called while the worker is READY
+ * and has no CPU owner.
+ *
+ * Passing NULL removes the observer.
+ */
+bool console_input_worker_observer_set(
+    struct console_input_worker *worker,
+    console_input_worker_observer_fn observer,
+    void *context
 );
 
 #endif

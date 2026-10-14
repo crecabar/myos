@@ -36,6 +36,42 @@
  */
 static struct console_device *console_device_test_notification_target;
 
+struct console_worker_observation {
+    const struct console_device *device;
+
+    size_t calls;
+    size_t before[4];
+    size_t dispatched[4];
+    size_t after[4];
+};
+
+static void console_device_test_worker_observer(
+    void *context,
+    const struct console_device *device,
+    size_t before,
+    size_t dispatched,
+    size_t after)
+{
+    struct console_worker_observation *probe =
+        context;
+
+    if (
+        probe == NULL ||
+        device != probe->device ||
+        probe->calls >= 4U
+    ) {
+        kernel_panic(
+            "Console worker observer received invalid state"
+        );
+    }
+
+    size_t index = probe->calls++;
+
+    probe->before[index] = before;
+    probe->dispatched[index] = dispatched;
+    probe->after[index] = after;
+}
+
 // Private functions and helpers declarations
 static void console_device_test_unregister(
     struct device_registry *registry,
@@ -1080,6 +1116,10 @@ static void console_device_test_kernel_worker(
      */
     static struct console_input_worker worker;
 
+    struct console_worker_observation observation = {
+        .device = device,
+    };
+
     struct cpu_local cpu = {0};
     struct kernel_switch_context supervisor = {0};
 
@@ -1098,6 +1138,16 @@ static void console_device_test_kernel_worker(
         kernel_panic(
             "Console worker fixture initialization failed"
         );
+    }
+
+    if (!console_input_worker_observer_set(
+        &worker,
+        console_device_test_worker_observer,
+        &observation
+    )) {
+            kernel_panic(
+                "Console worker observer registration failed"
+            );
     }
 
     uint64_t original_rflags;
@@ -1313,6 +1363,30 @@ static void console_device_test_kernel_worker(
         kernel_panic(
             "Console worker repeated input mismatch"
         );
+    }
+
+    if (
+        observation.calls != 4U ||
+
+        observation.before[0] != 0U ||
+        observation.dispatched[0] != 0U ||
+        observation.after[0] != 0U ||
+
+        observation.before[1] != 18U ||
+        observation.dispatched[1] != 1U ||
+        observation.after[1] != 2U ||
+
+        observation.before[2] != 2U ||
+        observation.dispatched[2] != 1U ||
+        observation.after[2] != 0U ||
+
+        observation.before[3] != 2U ||
+        observation.dispatched[3] != 1U ||
+        observation.after[3] != 0U
+    ) {
+            kernel_panic(
+                "Console worker dispatch observation mismatch"
+            );
     }
 
     /*

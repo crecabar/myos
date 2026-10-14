@@ -6,6 +6,7 @@
 #include "console_input_worker.h"
 
 #include "../core/panic.h"
+#include "../input/input.h"
 
 #include <stddef.h>
 
@@ -34,6 +35,8 @@ bool console_input_worker_initialize(
     }
 
     worker->device = device;
+    worker->observer = NULL;
+    worker->observer_context = NULL;
 
     return
         kernel_context_init(
@@ -120,10 +123,27 @@ static void console_input_worker_entry(
          * DEFERRED_WORK_MORE publishes another request;
          * the notification rearms this RUNNING worker.
          */
-        (void) console_device_dispatch_input(
-            worker->device,
-            1U
-        );
+        size_t events_before = 0U;
+
+        if (worker->observer != NULL) {
+            events_before = input_event_pending();
+        }
+
+        size_t dispatched =
+            console_device_dispatch_input(
+                worker->device,
+                1U
+            );
+
+        if (worker->observer != NULL) {
+            worker->observer(
+                worker->observer_context,
+                worker->device,
+                events_before,
+                dispatched,
+                input_event_pending()
+            );
+        }
 
         if (!kernel_context_yield_wait(
             &worker->context
@@ -155,4 +175,26 @@ static void console_input_worker_notification(
             "Console input worker wake request rejected"
         );
     }
+}
+
+bool console_input_worker_observer_set(
+    struct console_input_worker *worker,
+    console_input_worker_observer_fn observer,
+    void *context)
+{
+    if (
+        worker == NULL ||
+        worker->device == NULL ||
+        !worker->context.prepared ||
+        worker->context.state != KERNEL_CONTEXT_READY ||
+        kernel_context_owner(&worker->context) !=
+            KERNEL_CONTEXT_NO_CPU
+    ) {
+        return false;
+    }
+
+    worker->observer = observer;
+    worker->observer_context = context;
+
+    return true;
 }
