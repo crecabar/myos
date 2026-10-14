@@ -80,6 +80,14 @@ static const struct character_device_operations
         .read_ready = vfs_would_block_read_ready,
     };
 
+struct vfs_read_wait_probe {
+    struct vfs_file *file;
+    size_t calls;
+};
+
+static void vfs_character_device_test_read_wait_notification(
+    void *context);
+
 // Private functions and helpers declarations
 static void vfs_character_device_test_unregister(
     struct device_registry *registry,
@@ -92,6 +100,8 @@ static void vfs_character_device_test_zero(void);
 
 static void vfs_character_device_test_would_block(void);
 
+static void vfs_character_device_test_read_wait(void);
+
 // Public functions implementations
 void vfs_character_device_test_run(void)
 {
@@ -99,6 +109,7 @@ void vfs_character_device_test_run(void)
     vfs_character_device_test_zero();
 
     vfs_character_device_test_would_block();
+    vfs_character_device_test_read_wait();
 
     diagnostics_write(
         "[vfs] Character-device adapter tests passed\n"
@@ -139,6 +150,250 @@ static void vfs_character_device_test_unregister(
         );
     }
 }
+
+static void vfs_character_device_test_read_wait_notification(
+    void *context)
+{
+    struct vfs_read_wait_probe *probe = context;
+
+    if (
+        probe == NULL ||
+        probe->file == NULL ||
+        probe->file->reference_count == 0U
+    ) {
+        kernel_panic(
+            "VFS read wait callback observed dead file"
+        );
+    }
+
+    ++probe->calls;
+}
+
+
+static void vfs_character_device_test_read_wait(void)
+{
+    struct device generic;
+    struct character_device character;
+    struct vfs_character_device_node node;
+
+    struct vfs_would_block_probe device_probe = {0};
+
+    if (
+        !device_initialize(
+            &generic,
+            6461,
+            "vfs-read-wait",
+            sizeof("vfs-read-wait") - 1U,
+            DEVICE_KIND_PSEUDO,
+            NULL,
+            NULL
+        ) ||
+        !character_device_initialize(
+            &character,
+            &generic,
+            &vfs_would_block_operations,
+            &device_probe
+        ) ||
+        !vfs_character_device_node_initialize(
+            &node,
+            &character
+        )
+    ) {
+        kernel_panic(
+            "VFS read wait fixture initialization failed"
+        );
+    }
+
+    struct vfs_file *first_file = NULL;
+    struct vfs_file *second_file = NULL;
+
+    if (
+        vfs_node_open(
+            &node.vfs,
+            VFS_OPEN_ACCESS_READ,
+            &first_file
+        ) != VFS_OPEN_RESULT_OPENED ||
+        first_file == NULL ||
+        vfs_node_open(
+            &node.vfs,
+            VFS_OPEN_ACCESS_READ,
+            &second_file
+        ) != VFS_OPEN_RESULT_OPENED ||
+        second_file == NULL ||
+        first_file == second_file
+    ) {
+        kernel_panic(
+            "VFS read wait independent opens failed"
+        );
+    }
+
+    struct vfs_read_wait first = {0};
+    struct vfs_read_wait second = {0};
+
+    struct vfs_read_wait_probe a = {
+        .file = first_file,
+        .calls = 0U,
+    };
+
+    struct vfs_read_wait_probe b = {
+        .file = second_file,
+        .calls = 0U,
+    };
+
+    /*
+     * Each wait acquires an additional file reference.
+     * Both registrations share the same device queue.
+     */
+    if (
+        vfs_file_read_wait_register(
+            first_file,
+            &first,
+            vfs_character_device_test_read_wait_notification,
+            &a
+        ) != VFS_READINESS_RESULT_SUCCESS ||
+        vfs_file_read_wait_register(
+            second_file,
+            &second,
+            vfs_character_device_test_read_wait_notification,
+            &b
+        ) != VFS_READINESS_RESULT_SUCCESS ||
+        first_file->reference_count != 2U ||
+        second_file->reference_count != 2U ||
+        node.vfs.reference_count != 3U ||
+        first.entry.queue !=
+            &character.read_waiters ||
+        second.entry.queue !=
+            &character.read_waiters ||
+        device_probe.read_calls != 0U ||
+        device_probe.readiness_calls != 0U
+    ) {
+        kernel_panic(
+            "VFS read wait registration ownership failed"
+        );
+    }
+
+    /*
+     * The original open-file references are released.
+     * Only the two active waits now keep files alive.
+     */
+    if (
+        !vfs_file_release(first_file) ||
+        !vfs_file_release(second_file) ||
+        a.file->reference_count != 1U ||
+        b.file->reference_count != 1U ||
+        node.vfs.reference_count != 3U
+    ) {
+        kernel_panic(
+            "VFS read waits did not retain open files"
+        );
+    }
+
+    /*
+     * Simulate availability on the shared device.
+     * Each callback observes a still-live open file.
+     */
+    device_probe.readable = true;
+
+    if (
+        character_device_read_wait_notify(
+            &character
+        ) != 2U ||
+        a.calls != 1U ||
+        b.calls != 1U ||
+        wait_queue_entry_registered(&first.entry) ||
+        wait_queue_entry_registered(&second.entry) ||
+        first.file != NULL ||
+        second.file != NULL ||
+        node.vfs.reference_count != 1U ||
+        device_probe.read_calls != 0U ||
+        device_probe.readiness_calls != 0U
+    ) {
+        kernel_panic(
+            "VFS read wait notification ownership failed"
+        );
+    }
+
+    /*
+     * Delivery is one-shot. No pending registration
+     * remains to cancel or deliver again.
+     */
+    if (
+        vfs_read_wait_cancel(&first) ||
+        vfs_read_wait_cancel(&second) ||
+        character_device_read_wait_notify(
+            &character
+        ) != 0U ||
+        a.calls != 1U ||
+        b.calls != 1U
+    ) {
+        kernel_panic(
+            "VFS read wait duplicated delivery"
+        );
+    }
+
+    /*
+     * Exercise cancellation after the original file
+     * reference has already been released.
+     */
+    struct vfs_file *third_file = NULL;
+
+    if (
+        vfs_node_open(
+            &node.vfs,
+            VFS_OPEN_ACCESS_READ,
+            &third_file
+        ) != VFS_OPEN_RESULT_OPENED ||
+        third_file == NULL
+    ) {
+        kernel_panic(
+            "VFS read wait cancellation open failed"
+        );
+    }
+
+    struct vfs_read_wait third = {0};
+
+    struct vfs_read_wait_probe c = {
+        .file = third_file,
+        .calls = 0U,
+    };
+
+    if (
+        vfs_file_read_wait_register(
+            third_file,
+            &third,
+            vfs_character_device_test_read_wait_notification,
+            &c
+        ) != VFS_READINESS_RESULT_SUCCESS ||
+        third_file->reference_count != 2U ||
+        !vfs_file_release(third_file) ||
+        c.file->reference_count != 1U ||
+        !vfs_read_wait_cancel(&third) ||
+        third.file != NULL ||
+        wait_queue_entry_registered(&third.entry) ||
+        node.vfs.reference_count != 1U ||
+        character_device_read_wait_notify(
+            &character
+        ) != 0U ||
+        c.calls != 0U
+    ) {
+        kernel_panic(
+            "VFS read wait cancellation ownership failed"
+        );
+    }
+
+    if (
+        !vfs_node_release(&node.vfs) ||
+        generic.reference_count != 1U ||
+        !device_begin_removal(&generic) ||
+        !device_finish_removal(&generic) ||
+        !device_release(&generic)
+    ) {
+        kernel_panic(
+            "VFS read wait fixture cleanup failed"
+        );
+    }
+}
+
 
 static void vfs_character_device_test_null(void)
 {
@@ -262,6 +517,23 @@ static void vfs_character_device_test_null(void)
     ) {
         kernel_panic(
             "Character VFS null read failed"
+        );
+    }
+
+    struct vfs_read_wait unsupported_wait = {0};
+
+    if (
+        vfs_file_read_wait_register(
+            file,
+            &unsupported_wait,
+            vfs_character_device_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_NOT_SUPPORTED ||
+        unsupported_wait.file != NULL ||
+        wait_queue_entry_registered(&unsupported_wait.entry)
+    ) {
+        kernel_panic(
+            "VFS /dev/null unexpectedly supported read waits"
         );
     }
 

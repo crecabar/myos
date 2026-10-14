@@ -95,6 +95,12 @@ static void vfs_file_io_test_seek_validation(void);
 
 static void vfs_file_io_test_seek_failures(void);
 
+static void vfs_file_io_test_read_wait_notification(
+    void *context)
+{
+    (void) context;
+}
+
 // Public functions implementations
 void vfs_file_io_test_run(void)
 {
@@ -433,6 +439,77 @@ static void vfs_file_io_test_read_ready(void)
     ) {
         kernel_panic(
             "VFS readiness invalid arguments accepted"
+        );
+    }
+
+    /*
+     * The regular-file fixture has no read-wait operation.
+     * Missing capability must not create a registration.
+     */
+    struct vfs_read_wait wait = {0};
+
+    if (
+        vfs_file_read_wait_register(
+            &file,
+            &wait,
+            vfs_file_io_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_NOT_SUPPORTED ||
+        wait.file != NULL ||
+        wait_queue_entry_registered(&wait.entry) ||
+        file.reference_count != 1U
+    ) {
+        kernel_panic(
+            "VFS unsupported read wait registration failed"
+        );
+    }
+
+    /*
+     * Read access is enforced before capability dispatch.
+     */
+    file.access = VFS_OPEN_ACCESS_WRITE;
+
+    if (
+        vfs_file_read_wait_register(
+            &file,
+            &wait,
+            vfs_file_io_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_ACCESS_DENIED ||
+        wait.file != NULL ||
+        file.reference_count != 1U
+    ) {
+        kernel_panic(
+            "VFS read wait bypassed file permissions"
+        );
+    }
+
+    file.access = VFS_OPEN_ACCESS_READ;
+
+    if (
+        vfs_file_read_wait_register(
+            NULL,
+            &wait,
+            vfs_file_io_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        vfs_file_read_wait_register(
+            &file,
+            NULL,
+            vfs_file_io_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        vfs_file_read_wait_register(
+            &file,
+            &wait,
+            NULL,
+            NULL
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        vfs_read_wait_cancel(&wait) ||
+        file.reference_count != 1U
+    ) {
+        kernel_panic(
+            "VFS read wait accepted invalid arguments"
         );
     }
 
