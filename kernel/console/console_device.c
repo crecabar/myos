@@ -177,21 +177,31 @@ size_t console_device_drain_input(
         );
 
     /*
-     * Notify only when input transitions from
-     * unavailable to readable.
+     * Notify only on the transition from no completed
+     * canonical lines to at least one completed line.
      *
-     * Processing ordinary keystrokes does not make
-     * a canonical line readable until Enter arrives.
+     * Both notification mechanisms observe the same
+     * transition without consuming input:
+     *
+     * - character-device waiters receive a one-shot
+     *   broadcast;
+     * - the existing console observer retains its
+     *   original notification contract.
      */
     if (
         completed_before == 0U &&
-        device->input.completed_count != 0U &&
-        device->readable_notification != NULL
+        device->input.completed_count != 0U
     ) {
-        device->readable_notification(
-            device->readable_notification_context,
-            device
+        (void) character_device_read_wait_notify(
+            &device->character
         );
+
+        if (device->readable_notification != NULL) {
+            device->readable_notification(
+                device->readable_notification_context,
+                device
+            );
+        }
     }
 
     return processed;

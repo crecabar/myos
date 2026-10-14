@@ -12,15 +12,16 @@
 
 #include "../arch/x86_64/cpu_identity.h"
 #include "../arch/x86_64/interrupts.h"
-#include "../console/console_input_worker.h"
-#include "../core/cpu/cpu_local.h"
-#include "../core/execution/kernel_dispatch.h"
 #include "../console/console.h"
 #include "../console/console_device.h"
+#include "../console/console_input_worker.h"
+#include "../core/panic.h"
+#include "../core/wait_queue.h"
+#include "../core/cpu/cpu_local.h"
 #include "../core/device/character_device.h"
 #include "../core/device/device.h"
 #include "../core/device/registry.h"
-#include "../core/panic.h"
+#include "../core/execution/kernel_dispatch.h"
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
 #include "../input/input.h"
@@ -77,6 +78,25 @@ struct console_readability_probe {
     size_t calls;
 };
 
+struct console_read_wait_probe {
+    size_t calls;
+};
+
+static void console_device_test_read_wait_notification(
+    void *context)
+{
+    struct console_read_wait_probe *probe =
+        context;
+
+    if (probe == NULL) {
+        kernel_panic(
+            "Console read waiter has invalid context"
+        );
+    }
+
+    ++probe->calls;
+}
+
 static void console_device_test_readable_notification(
     void *context,
     struct console_device *device)
@@ -118,10 +138,19 @@ static void console_device_test_readability(
     struct console_device *device
 );
 
+static void console_device_test_expect_read_ready(
+    struct console_device *device,
+    bool expected);
+
+static void console_device_test_read_waiters(
+    struct console_device *device
+    );
+
 static void console_device_test_readability_key(
     struct console_device *device,
     enum input_key_code code
 );
+
 
 static void console_device_test_readability_expect_line(
     struct console_device *device,
@@ -202,6 +231,285 @@ static void console_device_test_input_notification(void)
     );
 }
 
+static void console_device_test_read_waiters(
+    struct console_device *device)
+{
+    if (
+        device == NULL ||
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 0U ||
+        device->readable_notification != NULL ||
+        device->character.read_waiters.head != NULL ||
+        device->character.read_waiters.tail != NULL ||
+        input_event_pending() != 0U
+    ) {
+        kernel_panic(
+            "Console read waiters fixture has dirty initial state"
+        );
+    }
+
+    struct wait_queue_entry first;
+    struct wait_queue_entry second;
+
+    wait_queue_entry_init(&first);
+    wait_queue_entry_init(&second);
+
+    struct console_read_wait_probe a = {0};
+    struct console_read_wait_probe b = {0};
+
+    struct console_readability_probe legacy = {
+        .device = device,
+        .calls = 0U,
+    };
+
+    /*
+     * Both notification interfaces coexist.
+     *
+     * Registration does not consume or query input.
+     */
+    if (
+        !console_device_readable_notification_set(
+            device,
+            console_device_test_readable_notification,
+            &legacy
+        ) ||
+        !character_device_read_wait_register(
+            &device->character,
+            &first,
+            console_device_test_read_wait_notification,
+            &a
+        ) ||
+        !character_device_read_wait_register(
+            &device->character,
+            &second,
+            console_device_test_read_wait_notification,
+            &b
+        )
+    ) {
+        kernel_panic(
+            "Console read waiters registration failed"
+        );
+    }
+
+    /*
+     * Ordinary characters are not yet readable.
+     */
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_H
+    );
+
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_I
+    );
+
+    console_device_test_expect_read_ready(
+        device,
+        false
+    );
+
+    if (
+        a.calls != 0U ||
+        b.calls != 0U ||
+        legacy.calls != 0U
+    ) {
+        kernel_panic(
+            "Console read waiters notified before Enter"
+        );
+    }
+
+    /*
+     * Enter makes the canonical line readable.
+     *
+     * Both waiters receive one notification, while
+     * the original observer is also notified.
+     */
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_ENTER
+    );
+
+    console_device_test_expect_read_ready(
+        device,
+        true
+    );
+
+    if (
+        a.calls != 1U ||
+        b.calls != 1U ||
+        legacy.calls != 1U ||
+        wait_queue_entry_registered(&first) ||
+        wait_queue_entry_registered(&second)
+    ) {
+        kernel_panic(
+            "Console read waiters broadcast failed"
+        );
+    }
+
+    /*
+     * Start another line while the first completed
+     * line remains unread.
+     *
+     * No new empty-to-readable transition occurs.
+     */
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_H
+    );
+
+    if (
+        a.calls != 1U ||
+        b.calls != 1U ||
+        legacy.calls != 1U
+    ) {
+        kernel_panic(
+            "Console read waiters duplicated notification"
+        );
+    }
+
+    static const char first_line[] = "hi\n";
+
+    console_device_test_readability_expect_line(
+        device,
+        first_line,
+        sizeof(first_line) - 1U
+    );
+
+    console_device_test_expect_read_ready(
+        device,
+        false
+    );
+
+    /*
+     * Register a second round, but cancel waiter A.
+     *
+     * Only waiter B should receive the next event.
+     */
+    if (
+        !character_device_read_wait_register(
+            &device->character,
+            &first,
+            console_device_test_read_wait_notification,
+            &a
+        ) ||
+        !character_device_read_wait_register(
+            &device->character,
+            &second,
+            console_device_test_read_wait_notification,
+            &b
+        ) ||
+        !wait_queue_cancel(&first)
+    ) {
+        kernel_panic(
+            "Console read waiters cancellation setup failed"
+        );
+    }
+
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_ENTER
+    );
+
+    if (
+        a.calls != 1U ||
+        b.calls != 2U ||
+        legacy.calls != 2U ||
+        wait_queue_entry_registered(&first) ||
+        wait_queue_entry_registered(&second)
+    ) {
+        kernel_panic(
+            "Console read waiters cancellation contract failed"
+        );
+    }
+
+    static const char second_line[] = "h\n";
+
+    console_device_test_readability_expect_line(
+        device,
+        second_line,
+        sizeof(second_line) - 1U
+    );
+
+    console_device_test_expect_read_ready(
+        device,
+        false
+    );
+
+    /*
+     * Remove the legacy observer and register both
+     * waiters again.
+     *
+     * An empty canonical line is still readable.
+     */
+    if (
+        !console_device_readable_notification_set(
+            device,
+            NULL,
+            NULL
+        ) ||
+        !character_device_read_wait_register(
+            &device->character,
+            &first,
+            console_device_test_read_wait_notification,
+            &a
+        ) ||
+        !character_device_read_wait_register(
+            &device->character,
+            &second,
+            console_device_test_read_wait_notification,
+            &b
+        )
+    ) {
+        kernel_panic(
+            "Console read waiters final registration failed"
+        );
+    }
+
+    console_device_test_readability_key(
+        device,
+        INPUT_KEY_ENTER
+    );
+
+    if (
+        a.calls != 2U ||
+        b.calls != 3U ||
+        legacy.calls != 2U ||
+        wait_queue_entry_registered(&first) ||
+        wait_queue_entry_registered(&second)
+    ) {
+        kernel_panic(
+            "Console read waiters final broadcast failed"
+        );
+    }
+
+    static const char empty_line[] = "\n";
+
+    console_device_test_readability_expect_line(
+        device,
+        empty_line,
+        sizeof(empty_line) - 1U
+    );
+
+    /*
+     * Leave the shared console fixture clean.
+     */
+    if (
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 0U ||
+        device->readable_notification != NULL ||
+        device->readable_notification_context != NULL ||
+        device->character.read_waiters.head != NULL ||
+        device->character.read_waiters.tail != NULL ||
+        device->character.read_waiters.notifying ||
+        input_event_pending() != 0U ||
+        deferred_work_pending(&device->input_work)
+    ) {
+        kernel_panic(
+            "Console read waiters fixture leaked state"
+        );
+    }
+}
 
 static void console_device_test_readability_key(
     struct console_device *device,
@@ -1044,6 +1352,8 @@ static void console_device_test_deferred_input(void)
      * preserving the original deferred-input fixture.
      */
     console_device_test_readability(&device);
+
+    console_device_test_read_waiters(&device);
 
     struct input_event events[] = {
         {
