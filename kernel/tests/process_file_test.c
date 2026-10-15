@@ -44,6 +44,18 @@ struct process_file_readiness_probe {
     size_t calls;
 };
 
+struct process_file_wait_prepare_probe {
+    struct wait_queue queue;
+
+    enum vfs_readiness_result readiness_result;
+
+    bool readable;
+    bool become_readable_on_registration;
+
+    size_t readiness_calls;
+    size_t registration_calls;
+};
+
 static struct vfs_file *process_file_test_open_storage;
 static size_t process_file_test_open_call_count;
 static enum vfs_open_result process_file_test_open_result;
@@ -170,7 +182,21 @@ static enum vfs_readiness_result process_file_test_wait_registration(
     void *context
 );
 
+static enum vfs_readiness_result process_file_test_prepare_readiness(
+    struct vfs_file *file,
+    bool *ready
+);
+
+static enum vfs_readiness_result process_file_test_prepare_registration(
+    struct vfs_file *file,
+    struct wait_queue_entry *entry,
+    wait_queue_notification_fn notification,
+    void *context
+);
+
 static void process_file_test_read_wait(void);
+
+static void process_file_test_read_wait_prepare(void);
 
 void process_file_test_run(void)
 {
@@ -180,6 +206,7 @@ void process_file_test_run(void)
     process_file_test_read_ready();
     process_file_test_read_wait();
     process_file_test_read_wait_scheduler_wakeup();
+    process_file_test_read_wait_prepare();
 
     /*
      * Termination cancels a pending wait with an open FD.
@@ -2199,6 +2226,76 @@ static enum vfs_readiness_result process_file_test_wait_registration(
     return VFS_READINESS_RESULT_SUCCESS;
 }
 
+static enum vfs_readiness_result process_file_test_prepare_readiness(
+    struct vfs_file *file,
+    bool *ready)
+{
+    if (
+        file == NULL ||
+        ready == NULL ||
+        file->private_data == NULL
+    ) {
+        return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct process_file_wait_prepare_probe *probe =
+        file->private_data;
+
+    ++probe->readiness_calls;
+
+    /*
+     * Expose the current readiness state without
+     * consuming data or changing the file offset.
+     */
+    *ready = probe->readable;
+
+    return probe->readiness_result;
+}
+
+static enum vfs_readiness_result process_file_test_prepare_registration(
+    struct vfs_file *file,
+    struct wait_queue_entry *entry,
+    wait_queue_notification_fn notification,
+    void *context)
+{
+    if (
+        file == NULL ||
+        file->private_data == NULL ||
+        entry == NULL ||
+        notification == NULL
+    ) {
+        return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct process_file_wait_prepare_probe *probe =
+        file->private_data;
+
+    if (!wait_queue_register(
+        &probe->queue,
+        entry,
+        notification,
+        context
+    )) {
+        return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    ++probe->registration_calls;
+
+    /*
+     * Simulate a producer making data available
+     * after registration, but before the caller's
+     * subsequent readiness query.
+     *
+     * Do not dispatch a synchronous notification:
+     * registration callbacks may not deliver events.
+     */
+    if (probe->become_readable_on_registration) {
+        probe->readable = true;
+    }
+
+    return VFS_READINESS_RESULT_SUCCESS;
+}
+
 static void process_file_test_read_wait(void)
 {
     struct process_file_test_fixture fixture;
@@ -2444,6 +2541,323 @@ static void process_file_test_read_wait(void)
     ) {
         kernel_panic(
             "Process delivered read wait cleanup failed"
+        );
+    }
+
+    process_file_test_expect_baseline(&fixture);
+    process_file_test_fixture_release(&fixture);
+}
+
+static void process_file_test_read_wait_prepare(void)
+{
+    struct process_file_test_fixture fixture;
+
+    process_file_test_fixture_initialize(&fixture);
+
+    /*
+     * Lightweight process fixture. No Ring-3 context
+     * or scheduler registration is required.
+     */
+    fixture.instance.process.instance =
+        &fixture.instance;
+
+    fixture.instance.process.state =
+        PROCESS_STATE_READY;
+
+    struct process_file_wait_prepare_probe probe = {
+        .readiness_result =
+            VFS_READINESS_RESULT_SUCCESS,
+        .readable = false,
+        .become_readable_on_registration = false,
+        .readiness_calls = 0U,
+        .registration_calls = 0U,
+    };
+
+    wait_queue_init(&probe.queue);
+
+    size_t descriptor = SIZE_MAX;
+
+    if (
+        process_file_open(
+            &fixture.instance,
+            "/file",
+            sizeof("/file") - 1U,
+            VFS_OPEN_ACCESS_READ,
+            &descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        descriptor != 0U
+    ) {
+        kernel_panic(
+            "Read wait preparation fixture open failed"
+        );
+    }
+
+    struct vfs_file_operations operations =
+        process_file_test_io_operations;
+
+    operations.read_ready =
+        process_file_test_prepare_readiness;
+
+    operations.read_wait_register =
+        process_file_test_prepare_registration;
+
+    fixture.file_storage.operations = &operations;
+    fixture.file_storage.private_data = &probe;
+    fixture.file_storage.offset = 19U;
+
+    /*
+     * Registration, readiness recheck, cancellation
+     * and the eventual block decision must be
+     * serialized against event delivery.
+     */
+    interrupts_disable();
+
+    /*
+     * Invalid arguments must not modify the output
+     * or acquire any VFS ownership.
+     */
+    bool should_block = false;
+
+    if (
+        process_file_read_wait_prepare(
+            NULL,
+            descriptor,
+            &should_block
+        ) != PROCESS_FILE_RESULT_INVALID_ARGUMENT ||
+        process_file_read_wait_prepare(
+            &fixture.instance,
+            descriptor,
+            NULL
+        ) != PROCESS_FILE_RESULT_INVALID_ARGUMENT ||
+        process_file_read_wait_prepare(
+            &fixture.instance,
+            PROCESS_FD_TABLE_CAPACITY,
+            &should_block
+        ) != PROCESS_FILE_RESULT_BAD_DESCRIPTOR ||
+        should_block ||
+        probe.registration_calls != 0U ||
+        probe.readiness_calls != 0U ||
+        fixture.instance.read_wait_active ||
+        fixture.file_storage.reference_count != 1U
+    ) {
+        kernel_panic(
+            "Read wait preparation accepted invalid arguments"
+        );
+    }
+
+    /*
+     * A file without the wait-registration capability
+     * cannot enter a blocking wait.
+     */
+    operations.read_wait_register = NULL;
+
+    if (
+        process_file_read_wait_prepare(
+            &fixture.instance,
+            descriptor,
+            &should_block
+        ) != PROCESS_FILE_RESULT_NOT_SUPPORTED ||
+        should_block ||
+        probe.registration_calls != 0U ||
+        probe.readiness_calls != 0U ||
+        fixture.instance.read_wait_active ||
+        fixture.file_storage.reference_count != 1U
+    ) {
+        kernel_panic(
+            "Read wait preparation accepted missing capability"
+        );
+    }
+
+    operations.read_wait_register =
+        process_file_test_prepare_registration;
+
+    /*
+     * Case 1: the resource remains unreadable.
+     *
+     * The caller must retain an active wait and
+     * receive permission to enter BLOCKED.
+     */
+    should_block = false;
+
+    if (
+        process_file_read_wait_prepare(
+            &fixture.instance,
+            descriptor,
+            &should_block
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        !should_block ||
+        !fixture.instance.read_wait_active ||
+        fixture.instance.read_wait_notified ||
+        !wait_queue_entry_registered(
+            &fixture.instance.read_wait.entry
+        ) ||
+        fixture.file_storage.reference_count != 2U ||
+        fixture.file_node.reference_count != 2U ||
+        probe.registration_calls != 1U ||
+        probe.readiness_calls != 1U ||
+        process_file_test_read_call_count != 0U ||
+        fixture.file_storage.offset != 19U
+    ) {
+        kernel_panic(
+            "Unreadable resource failed wait preparation"
+        );
+    }
+
+    /*
+     * A second preparation must not replace an
+     * existing process-owned request.
+     */
+    should_block = false;
+
+    if (
+        process_file_read_wait_prepare(
+            &fixture.instance,
+            descriptor,
+            &should_block
+        ) != PROCESS_FILE_RESULT_INVALID_ARGUMENT ||
+        should_block ||
+        !fixture.instance.read_wait_active ||
+        fixture.file_storage.reference_count != 2U ||
+        probe.registration_calls != 1U ||
+        probe.readiness_calls != 1U
+    ) {
+        kernel_panic(
+            "Read wait preparation accepted duplicate request"
+        );
+    }
+
+    /*
+     * Cancel the pending request.
+     *
+     * The queue entry and independent VFS reference
+     * must both be released.
+     */
+    if (
+        !process_file_read_wait_cancel(
+            &fixture.instance
+        ) ||
+        fixture.instance.read_wait_active ||
+        fixture.instance.read_wait_notified ||
+        fixture.instance.read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &fixture.instance.read_wait.entry
+        ) ||
+        probe.queue.head != NULL ||
+        probe.queue.tail != NULL ||
+        fixture.file_storage.reference_count != 1U ||
+        wait_queue_notify_all(&probe.queue) != 0U
+    ) {
+        kernel_panic(
+            "Prepared read wait cancellation failed"
+        );
+    }
+
+    /*
+     * Case 2: data becomes available during
+     * registration.
+     *
+     * The second readiness query must detect it
+     * and cancel the registration before returning.
+     */
+    probe.readable = false;
+    probe.become_readable_on_registration = true;
+
+    should_block = true;
+
+    if (
+        process_file_read_wait_prepare(
+            &fixture.instance,
+            descriptor,
+            &should_block
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        should_block ||
+        !probe.readable ||
+        fixture.instance.read_wait_active ||
+        fixture.instance.read_wait_notified ||
+        fixture.instance.read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &fixture.instance.read_wait.entry
+        ) ||
+        probe.queue.head != NULL ||
+        probe.queue.tail != NULL ||
+        fixture.file_storage.reference_count != 1U ||
+        probe.registration_calls != 2U ||
+        probe.readiness_calls != 2U ||
+        process_file_test_read_call_count != 0U ||
+        fixture.file_storage.offset != 19U
+    ) {
+        kernel_panic(
+            "Read wait recheck failed to detect available data"
+        );
+    }
+
+    /*
+     * Case 3: the backend readiness query fails
+     * after registration succeeded.
+     *
+     * The error must propagate and every resource
+     * acquired by registration must be rolled back.
+     */
+    probe.readable = false;
+    probe.become_readable_on_registration = false;
+
+    probe.readiness_result =
+        VFS_READINESS_RESULT_ACCESS_DENIED;
+
+    should_block = true;
+
+    if (
+        process_file_read_wait_prepare(
+            &fixture.instance,
+            descriptor,
+            &should_block
+        ) != PROCESS_FILE_RESULT_ACCESS_DENIED ||
+        !should_block ||
+        fixture.instance.read_wait_active ||
+        fixture.instance.read_wait_notified ||
+        fixture.instance.read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &fixture.instance.read_wait.entry
+        ) ||
+        probe.queue.head != NULL ||
+        probe.queue.tail != NULL ||
+        fixture.file_storage.reference_count != 1U ||
+        probe.registration_calls != 3U ||
+        probe.readiness_calls != 3U ||
+        process_file_test_read_call_count != 0U ||
+        fixture.file_storage.offset != 19U ||
+        wait_queue_notify_all(&probe.queue) != 0U
+    ) {
+        kernel_panic(
+            "Read wait readiness failure leaked ownership"
+        );
+    }
+
+    /*
+     * Preparation never changes process scheduling
+     * state. It only decides whether blocking would
+     * be valid for the caller.
+     */
+    if (
+        fixture.instance.process.state !=
+            PROCESS_STATE_READY
+    ) {
+        kernel_panic(
+            "Read wait preparation modified process state"
+        );
+    }
+
+    interrupts_enable();
+
+    if (
+        process_file_close(
+            &fixture.instance,
+            descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        fixture.file_storage.reference_count != 0U
+    ) {
+        kernel_panic(
+            "Read wait preparation fixture close failed"
         );
     }
 

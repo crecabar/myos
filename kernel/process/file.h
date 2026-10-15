@@ -137,6 +137,31 @@ enum process_file_result process_file_read_wait_register(
 );
 
 /**
+ * Prepares a read wait after an operation returned WOULD_BLOCK.
+ *
+ * The caller must serialize this entire operation with
+ * event delivery, using interrupts disabled on the BSP.
+ *
+ * On success:
+ * - should_block=true retains an active VFS registration;
+ * - should_block=false means the caller should retry read().
+ *
+ * When readiness is already available, the registration
+ * is cancelled before returning.
+ *
+ * On failure, no newly acquired registration remains.
+ * Any previously active wait is left unchanged, and
+ * should_block is not modified.
+ *
+ * This operation does not suspend the process.
+ */
+enum process_file_result process_file_read_wait_prepare(
+    struct process_instance *instance,
+    size_t descriptor,
+    bool *should_block
+);
+
+/**
  * Clears the process's active read wait.
  *
  * If notification has not arrived, cancels its VFS

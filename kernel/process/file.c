@@ -350,6 +350,72 @@ enum process_file_result process_file_read_wait_register(
     return PROCESS_FILE_RESULT_SUCCESS;
 }
 
+enum process_file_result process_file_read_wait_prepare(
+    struct process_instance *instance,
+    size_t descriptor,
+    bool *should_block)
+{
+    if (should_block == NULL) {
+        return PROCESS_FILE_RESULT_INVALID_ARGUMENT;
+    }
+
+    enum process_file_result result =
+        process_file_read_wait_register(
+            instance,
+            descriptor
+        );
+
+    if (result != PROCESS_FILE_RESULT_SUCCESS) {
+        return result;
+    }
+
+    /*
+     * The registration is now active.
+     *
+     * Recheck readability after registration so an
+     * event published before the registration cannot
+     * leave the process waiting indefinitely.
+     */
+    bool ready = false;
+
+    result = process_file_read_ready(
+        instance,
+        descriptor,
+        &ready
+    );
+
+    if (
+        result != PROCESS_FILE_RESULT_SUCCESS ||
+        ready ||
+        instance->read_wait_notified
+    ) {
+        if (!process_file_read_wait_cancel(
+            instance
+        )) {
+            kernel_panic(
+                "Unable to cancel prepared read wait"
+            );
+        }
+
+        if (result != PROCESS_FILE_RESULT_SUCCESS) {
+            return result;
+        }
+
+        *should_block = false;
+
+        return PROCESS_FILE_RESULT_SUCCESS;
+    }
+
+    /*
+     * The caller may now block while preserving the
+     * registration. This decision remains valid only
+     * within the same event-serialized critical section.
+     */
+    *should_block = true;
+
+    return PROCESS_FILE_RESULT_SUCCESS;
+}
+
 bool process_file_read_wait_cancel(
     struct process_instance *instance)
 {
