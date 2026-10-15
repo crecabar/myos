@@ -30,6 +30,14 @@ struct console_line_buffer {
         CONSOLE_LINE_QUEUE_CAPACITY
     ];
 
+    /*
+     * Distinguishes a one-shot EOF record from
+     * a completed line containing actual bytes.
+     */
+    bool completed_eof[
+        CONSOLE_LINE_QUEUE_CAPACITY
+    ];
+
     size_t completed_head;
     size_t completed_tail;
     size_t completed_count;
@@ -43,6 +51,22 @@ void console_line_buffer_init(
 enum console_line_input_result console_line_buffer_submit(
     struct console_line_buffer *buffer,
     char character
+);
+
+/**
+ * Completes canonical input without appending newline.
+ *
+ * With pending editing bytes, publishes those bytes
+ * as a completed record.
+ *
+ * With an empty editing buffer, publishes a one-shot
+ * EOF record that produces a successful zero-byte read.
+ *
+ * A full completed queue rejects the operation without
+ * modifying the editing buffer or queue.
+ */
+enum console_line_input_result console_line_buffer_submit_eof(
+    struct console_line_buffer *buffer
 );
 
 bool console_line_buffer_read(

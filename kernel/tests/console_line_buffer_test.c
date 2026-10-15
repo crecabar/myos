@@ -381,6 +381,193 @@ static void console_line_buffer_test_zero_read(void)
     }
 }
 
+static void console_line_buffer_test_empty_eof(void)
+{
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    char output[4] = {0};
+    size_t length = SIZE_MAX;
+
+    if (
+        console_line_buffer_read(
+            &buffer, output, sizeof(output), &length
+        ) ||
+        console_line_buffer_submit_eof(
+            &buffer
+        ) != CONSOLE_LINE_INPUT_ACCEPTED ||
+        buffer.completed_count != 1U ||
+        !console_line_buffer_read(
+            &buffer, output, sizeof(output), &length
+        ) ||
+        length != 0U ||
+        buffer.completed_count != 0U ||
+        console_line_buffer_read(
+            &buffer, output, sizeof(output), &length
+        )
+    ) {
+        kernel_panic(
+            "Console one-shot EOF contract failed"
+        );
+    }
+
+    /*
+     * EOF does not permanently close the device.
+     */
+    if (
+        console_line_buffer_submit(
+            &buffer, 'x'
+        ) != CONSOLE_LINE_INPUT_ACCEPTED ||
+        console_line_buffer_submit(
+            &buffer, '\n'
+        ) != CONSOLE_LINE_INPUT_ACCEPTED ||
+        !console_line_buffer_read(
+            &buffer, output, sizeof(output), &length
+        ) ||
+        length != 2U ||
+        output[0] != 'x' ||
+        output[1] != '\n'
+    ) {
+        kernel_panic(
+            "Console failed to recover after EOF"
+        );
+    }
+}
+
+static void console_line_buffer_test_eof_flush(void)
+{
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    char output[4] = {0};
+    size_t length = 0U;
+
+    if (
+        console_line_buffer_submit(
+            &buffer, 'a'
+        ) != CONSOLE_LINE_INPUT_ACCEPTED ||
+        console_line_buffer_submit(
+            &buffer, 'b'
+        ) != CONSOLE_LINE_INPUT_ACCEPTED ||
+        console_line_buffer_submit_eof(
+            &buffer
+        ) != CONSOLE_LINE_INPUT_ACCEPTED ||
+        buffer.editing_length != 0U ||
+        !console_line_buffer_read(
+            &buffer, output, 1U, &length
+        ) ||
+        length != 1U ||
+        output[0] != 'a' ||
+        !console_line_buffer_read(
+            &buffer, output, sizeof(output), &length
+        ) ||
+        length != 1U ||
+        output[0] != 'b' ||
+        buffer.completed_count != 0U ||
+        console_line_buffer_read(
+            &buffer, output, sizeof(output), &length
+        )
+    ) {
+        kernel_panic(
+            "Console EOF pending-text flush failed"
+        );
+    }
+}
+
+static void console_line_buffer_test_eof_queue(void)
+{
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    char output[4] = {0};
+    size_t length = SIZE_MAX;
+
+    /*
+     * Four EOF records occupy the entire queue.
+     */
+    for (
+        size_t index = 0U;
+        index < CONSOLE_LINE_QUEUE_CAPACITY;
+        ++index
+    ) {
+        if (
+            console_line_buffer_submit_eof(
+                &buffer
+            ) != CONSOLE_LINE_INPUT_ACCEPTED
+        ) {
+            kernel_panic(
+                "Console EOF queue fill failed"
+            );
+        }
+    }
+
+    if (
+        console_line_buffer_submit_eof(
+            &buffer
+        ) != CONSOLE_LINE_INPUT_FULL ||
+        buffer.completed_count !=
+            CONSOLE_LINE_QUEUE_CAPACITY
+    ) {
+        kernel_panic(
+            "Console EOF backpressure failed"
+        );
+    }
+
+    /*
+     * Zero-capacity reads must not consume EOF.
+     */
+    if (
+        !console_line_buffer_read(
+            &buffer, NULL, 0U, &length
+        ) ||
+        length != 0U ||
+        buffer.completed_count !=
+            CONSOLE_LINE_QUEUE_CAPACITY
+    ) {
+        kernel_panic(
+            "Console zero-length EOF read consumed input"
+        );
+    }
+
+    for (
+        size_t index = 0U;
+        index < CONSOLE_LINE_QUEUE_CAPACITY;
+        ++index
+    ) {
+        if (
+            !console_line_buffer_read(
+                &buffer,
+                output,
+                sizeof(output),
+                &length
+            ) ||
+            length != 0U
+        ) {
+            kernel_panic(
+                "Console EOF FIFO delivery failed"
+            );
+        }
+    }
+
+    if (
+        buffer.completed_count != 0U ||
+        console_line_buffer_submit_eof(
+            &buffer
+        ) != CONSOLE_LINE_INPUT_ACCEPTED ||
+        !console_line_buffer_read(
+            &buffer, output, sizeof(output), &length
+        ) ||
+        length != 0U ||
+        console_line_buffer_submit_eof(
+            NULL
+        ) != CONSOLE_LINE_INPUT_IGNORED
+    ) {
+        kernel_panic(
+            "Console EOF queue recovery failed"
+        );
+    }
+}
+
 void console_line_buffer_test_run(void)
 {
     console_line_buffer_test_line();
@@ -391,6 +578,9 @@ void console_line_buffer_test_run(void)
     console_line_buffer_test_zero_read();
     console_line_buffer_test_interleaved();
     console_line_buffer_test_wraparound();
+    console_line_buffer_test_empty_eof();
+    console_line_buffer_test_eof_flush();
+    console_line_buffer_test_eof_queue();
 
     diagnostics_write(
         "[console] Line buffer tests passed\n"
