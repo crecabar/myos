@@ -56,6 +56,9 @@ USER_BOOTSTRAP_RUNTIME_OBJECTS := \
 
 USER_INIT_SOURCE := user/bootstrap/init/main.c
 USER_INIT_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/init.o
+USER_INIT_SUPERVISOR_SOURCE := user/bootstrap/init/supervisor.c
+USER_INIT_SUPERVISOR_HEADER := user/bootstrap/init/supervisor.h
+USER_INIT_SUPERVISOR_OBJECT := $(USER_BOOTSTRAP_BUILD_DIR)/init-supervisor.o
 USER_INIT_ELF    := $(USER_BOOTSTRAP_BUILD_DIR)/init.elf
 
 USER_BOOTSTRAP_CFLAGS := \
@@ -160,6 +163,16 @@ $(USER_BOOTSTRAP_EXIT_OBJECT): \
 
 $(USER_INIT_OBJECT): \
 	$(USER_INIT_SOURCE) \
+	$(USER_INIT_SUPERVISOR_HEADER) \
+	| $(USER_BOOTSTRAP_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-c $< \
+		-o $@
+
+$(USER_INIT_SUPERVISOR_OBJECT): \
+	$(USER_INIT_SUPERVISOR_SOURCE) \
+	$(USER_INIT_SUPERVISOR_HEADER) \
+	$(USER_SYSCALL_ABI_HEADER) \
 	| $(USER_BOOTSTRAP_BUILD_DIR)
 	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
 		-c $< \
@@ -168,6 +181,7 @@ $(USER_INIT_OBJECT): \
 $(USER_INIT_ELF): \
 	$(USER_BOOTSTRAP_RUNTIME_OBJECTS) \
 	$(USER_INIT_OBJECT) \
+	$(USER_INIT_SUPERVISOR_OBJECT) \
 	$(USER_BOOTSTRAP_LINKER_SCRIPT)
 	$(LD_LLD) \
 		-static \
@@ -175,4 +189,17 @@ $(USER_INIT_ELF): \
 		-T $(USER_BOOTSTRAP_LINKER_SCRIPT) \
 		-o $@ \
 		$(USER_BOOTSTRAP_RUNTIME_OBJECTS) \
+		$(USER_INIT_SUPERVISOR_OBJECT) \
 		$(USER_INIT_OBJECT)
+
+.PHONY: test-init-supervisor
+
+test-init-supervisor:
+	mkdir -p $(BUILD_DIR)/host-tests
+	cc -std=c11 \
+		-Wall -Wextra -Werror -Wpedantic \
+		-I$(MYOS_INCLUDE_DIR) \
+		$(USER_INIT_SUPERVISOR_SOURCE) \
+		user/bootstrap/init/tests/supervisor_test.c \
+		-o $(BUILD_DIR)/host-tests/init-supervisor-test
+	$(BUILD_DIR)/host-tests/init-supervisor-test
