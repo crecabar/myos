@@ -11,6 +11,7 @@
 #include "../../core/panic.h"
 #include "../../diagnostics/diagnostics.h"
 #include "../../process/exec.h"
+#include "../../process/file.h"
 #include "../../process/fork.h"
 #include "../../process/process.h"
 #include "../../process/wait.h"
@@ -968,6 +969,118 @@ void syscall_handler(struct interrupt_context *context)
             if (!process_wait_cancel(parent)) {
                 kernel_panic(
                     "Unable to cancel failed waitpid block"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+        }
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_FD_READ) {
+        syscall_result_t result;
+
+        enum syscall_fd_read_action action =
+            syscall_fd_read_prepare(
+                context->rdi,
+                context->rsi,
+                context->rdx,
+                &result
+            );
+
+        if (
+            action ==
+            SYSCALL_FD_READ_ACTION_RETURN
+        ) {
+            context->rax =
+                (uint64_t) result;
+
+            return;
+        }
+
+        if (
+            action !=
+            SYSCALL_FD_READ_ACTION_BLOCK
+        ) {
+            kernel_panic(
+                "fd_read returned invalid architecture action"
+            );
+        }
+
+        struct process *process =
+            scheduler_current();
+
+        if (
+            process == NULL ||
+            process->instance == NULL
+        ) {
+            kernel_panic(
+                "fd_read lost current process before blocking"
+            );
+        }
+
+        struct process_instance *instance =
+            process->instance;
+
+        if (
+            !instance->read_wait_active ||
+            instance->read_wait_notified
+        ) {
+            kernel_panic(
+                "fd_read attempted to block without pending wait"
+            );
+        }
+
+        /*
+         * Rewind the saved RIP to retry the complete
+         * int 0x80 instruction after notification.
+         *
+         * No bytes were transferred by the read that
+         * originally returned WOULD_BLOCK.
+         */
+        if (
+            context->rip <
+                X86_INT_IMM8_INSTRUCTION_SIZE ||
+            !process_memory_user_range_valid(
+                context->rip -
+                    X86_INT_IMM8_INSTRUCTION_SIZE,
+                X86_INT_IMM8_INSTRUCTION_SIZE
+            )
+        ) {
+            if (!process_file_read_wait_cancel(
+                instance
+            )) {
+                kernel_panic(
+                    "Unable to cancel read wait after invalid RIP"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        context->rip -=
+            X86_INT_IMM8_INSTRUCTION_SIZE;
+
+        if (!scheduler_block_current_preserve_context(
+            context
+        )) {
+            context->rip +=
+                X86_INT_IMM8_INSTRUCTION_SIZE;
+
+            if (!process_file_read_wait_cancel(
+                instance
+            )) {
+                kernel_panic(
+                    "Unable to cancel failed fd_read block"
                 );
             }
 

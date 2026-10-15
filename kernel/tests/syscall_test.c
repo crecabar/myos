@@ -127,6 +127,28 @@ void syscall_test_run(void)
         );
     }
 
+    /*
+     * Kernel-side syscall tests execute without a
+     * currently scheduled userspace process.
+     */
+    syscall_result_t read_result = 0;
+
+    if (
+        syscall_fd_read_prepare(
+            0,
+            0,
+            1,
+            &read_result
+        ) != SYSCALL_FD_READ_ACTION_RETURN ||
+        read_result != syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        )
+    ) {
+        kernel_panic(
+            "fd_read accepted missing process context"
+        );
+    }
+
     if (
         syscall_result_error(
             SYSCALL_ERROR_INVALID_ARGUMENT
