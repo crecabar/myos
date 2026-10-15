@@ -13,6 +13,19 @@ enum console_input_result console_input_process_event(
     struct console_line_buffer *buffer,
     const struct input_event *event)
 {
+    return console_input_process_event_with_character(
+        buffer,
+        event,
+        NULL
+    );
+}
+
+enum console_input_result
+console_input_process_event_with_character(
+    struct console_line_buffer *buffer,
+    const struct input_event *event,
+    char *accepted_character)
+{
     if (buffer == NULL || event == NULL) {
         return CONSOLE_INPUT_IGNORED;
     }
@@ -39,14 +52,18 @@ enum console_input_result console_input_process_event(
         );
 
     switch (result) {
-        case CONSOLE_LINE_INPUT_ACCEPTED:
-            return CONSOLE_INPUT_ACCEPTED;
+    case CONSOLE_LINE_INPUT_ACCEPTED:
+        if (accepted_character != NULL) {
+            *accepted_character = character;
+        }
 
-        case CONSOLE_LINE_INPUT_IGNORED:
-            return CONSOLE_INPUT_IGNORED;
+        return CONSOLE_INPUT_ACCEPTED;
 
-        case CONSOLE_LINE_INPUT_FULL:
-            return CONSOLE_INPUT_FULL;
+    case CONSOLE_LINE_INPUT_IGNORED:
+        return CONSOLE_INPUT_IGNORED;
+
+    case CONSOLE_LINE_INPUT_FULL:
+        return CONSOLE_INPUT_FULL;
     }
 
     return CONSOLE_INPUT_IGNORED;

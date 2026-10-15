@@ -21,4 +21,18 @@ enum console_input_result console_input_process_event(
     const struct input_event *event
 );
 
+/**
+ * Processes an event and optionally reports the
+ * character accepted into the canonical buffer.
+ *
+ * accepted_character is written only on ACCEPTED.
+ * On IGNORED or FULL its value is left untouched.
+ */
+enum console_input_result
+console_input_process_event_with_character(
+    struct console_line_buffer *buffer,
+    const struct input_event *event,
+    char *accepted_character
+);
+
 #endif

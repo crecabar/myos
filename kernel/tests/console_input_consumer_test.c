@@ -39,6 +39,29 @@ static void consumer_test_submit(
     }
 }
 
+struct consumer_accepted_probe {
+    char characters[8];
+    size_t count;
+};
+
+static void consumer_test_accepted_notification(
+    void *context,
+    char character)
+{
+    struct consumer_accepted_probe *probe = context;
+
+    if (
+        probe == NULL ||
+        probe->count >= sizeof(probe->characters)
+    ) {
+        kernel_panic(
+            "Console accepted observer received invalid state"
+        );
+    }
+
+    probe->characters[probe->count++] = character;
+}
+
 static void consumer_test_basic(void)
 {
     input_init();
@@ -284,12 +307,222 @@ static void consumer_test_empty_and_invalid(void)
     }
 }
 
+static void consumer_test_accepted_notifications(void)
+{
+    input_init();
+
+    struct console_input_consumer consumer;
+    console_input_consumer_init(&consumer);
+
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    struct consumer_accepted_probe probe = {0};
+
+    console_input_consumer_accepted_observer_set(
+        &consumer,
+        consumer_test_accepted_notification,
+        &probe
+    );
+
+    consumer_test_submit(
+        INPUT_KEY_A, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_BACKSPACE, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_BACKSPACE, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_B, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_ENTER, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_C, INPUT_KEY_RELEASED
+    );
+
+    if (
+        console_input_consumer_drain(
+            &consumer, &buffer, 8U
+        ) != 6U ||
+        probe.count != 4U ||
+        probe.characters[0] != 'a' ||
+        probe.characters[1] != '\b' ||
+        probe.characters[2] != 'b' ||
+        probe.characters[3] != '\n' ||
+        consumer.has_pending_event ||
+        input_event_pending() != 0U
+    ) {
+        kernel_panic(
+            "Console accepted-character observer mismatch"
+        );
+    }
+
+    char output[4] = {0};
+    size_t length = 0U;
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 2U ||
+        output[0] != 'b' ||
+        output[1] != '\n'
+    ) {
+        kernel_panic(
+            "Console observer changed canonical input"
+        );
+    }
+
+    console_input_consumer_accepted_observer_set(
+        &consumer,
+        NULL,
+        NULL
+    );
+
+    consumer_test_submit(
+        INPUT_KEY_D, INPUT_KEY_PRESSED
+    );
+
+    if (
+        console_input_consumer_drain(
+            &consumer, &buffer, 1U
+        ) != 1U ||
+        probe.count != 4U ||
+        buffer.editing_length != 1U
+    ) {
+        kernel_panic(
+            "Console observer removal failed"
+        );
+    }
+}
+
+static void consumer_test_accepted_backpressure(void)
+{
+    input_init();
+
+    struct console_input_consumer consumer;
+    console_input_consumer_init(&consumer);
+
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    /*
+     * Saturate the canonical completed-line queue
+     * without passing through the observer.
+     */
+    for (
+        size_t index = 0U;
+        index < CONSOLE_LINE_QUEUE_CAPACITY;
+        ++index
+    ) {
+        if (
+            console_line_buffer_submit(
+                &buffer, '\n'
+            ) != CONSOLE_LINE_INPUT_ACCEPTED
+        ) {
+            kernel_panic(
+                "Console observer fixture setup failed"
+            );
+        }
+    }
+
+    struct consumer_accepted_probe probe = {0};
+
+    console_input_consumer_accepted_observer_set(
+        &consumer,
+        consumer_test_accepted_notification,
+        &probe
+    );
+
+    consumer_test_submit(
+        INPUT_KEY_A, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_B, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_ENTER, INPUT_KEY_PRESSED
+    );
+
+    if (
+        console_input_consumer_drain(
+            &consumer, &buffer, 8U
+        ) != 0U ||
+        !consumer.has_pending_event ||
+        probe.count != 0U ||
+        input_event_pending() != 2U
+    ) {
+        kernel_panic(
+            "Console observer notified saturated input"
+        );
+    }
+
+    /*
+     * Retrying the same blocked event must not
+     * produce a notification either.
+     */
+    if (
+        console_input_consumer_drain(
+            &consumer, &buffer, 8U
+        ) != 0U ||
+        probe.count != 0U
+    ) {
+        kernel_panic(
+            "Console observer duplicated pending input"
+        );
+    }
+
+    char output[4] = {0};
+    size_t length = 0U;
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 1U ||
+        output[0] != '\n'
+    ) {
+        kernel_panic(
+            "Console observer fixture read failed"
+        );
+    }
+
+    if (
+        console_input_consumer_drain(
+            &consumer, &buffer, 8U
+        ) != 3U ||
+        probe.count != 3U ||
+        probe.characters[0] != 'a' ||
+        probe.characters[1] != 'b' ||
+        probe.characters[2] != '\n' ||
+        consumer.has_pending_event ||
+        input_event_pending() != 0U
+    ) {
+        kernel_panic(
+            "Console observer backpressure recovery failed"
+        );
+    }
+}
+
 void console_input_consumer_test_run(void)
 {
     consumer_test_basic();
     consumer_test_ignored();
     consumer_test_backpressure();
     consumer_test_empty_and_invalid();
+
+    consumer_test_accepted_notifications();
+    consumer_test_accepted_backpressure();
 
     diagnostics_write(
         "[console] Input consumer tests passed\n"
