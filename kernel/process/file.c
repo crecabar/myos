@@ -14,6 +14,7 @@
 #include "path.h"
 
 #include "../core/panic.h"
+#include "../scheduler/scheduler.h"
 
 #include <stddef.h>
 
@@ -413,13 +414,32 @@ static void process_file_read_wait_notification(
     }
 
     /*
-     * The VFS has detached this registration already.
+     * Delivery has already detached the VFS registration.
      *
-     * Record the event without changing scheduler state.
-     * The scheduler integration will be implemented in
-     * the following slices.
+     * Preserve the logical request until its owner
+     * explicitly clears it.
      */
     instance->read_wait_notified = true;
+
+    /*
+     * Notification may arrive before the process blocks.
+     * In that case the recorded event is sufficient.
+     *
+     * Once BLOCKED, the scheduler owns the transition
+     * back to READY.
+     */
+    if (
+        instance->process.state ==
+            PROCESS_STATE_BLOCKED
+    ) {
+        if (!scheduler_wake_blocked(
+            &instance->process
+        )) {
+            kernel_panic(
+                "Unable to wake process waiting for read"
+            );
+        }
+    }
 }
 
 enum process_file_result process_file_write(

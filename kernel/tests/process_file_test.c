@@ -10,12 +10,14 @@
 
 #include "process_file_test.h"
 
+#include "../arch/x86_64/interrupts.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/fd_table.h"
 #include "../process/file.h"
 #include "../process/lifecycle.h"
 #include "../process/namespace.h"
+#include "../scheduler/scheduler.h"
 #include "../vfs/vfs.h"
 
 #include <stdbool.h>
@@ -130,6 +132,8 @@ static void process_file_test_seek_stat_failures(void);
 
 static void process_file_test_read_ready(void);
 
+static void process_file_test_read_wait_scheduler_wakeup(void);
+
 static const struct vfs_node_operations
     process_file_test_root_operations = {
         .lookup =
@@ -175,6 +179,7 @@ void process_file_test_run(void)
     process_file_test_io_failures();
     process_file_test_read_ready();
     process_file_test_read_wait();
+    process_file_test_read_wait_scheduler_wakeup();
 
     /*
      * Termination cancels a pending wait with an open FD.
@@ -2600,5 +2605,165 @@ static void process_file_test_read_wait_termination(
      * The fixture cleanup releases only its remaining
      * caller-owned VFS nodes.
      */
+    process_file_test_fixture_release(&fixture);
+}
+
+static void process_file_test_read_wait_scheduler_wakeup(void)
+{
+    struct process_file_test_fixture fixture;
+
+    process_file_test_fixture_initialize(&fixture);
+
+    fixture.instance.process.instance =
+        &fixture.instance;
+
+    fixture.instance.process.state =
+        PROCESS_STATE_READY;
+
+    struct wait_queue queue;
+    wait_queue_init(&queue);
+
+    size_t descriptor = SIZE_MAX;
+
+    if (
+        process_file_open(
+            &fixture.instance,
+            "/file",
+            sizeof("/file") - 1U,
+            VFS_OPEN_ACCESS_READ,
+            &descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        descriptor != 0U
+    ) {
+        kernel_panic(
+            "Read wakeup fixture open failed"
+        );
+    }
+
+    struct vfs_file_operations operations =
+        process_file_test_io_operations;
+
+    operations.read_ready =
+        process_file_test_wait_readiness;
+
+    operations.read_wait_register =
+        process_file_test_wait_registration;
+
+    fixture.file_storage.operations = &operations;
+    fixture.file_storage.private_data = &queue;
+
+    size_t process_count_before =
+        scheduler_test_process_count();
+
+    /*
+     * Serialize registration, the synthetic BLOCKED
+     * transition, and event delivery.
+     *
+     * The real syscall path will own the transition
+     * to BLOCKED in a later slice.
+     */
+    interrupts_disable();
+
+    if (
+        !scheduler_add(
+            &fixture.instance.process
+        ) ||
+        process_file_read_wait_register(
+            &fixture.instance,
+            descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        kernel_panic(
+            "Read wakeup registration failed"
+        );
+    }
+
+    fixture.instance.process.state =
+        PROCESS_STATE_BLOCKED;
+
+    /*
+     * Delivery must wake the registered process.
+     *
+     * It must retain the logical request while
+     * releasing the VFS-owned file reference.
+     */
+    if (
+        wait_queue_notify_all(&queue) != 1U ||
+        fixture.instance.process.state !=
+            PROCESS_STATE_READY ||
+        !fixture.instance.read_wait_active ||
+        !fixture.instance.read_wait_notified ||
+        fixture.instance.read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &fixture.instance.read_wait.entry
+        ) ||
+        fixture.file_storage.reference_count != 1U ||
+        queue.head != NULL ||
+        queue.tail != NULL
+    ) {
+        kernel_panic(
+            "Read notification failed to wake BLOCKED process"
+        );
+    }
+
+    /*
+     * Clearing the delivered request must not
+     * change scheduler state.
+     */
+    if (
+        !process_file_read_wait_cancel(
+            &fixture.instance
+        ) ||
+        fixture.instance.read_wait_active ||
+        fixture.instance.read_wait_notified ||
+        fixture.instance.process.state !=
+            PROCESS_STATE_READY ||
+        wait_queue_notify_all(&queue) != 0U
+    ) {
+        kernel_panic(
+            "Read wakeup logical cleanup failed"
+        );
+    }
+
+    /*
+     * Detach the synthetic process before releasing
+     * its descriptor and namespace resources.
+     */
+    fixture.instance.process.state =
+        PROCESS_STATE_TERMINATED;
+
+    fixture.instance.process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    fixture.instance.process.exit_status = 0U;
+
+    if (
+        !scheduler_unregister_terminated(
+            &fixture.instance.process
+        ) ||
+        scheduler_test_process_count() !=
+            process_count_before
+    ) {
+        kernel_panic(
+            "Read wakeup scheduler cleanup failed"
+        );
+    }
+
+    process_lifecycle_notify_terminated(
+        &fixture.instance.process
+    );
+
+    interrupts_enable();
+
+    if (
+        fixture.file_storage.reference_count != 0U ||
+        fixture.file_node.reference_count != 1U ||
+        fixture.root.reference_count != 1U
+    ) {
+        kernel_panic(
+            "Read wakeup leaked VFS ownership"
+        );
+    }
+
     process_file_test_fixture_release(&fixture);
 }
