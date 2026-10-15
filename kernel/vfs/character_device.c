@@ -43,6 +43,11 @@ static enum vfs_open_result vfs_character_device_open(
     struct vfs_file **result
 );
 
+static enum vfs_readiness_result vfs_character_device_read_ready(
+    struct vfs_file *file,
+    bool *ready
+);
+
 static enum vfs_stat_result vfs_character_device_stat(
     struct vfs_node *node,
     struct vfs_stat *result
@@ -72,6 +77,14 @@ static void vfs_character_device_file_destroy(
     struct vfs_file *file
 );
 
+static enum vfs_readiness_result
+vfs_character_device_read_wait_register(
+    struct vfs_file *file,
+    struct wait_queue_entry *entry,
+    wait_queue_notification_fn notification,
+    void *context
+);
+
 // Static local variables
 static const struct vfs_node_operations
     vfs_character_device_node_operations = {
@@ -91,6 +104,10 @@ static const struct vfs_file_operations
     vfs_character_device_file_operations = {
         .read =
             vfs_character_device_read,
+        .read_ready =
+            vfs_character_device_read_ready,
+        .read_wait_register =
+            vfs_character_device_read_wait_register,
         .write =
             vfs_character_device_write,
         .destroy =
@@ -247,6 +264,8 @@ static enum vfs_io_result vfs_character_device_map_io_result(
         case CHARACTER_DEVICE_IO_RESULT_RESOURCE_EXHAUSTED:
             return
                 VFS_IO_RESULT_RESOURCE_EXHAUSTED;
+        case CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK:
+            return VFS_IO_RESULT_WOULD_BLOCK;
     }
 
     return
@@ -425,6 +444,80 @@ static enum vfs_io_result vfs_character_device_read(
                 bytes_read
             )
         );
+}
+
+static enum vfs_readiness_result
+vfs_character_device_read_ready(
+    struct vfs_file *file,
+    bool *ready)
+{
+    struct vfs_character_device_file *open_file =
+        vfs_character_device_file_from_vfs(file);
+
+    if (
+        open_file == NULL ||
+        ready == NULL
+    ) {
+        return
+            VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    bool available = false;
+
+    if (
+        !character_device_read_ready(
+            open_file->node->character,
+            &available
+        )
+    ) {
+        return
+            VFS_READINESS_RESULT_NOT_SUPPORTED;
+    }
+
+    *ready = available;
+
+    return
+        VFS_READINESS_RESULT_SUCCESS;
+}
+
+static enum vfs_readiness_result
+vfs_character_device_read_wait_register(
+    struct vfs_file *file,
+    struct wait_queue_entry *entry,
+    wait_queue_notification_fn notification,
+    void *context)
+{
+    struct vfs_character_device_file *open_file =
+        vfs_character_device_file_from_vfs(file);
+
+    if (
+        open_file == NULL ||
+        entry == NULL ||
+        notification == NULL
+    ) {
+        return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct character_device *character =
+        open_file->node->character;
+
+    if (
+        !character_device_can_read(character) ||
+        character->operations->read_ready == NULL
+    ) {
+        return VFS_READINESS_RESULT_NOT_SUPPORTED;
+    }
+
+    if (!character_device_read_wait_register(
+        character,
+        entry,
+        notification,
+        context
+    )) {
+        return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    return VFS_READINESS_RESULT_SUCCESS;
 }
 
 static enum vfs_io_result vfs_character_device_write(

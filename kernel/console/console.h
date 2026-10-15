@@ -6,8 +6,9 @@
 #ifndef MYOS_CONSOLE_CONSOLE_H
 #define MYOS_CONSOLE_CONSOLE_H
 
-#include <stdint.h>
 #include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 struct framebuffer;
 
@@ -22,6 +23,13 @@ struct console {
 
     uint32_t foreground;
     uint64_t scale;
+
+    /*
+     * Number of framebuffer scroll operations.
+     * An input editor may use this to keep its
+     * editing boundary aligned after scrolling.
+     */
+    uint64_t scroll_count;
 };
 
 void console_init(
@@ -41,6 +49,37 @@ void console_write(
 void console_put_char(
     struct console *console,
     char character
+);
+
+/**
+ * Returns the framebuffer height of one console
+ * text row, including interline spacing.
+ *
+ * Returns zero for invalid arguments or scale.
+ */
+uint64_t console_row_height(
+    const struct console *console
+);
+
+/**
+ * Erases the character cell immediately preceding
+ * the cursor, including across an automatic wrap.
+ *
+ * minimum_x and minimum_y identify the earliest
+ * editable cell in the current display coordinates.
+ *
+ * The caller must only request erasure when it has
+ * an accepted character to undo. This primitive
+ * does not maintain input history or distinguish
+ * explicit newlines from automatic wraps.
+ *
+ * Returns false without modifying the cursor or
+ * framebuffer when the operation is not possible.
+ */
+bool console_erase_previous(
+    struct console *console,
+    uint64_t minimum_x,
+    uint64_t minimum_y
 );
 
 void console_write_uint(

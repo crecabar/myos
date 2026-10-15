@@ -57,6 +57,40 @@ enum syscall_waitpid_action syscall_waitpid_prepare(
 );
 
 /**
+ * Describes how the architecture syscall path completes fd_read().
+ *
+ * This is a kernel-internal control result, not part of
+ * the published userspace ABI.
+ */
+enum syscall_fd_read_action {
+    SYSCALL_FD_READ_ACTION_RETURN,
+    SYSCALL_FD_READ_ACTION_BLOCK,
+};
+
+/**
+ * Attempts one descriptor read and prepares a blocking wait
+ * only when the backend returns WOULD_BLOCK.
+ *
+ * A previously delivered read wait is cleared before retrying
+ * the read operation.
+ *
+ * The caller must execute with interrupts disabled on the BSP
+ * and preserve that serialization until suspension completes.
+ *
+ * RETURN writes the immediate syscall result to result.
+ * BLOCK leaves an active read wait owned by the process.
+ *
+ * The architecture path must preserve the complete interrupted
+ * context and retry the syscall after notification.
+ */
+enum syscall_fd_read_action syscall_fd_read_prepare(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length,
+    syscall_result_t *result
+);
+
+/**
  * Imports and validates one userspace execve request and prepares a complete
  * replacement process image.
  *

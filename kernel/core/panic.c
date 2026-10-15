@@ -21,6 +21,12 @@ _Noreturn void kernel_halt(void)
 
 _Noreturn void kernel_panic(const char *message)
 {
+    /*
+     * A fatal kernel failure must remain visible
+     * even after userspace takes over the console.
+     */
+    diagnostics_console_mirror_set(true);
+
     diagnostics_write("\n*** KERNEL PANIC ***\n");
 
     if (message != NULL) {

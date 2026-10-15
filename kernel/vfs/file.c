@@ -5,6 +5,8 @@
 
 #include "vfs.h"
 
+#include "../core/panic.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -31,6 +33,10 @@ static bool vfs_directory_entry_valid(
 static bool vfs_directory_entry_name_valid(
     const char *name,
     size_t name_length
+);
+
+static void vfs_read_wait_deliver(
+    void *context
 );
 
 // Public functions implementations
@@ -138,6 +144,253 @@ bool vfs_file_release(
     );
 }
 
+enum vfs_readiness_result vfs_file_read_ready(
+    struct vfs_file *file,
+    bool *ready)
+{
+    if (
+        ready == NULL ||
+        !vfs_file_state_valid(file)
+    ) {
+        return
+            VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        (file->access & VFS_OPEN_ACCESS_READ) == 0
+    ) {
+        return
+            VFS_READINESS_RESULT_ACCESS_DENIED;
+    }
+
+    if (
+        file->operations == NULL ||
+        file->operations->read == NULL ||
+        file->operations->read_ready == NULL
+    ) {
+        return
+            VFS_READINESS_RESULT_NOT_SUPPORTED;
+    }
+
+    uint64_t original_offset =
+        file->offset;
+
+    bool available = false;
+
+    enum vfs_readiness_result result =
+        file->operations->read_ready(
+            file,
+            &available
+        );
+
+    /*
+     * Reject a backend that modifies shared offset
+     * state during a non-consuming query.
+     */
+    if (file->offset != original_offset) {
+        file->offset = original_offset;
+
+        return
+            VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    switch (result) {
+    case VFS_READINESS_RESULT_SUCCESS:
+        *ready = available;
+        return result;
+
+    case VFS_READINESS_RESULT_INVALID_ARGUMENT:
+    case VFS_READINESS_RESULT_NOT_SUPPORTED:
+    case VFS_READINESS_RESULT_ACCESS_DENIED:
+        return result;
+    }
+
+    return
+        VFS_READINESS_RESULT_INVALID_ARGUMENT;
+}
+
+enum vfs_readiness_result vfs_file_read_wait_register(
+    struct vfs_file *file,
+    struct vfs_read_wait *wait,
+    wait_queue_notification_fn notification,
+    void *context)
+{
+    if (
+        !vfs_file_state_valid(file) ||
+        wait == NULL ||
+        notification == NULL ||
+        wait->file != NULL ||
+        wait_queue_entry_registered(&wait->entry)
+    ) {
+        return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (
+        (file->access & VFS_OPEN_ACCESS_READ) == 0U
+    ) {
+        return VFS_READINESS_RESULT_ACCESS_DENIED;
+    }
+
+    if (
+        file->operations == NULL ||
+        file->operations->read == NULL ||
+        file->operations->read_ready == NULL ||
+        file->operations->read_wait_register == NULL
+    ) {
+        return VFS_READINESS_RESULT_NOT_SUPPORTED;
+    }
+
+    /*
+     * The registration keeps this open-file description
+     * alive independently of its descriptor owners.
+     */
+    if (!vfs_file_retain(file)) {
+        return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    wait_queue_entry_init(&wait->entry);
+
+    wait->file = file;
+    wait->notification = notification;
+    wait->context = context;
+
+    uint64_t original_offset = file->offset;
+
+    enum vfs_readiness_result result =
+        file->operations->read_wait_register(
+            file,
+            &wait->entry,
+            vfs_read_wait_deliver,
+            wait
+        );
+
+    bool registered =
+        wait_queue_entry_registered(&wait->entry);
+
+    /*
+     * A backend must leave its entry registered on
+     * success and must not change the shared offset.
+     *
+     * Roll back any partial registration on failure.
+     */
+    if (
+        result != VFS_READINESS_RESULT_SUCCESS ||
+        !registered ||
+        file->offset != original_offset
+    ) {
+        if (registered) {
+            if (!wait_queue_cancel(&wait->entry)) {
+                kernel_panic(
+                    "VFS read wait rollback failed"
+                );
+            }
+        }
+
+        bool mutated_offset =
+            file->offset != original_offset;
+
+        file->offset = original_offset;
+
+        wait->file = NULL;
+        wait->notification = NULL;
+        wait->context = NULL;
+
+        if (!vfs_file_release(file)) {
+            kernel_panic(
+                "VFS read wait rollback leaked file reference"
+            );
+        }
+
+        if (mutated_offset) {
+            return VFS_READINESS_RESULT_INVALID_ARGUMENT;
+        }
+
+        return result == VFS_READINESS_RESULT_SUCCESS
+            ? VFS_READINESS_RESULT_INVALID_ARGUMENT
+            : result;
+    }
+
+    return VFS_READINESS_RESULT_SUCCESS;
+}
+
+bool vfs_read_wait_cancel(
+    struct vfs_read_wait *wait)
+{
+    if (
+        wait == NULL ||
+        wait->file == NULL ||
+        !wait_queue_entry_registered(&wait->entry)
+    ) {
+        return false;
+    }
+
+    if (!wait_queue_cancel(&wait->entry)) {
+        return false;
+    }
+
+    struct vfs_file *file = wait->file;
+
+    wait->file = NULL;
+    wait->notification = NULL;
+    wait->context = NULL;
+
+    if (!vfs_file_release(file)) {
+        kernel_panic(
+            "VFS read wait cancellation failed to release file"
+        );
+    }
+
+    return true;
+}
+
+static void vfs_read_wait_deliver(
+    void *context)
+{
+    struct vfs_read_wait *wait = context;
+
+    if (
+        wait == NULL ||
+        wait->file == NULL ||
+        wait->notification == NULL ||
+        wait_queue_entry_registered(&wait->entry)
+    ) {
+        kernel_panic(
+            "VFS read wait delivered invalid registration"
+        );
+    }
+
+    struct vfs_file *file = wait->file;
+
+    wait_queue_notification_fn notification =
+        wait->notification;
+
+    void *notification_context = wait->context;
+
+    /*
+     * The queue has already detached its entry.
+     *
+     * Clear registration state before notifying the
+     * caller, which may terminate or release its own
+     * wait-object storage.
+     */
+    wait->file = NULL;
+    wait->notification = NULL;
+    wait->context = NULL;
+
+    notification(notification_context);
+
+    /*
+     * Keep the file alive throughout callback execution.
+     * Do not access wait again: its owner may have
+     * released its storage in the callback.
+     */
+    if (!vfs_file_release(file)) {
+        kernel_panic(
+            "VFS delivered read wait failed to release file"
+        );
+    }
+}
+
 enum vfs_io_result vfs_file_read(
     struct vfs_file *file,
     void *buffer,
@@ -223,6 +476,7 @@ enum vfs_io_result vfs_file_read(
         case VFS_IO_RESULT_NOT_SUPPORTED:
         case VFS_IO_RESULT_ACCESS_DENIED:
         case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
+        case VFS_IO_RESULT_WOULD_BLOCK:
             return
                 io_result;
     }
@@ -355,6 +609,7 @@ enum vfs_io_result vfs_file_read_at(
         case VFS_IO_RESULT_NOT_SUPPORTED:
         case VFS_IO_RESULT_ACCESS_DENIED:
         case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
+        case VFS_IO_RESULT_WOULD_BLOCK:
             return
                 io_result;
     }
@@ -461,6 +716,7 @@ enum vfs_io_result vfs_file_write(
         case VFS_IO_RESULT_NOT_SUPPORTED:
         case VFS_IO_RESULT_ACCESS_DENIED:
         case VFS_IO_RESULT_RESOURCE_EXHAUSTED:
+        case VFS_IO_RESULT_WOULD_BLOCK:
             return
                 io_result;
     }

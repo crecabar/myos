@@ -6,6 +6,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "arch/x86_64/interrupts.h"
+#include "console/console_input_worker.h"
+#include "core/execution/kernel_supervisor.h"
 #include "arch/x86_64/arch.h"
 #include "arch/x86_64/cpu.h"
 #include "arch/x86_64/paging.h"
@@ -55,7 +58,13 @@
 #include "tests/bus_test.h"
 #include "tests/character_device_test.h"
 #include "tests/console_device_test.h"
+#include "tests/console_input_consumer_test.h"
+#include "tests/console_input_test.h"
+#include "tests/console_line_buffer_test.h"
+#include "tests/console_render_test.h"
 #include "tests/core_device_fd_test.h"
+#include "tests/cpu_local_test.h"
+#include "tests/deferred_work_test.h"
 #include "tests/devfs_test.h"
 #include "tests/device_registry_test.h"
 #include "tests/device_test.h"
@@ -66,7 +75,10 @@
 #include "tests/initramfs_boot_test.h"
 #include "tests/initramfs_format_test.h"
 #include "tests/initramfs_test.h"
+#include "tests/kernel_context_test.h"
 #include "tests/kernel_heap_test.h"
+#include "tests/kernel_stack_test.h"
+#include "tests/kernel_switch_test.h"
 #include "tests/process_cwd_test.h"
 #include "tests/process_elf_lifecycle_test.h"
 #include "tests/process_executable_test.h"
@@ -94,6 +106,7 @@
 #include "tests/vfs_node_operations_test.h"
 #include "tests/vfs_parent_test.h"
 #include "tests/vfs_path_test.h"
+#include "tests/wait_queue_test.h"
 #endif
 
 #define KERNEL_RUNTIME_STACK_SIZE 32768
@@ -107,6 +120,8 @@ static struct vfs_mount_table kernel_mount_table;
 static struct device_registry kernel_device_registry;
 static struct pseudo_devices kernel_pseudo_devices;
 static struct console_device kernel_console_device;
+static struct console_input_worker
+    kernel_console_input_worker;
 
 static uint8_t kernel_runtime_stack[
     KERNEL_RUNTIME_STACK_SIZE
@@ -115,6 +130,10 @@ static uint8_t kernel_runtime_stack[
 static void kernel_input_system_action(
     enum input_system_action action
 );
+
+static void kernel_input_event_notification(void);
+
+static bool kernel_dispatch_idle_work(void);
 
 static void kernel_mount_root_filesystem(void);
 
@@ -131,6 +150,14 @@ static void kernel_rollback_bootstrap_device_namespace(
     struct vfs_mount_table *mounts,
     struct devfs *device_filesystem,
     struct vfs_node *device_mountpoint
+);
+
+static void kernel_console_input_observer(
+    void *context,
+    const struct console_device *device,
+    size_t events_before,
+    size_t dispatched,
+    size_t events_after
 );
 
 static _Noreturn void kernel_main_continue(void);
@@ -253,6 +280,100 @@ static void kernel_input_system_action(
                 "Unknown kernel input system action"
             );
     }
+}
+
+/*
+ * Invoked after an input event has been published.
+ *
+ * This callback may execute in IRQ context. It only requests
+ * deferred processing; it must never drain the input queue,
+ * render console output, or switch execution contexts.
+ *
+ * The system console has static lifetime and is initialized
+ * before this handler is registered.
+ */
+static void kernel_input_event_notification(void)
+{
+    console_device_request_input(
+        &kernel_console_device
+    );
+}
+
+static void kernel_console_input_observer(
+    void *context,
+    const struct console_device *device,
+    size_t events_before,
+    size_t dispatched,
+    size_t events_after)
+{
+    (void) context;
+
+    if (device != &kernel_console_device) {
+        kernel_panic(
+            "Console input observer received unexpected device"
+        );
+    }
+
+    if (
+        dispatched == 0U ||
+        kernel_boot_config.log_level !=
+            KERNEL_LOG_LEVEL_DEBUG
+    ) {
+        return;
+    }
+
+    diagnostics_printf(
+        "[console-debug] dispatched=%u "
+        "events-before=%u events-after=%u "
+        "completed-lines=%u retained=%u\n",
+        (uint64_t) dispatched,
+        (uint64_t) events_before,
+        (uint64_t) events_after,
+        (uint64_t) device->input.completed_count,
+        (uint64_t)
+            device->input_consumer.has_pending_event
+    );
+}
+
+/*
+ * Dispatches one bounded console input work invocation
+ * from the scheduler's idle path.
+ *
+ * The scheduler calls this outside IRQ context with
+ * interrupts disabled and the kernel address space active.
+ *
+ * One deferred-work invocation processes at most
+ * CONSOLE_INPUT_WORK_EVENT_BUDGET normalized events.
+ *
+ * A zero result indicates that no handler was executed,
+ * allowing the scheduler to enter its interruptible HLT.
+ */
+static bool kernel_dispatch_idle_work(void)
+{
+    size_t pending_before =
+        input_event_pending();
+
+    size_t dispatched =
+        console_device_dispatch_input(
+            &kernel_console_device,
+            1U
+        );
+
+    if (
+        dispatched != 0U &&
+        kernel_boot_config.log_level ==
+            KERNEL_LOG_LEVEL_DEBUG
+    ) {
+        kernel_console_input_observer(
+            NULL,
+            &kernel_console_device,
+            pending_before,
+            dispatched,
+            input_event_pending()
+        );
+    }
+
+    return dispatched != 0U;
 }
 
 static bool kernel_mount_bootstrap_device_namespace(
@@ -1034,13 +1155,22 @@ static _Noreturn void kernel_main_continue(void)
 
         boot_info_test_run();
         boot_config_test_run();
-
+        cpu_local_test_run();
+        kernel_context_test_run();
+        kernel_stack_test_run();
+        kernel_switch_test_run();
         device_test_run();
         character_device_test_run();
         block_device_test_run();
         device_registry_test_run();
         pseudo_device_test_run();
         console_device_test_run();
+        console_line_buffer_test_run();
+        console_render_test_run();
+        console_input_test_run();
+        console_input_consumer_test_run();
+        deferred_work_test_run();
+        wait_queue_test_run();
         bus_test_run();
 
         acpi_test_run(
@@ -1116,9 +1246,90 @@ static _Noreturn void kernel_main_continue(void)
         }
     }
 
+    /*
+     * Configure console input execution after kernel tests.
+     *
+     * Normal boot uses the persistent worker.
+     * Test boot retains the existing idle-work handler.
+     */
+    if (
+        kernel_boot_config.mode ==
+        KERNEL_BOOT_MODE_NORMAL
+    ) {
+        /*
+         * Serialize worker registration and notification
+         * configuration with PS/2 IRQ producers.
+         */
+        interrupts_disable();
+
+        if (
+            !kernel_supervisor_bsp_initialize() ||
+            !console_input_worker_initialize(
+                &kernel_console_input_worker,
+                &kernel_console_device,
+                kernel_supervisor_bsp_context()
+            ) ||
+            !console_input_worker_observer_set(
+                &kernel_console_input_worker,
+                kernel_console_input_observer,
+                NULL
+            ) ||
+            !scheduler_register_kernel_worker(
+                &kernel_console_input_worker.context
+            ) ||
+            !console_input_worker_notifications_enable(
+                &kernel_console_input_worker
+            )
+        ) {
+            kernel_panic(
+                "Unable to initialize production console input worker"
+            );
+        }
+
+        scheduler_set_idle_work_handler(NULL);
+
+        diagnostics_write(
+            "[console] Persistent input worker registered\n"
+        );
+    } else {
+        /*
+         * Test mode retains its original idle-work
+         * processing path.
+         */
+        scheduler_set_idle_work_handler(
+            kernel_dispatch_idle_work
+        );
+    }
+
     input_system_action_handler_set(
         kernel_input_system_action
     );
+
+    /*
+     * Register the production console notification after kernel tests
+     * and their input_init() calls have completed.
+     *
+     * The callback only marks deferred work pending.
+     */
+    if (
+        input_event_notification_handler_set(
+            kernel_input_event_notification
+        ) != NULL
+    ) {
+        kernel_panic(
+            "Input event notification handler already registered"
+        );
+    }
+
+    /*
+     * Events may have arrived before notification registration.
+     * Ensure any queued input receives an initial work request.
+     */
+    if (input_event_pending() != 0U) {
+        console_device_request_input(
+            &kernel_console_device
+        );
+    }
 
     /*
      * A chord may have been recognized before the immediate handler

@@ -22,6 +22,7 @@
 #include "../vfs/root.h"
 #include "../vfs/vfs.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -152,6 +153,21 @@ static void core_device_fd_test_null(
     ) {
         kernel_panic(
             "Unable to open /dev/null through process FD path"
+        );
+    }
+
+    bool ready = true;
+
+    if (
+        process_file_read_ready(
+            instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_NOT_SUPPORTED ||
+        !ready
+    ) {
+        kernel_panic(
+            "/dev/null process readiness contract failed"
         );
     }
 
@@ -287,6 +303,21 @@ static void core_device_fd_test_zero(
         );
     }
 
+    bool ready = true;
+
+    if (
+        process_file_read_ready(
+            instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_NOT_SUPPORTED ||
+        !ready
+    ) {
+        kernel_panic(
+            "/dev/zero process readiness contract failed"
+        );
+    }
+
     uint8_t buffer[8] = {
         0xa1U,
         0xa2U,
@@ -370,11 +401,10 @@ static void core_device_fd_test_console(
         "/dev/console";
 
     /*
-     * Console input deliberately does not exist yet. Rejection must happen
-     * through the same pathname/open path rather than through a pathname hack.
+     * Console input is now readable. An empty line queue
+     * reports WOULD_BLOCK rather than EOF.
      */
-    size_t rejected_descriptor =
-        SIZE_MAX;
+    size_t read_descriptor = SIZE_MAX;
 
     if (
         process_file_open(
@@ -382,14 +412,57 @@ static void core_device_fd_test_console(
             path,
             sizeof(path) - 1U,
             VFS_OPEN_ACCESS_READ,
-            &rejected_descriptor
-        ) !=
-            PROCESS_FILE_RESULT_NOT_SUPPORTED ||
-        rejected_descriptor !=
-            SIZE_MAX
+            &read_descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        read_descriptor != 0
     ) {
         kernel_panic(
-            "/dev/console process FD unexpectedly supported read open"
+            "/dev/console process FD read open failed"
+        );
+    }
+
+    bool ready = true;
+
+    if (
+        process_file_read_ready(
+            instance,
+            read_descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        ready
+    ) {
+        kernel_panic(
+            "/dev/console empty readiness contract failed"
+        );
+    }
+
+    uint8_t input_byte = 0xa5U;
+    size_t bytes_read = SIZE_MAX;
+
+    if (
+        process_file_read(
+            instance,
+            read_descriptor,
+            &input_byte,
+            sizeof(input_byte),
+            &bytes_read
+        ) != PROCESS_FILE_RESULT_WOULD_BLOCK ||
+        input_byte != 0xa5U ||
+        bytes_read != SIZE_MAX
+    ) {
+        kernel_panic(
+            "/dev/console process FD empty input contract failed"
+        );
+    }
+
+    if (
+        process_file_close(
+            instance,
+            read_descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        kernel_panic(
+            "/dev/console process FD read close failed"
         );
     }
 
@@ -409,6 +482,21 @@ static void core_device_fd_test_console(
     ) {
         kernel_panic(
             "Unable to open /dev/console through process FD path"
+        );
+    }
+
+    ready = true;
+
+    if (
+        process_file_read_ready(
+            instance,
+            descriptor,
+            &ready
+        ) != PROCESS_FILE_RESULT_ACCESS_DENIED ||
+        !ready
+    ) {
+        kernel_panic(
+            "/dev/console write-only readiness contract failed"
         );
     }
 

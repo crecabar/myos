@@ -28,6 +28,8 @@
 
 #include "device.h"
 
+#include "../wait_queue.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -36,6 +38,7 @@ enum character_device_io_result {
     CHARACTER_DEVICE_IO_RESULT_INVALID_ARGUMENT,
     CHARACTER_DEVICE_IO_RESULT_NOT_SUPPORTED,
     CHARACTER_DEVICE_IO_RESULT_RESOURCE_EXHAUSTED,
+    CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK,
 };
 
 struct character_device;
@@ -65,6 +68,18 @@ struct character_device_operations {
         size_t size,
         size_t *bytes_written
     );
+
+    /**
+     * Queries whether a positive-length read can currently
+     * transfer at least one byte without waiting.
+     *
+     * Optional capability. Must not consume input.
+     * On failure, ready remains unchanged.
+     */
+    bool (*read_ready)(
+        struct character_device *character,
+        bool *ready
+    );
 };
 
 /**
@@ -83,6 +98,15 @@ struct character_device {
     const struct character_device_operations *operations;
 
     void *private_data;
+
+    /**
+     * Registrations waiting for a read-availability event.
+     *
+     * The device does not own registration storage.
+     * Registrations must be cancelled before their
+     * owners or this character device are destroyed.
+     */
+    struct wait_queue read_waiters;
 };
 
 /**
@@ -120,6 +144,53 @@ struct character_device *character_device_from_device(
  */
 bool character_device_can_read(
     const struct character_device *character
+);
+
+/**
+ * Queries current read availability.
+ *
+ * Returns false if the capability is unsupported,
+ * the device is invalid, or ready is NULL.
+ *
+ * On success, ready receives the availability state.
+ */
+bool character_device_read_ready(
+    struct character_device *character,
+    bool *ready
+);
+
+/**
+ * Registers interest in a future read-availability event.
+ *
+ * Requires a readable device implementing read_ready.
+ * Does not query readiness or invoke the callback
+ * immediately.
+ *
+ * The caller must register and then recheck readiness
+ * before blocking, under the same serialization regime
+ * used by event producers.
+ *
+ * Registrations are one-shot. Cancellation uses
+ * wait_queue_cancel().
+ */
+bool character_device_read_wait_register(
+    struct character_device *character,
+    struct wait_queue_entry *entry,
+    wait_queue_notification_fn notification,
+    void *context
+);
+
+/**
+ * Delivers a read-availability event to all registered
+ * readers and removes their one-shot registrations.
+ *
+ * Must execute outside IRQ context and under the
+ * device's serialized event-processing regime.
+ *
+ * Returns the number of readers notified.
+ */
+size_t character_device_read_wait_notify(
+    struct character_device *character
 );
 
 /**

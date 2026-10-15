@@ -548,6 +548,126 @@ syscall_result_t syscall_execve_prepare(
     return 0;
 }
 
+enum syscall_fd_read_action syscall_fd_read_prepare(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length,
+    syscall_result_t *result)
+{
+    if (result == NULL) {
+        kernel_panic(
+            "fd_read received null result storage"
+        );
+    }
+
+    struct process_instance *instance =
+        syscall_current_instance();
+
+    if (instance == NULL) {
+        *result = syscall_result_error(
+            SYSCALL_ERROR_INVALID_ARGUMENT
+        );
+
+        return SYSCALL_FD_READ_ACTION_RETURN;
+    }
+
+    /*
+     * A blocked read resumes by retrying int 0x80.
+     *
+     * The VFS callback has already detached the file
+     * registration. Clear the remaining logical request
+     * before attempting the read again.
+     */
+    if (instance->read_wait_active) {
+        if (!instance->read_wait_notified) {
+            kernel_panic(
+                "Read syscall resumed without notification"
+            );
+        }
+
+        if (!process_file_read_wait_cancel(
+            instance
+        )) {
+            kernel_panic(
+                "Unable to clear delivered read wait"
+            );
+        }
+    }
+
+    *result = syscall_fd_read(
+        descriptor,
+        user_address,
+        length
+    );
+
+    if (
+        *result != syscall_result_error(
+            SYSCALL_ERROR_WOULD_BLOCK
+        ) ||
+        length == 0
+    ) {
+        return SYSCALL_FD_READ_ACTION_RETURN;
+    }
+
+    /*
+     * No bytes were transferred.
+     *
+     * Register a wait and recheck readiness before
+     * allowing the architecture layer to suspend.
+     */
+    bool should_block = false;
+
+    enum process_file_result prepare_result =
+        process_file_read_wait_prepare(
+            instance,
+            (size_t) descriptor,
+            &should_block
+        );
+
+    /*
+     * Preserve the existing WOULD_BLOCK behavior
+     * for backends without a readiness-wait capability.
+     */
+    if (
+        prepare_result ==
+        PROCESS_FILE_RESULT_NOT_SUPPORTED
+    ) {
+        return SYSCALL_FD_READ_ACTION_RETURN;
+    }
+
+    if (
+        prepare_result !=
+        PROCESS_FILE_RESULT_SUCCESS
+    ) {
+        *result = syscall_result_error(
+            syscall_file_map_error(
+                prepare_result
+            )
+        );
+
+        return SYSCALL_FD_READ_ACTION_RETURN;
+    }
+
+    if (should_block) {
+        return SYSCALL_FD_READ_ACTION_BLOCK;
+    }
+
+    /*
+     * Readiness appeared after registration.
+     *
+     * The registration has already been cancelled.
+     * Retry once, without creating an unbounded
+     * kernel-side polling loop.
+     */
+    *result = syscall_fd_read(
+        descriptor,
+        user_address,
+        length
+    );
+
+    return SYSCALL_FD_READ_ACTION_RETURN;
+}
+
 syscall_result_t syscall_dispatch(
     uint64_t number,
     uint64_t argument0,
@@ -1372,6 +1492,8 @@ static enum syscall_error syscall_file_map_error(
             kernel_panic(
                 "Successful process file result cannot map to syscall error"
             );
+        case PROCESS_FILE_RESULT_WOULD_BLOCK:
+            return SYSCALL_ERROR_WOULD_BLOCK;
     }
 
     kernel_panic(

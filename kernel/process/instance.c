@@ -57,6 +57,12 @@ bool process_instance_prepare_elf64(
     instance->wait_active = false;
     instance->wait_child_pid = 0;
 
+    instance->read_wait =
+    (struct vfs_read_wait) {0};
+
+    instance->read_wait_active = false;
+    instance->read_wait_notified = false;
+
     if (!process_init(
         &instance->process,
         id,
@@ -132,6 +138,12 @@ bool process_instance_prepare_clone(
 
     instance->wait_active = false;
     instance->wait_child_pid = 0;
+
+    instance->read_wait =
+    (struct vfs_read_wait) {0};
+
+    instance->read_wait_active = false;
+    instance->read_wait_notified = false;
 
     if (!process_init(
         &instance->process,
@@ -274,7 +286,13 @@ bool process_instance_discard(
         instance->first_child != NULL ||
         instance->next_sibling != NULL ||
         instance->wait_active ||
-        instance->wait_child_pid != 0
+        instance->wait_child_pid != 0 ||
+        instance->read_wait_active ||
+        instance->read_wait_notified ||
+        instance->read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &instance->read_wait.entry
+        )
     ) {
         return false;
     }

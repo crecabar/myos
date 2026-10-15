@@ -22,6 +22,9 @@ static uint64_t dropped_events;
 
 static input_system_action_handler_fn
     system_action_handler;
+
+static input_event_notification_handler_fn
+    event_notification_handler;
 //-----------------------------------------------------------------------------
 
 static uint16_t keyboard_modifiers;
@@ -69,6 +72,12 @@ void input_init(void)
 
     __atomic_store_n(
         &system_action_handler,
+        NULL,
+        __ATOMIC_RELAXED
+    );
+
+    __atomic_store_n(
+        &event_notification_handler,
         NULL,
         __ATOMIC_RELAXED
     );
@@ -140,6 +149,22 @@ bool input_event_submit(
         next,
         __ATOMIC_RELEASE
     );
+
+    /*
+     * Notify only after the event becomes visible to consumers.
+     *
+     * This callback may execute in interrupt context.
+     * Notification must remain lightweight and non-blocking.
+     */
+    input_event_notification_handler_fn handler =
+        __atomic_load_n(
+            &event_notification_handler,
+            __ATOMIC_ACQUIRE
+        );
+
+    if (handler != NULL) {
+        handler();
+    }
 
     return true;
 }
@@ -243,6 +268,17 @@ input_system_action_handler_fn input_system_action_handler_set(
 {
     return __atomic_exchange_n(
         &system_action_handler,
+        handler,
+        __ATOMIC_ACQ_REL
+    );
+}
+
+input_event_notification_handler_fn
+input_event_notification_handler_set(
+    input_event_notification_handler_fn handler)
+{
+    return __atomic_exchange_n(
+        &event_notification_handler,
         handler,
         __ATOMIC_ACQ_REL
     );

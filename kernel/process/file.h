@@ -19,6 +19,7 @@
 
 #include "../vfs/vfs.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -34,6 +35,7 @@ enum process_file_result {
     PROCESS_FILE_RESULT_ACCESS_DENIED,
     PROCESS_FILE_RESULT_RESOURCE_EXHAUSTED,
     PROCESS_FILE_RESULT_OVERFLOW,
+    PROCESS_FILE_RESULT_WOULD_BLOCK,
 };
 
 /**
@@ -94,6 +96,84 @@ enum process_file_result process_file_read(
     void *buffer,
     size_t size,
     size_t *bytes_read
+);
+
+/**
+ * Queries read availability through a process descriptor.
+ *
+ * SUCCESS with ready=false means that the file supports
+ * readiness queries but currently has no readable data.
+ *
+ * NOT_SUPPORTED means the underlying open file does not
+ * implement the capability.
+ *
+ * This operation does not consume data, change the shared
+ * file offset, or acquire ownership of the open file.
+ *
+ * On failure, ready remains unchanged.
+ */
+enum process_file_result process_file_read_ready(
+    struct process_instance *instance,
+    size_t descriptor,
+    bool *ready
+);
+
+/**
+ * Registers one read-availability wait through a descriptor.
+ *
+ * The process must not already have an active read wait or
+ * a pending child wait.
+ *
+ * On success, the process owns an active logical request
+ * and VFS retains the corresponding open-file description.
+ *
+ * Registration alone does not block or wake the process.
+ * Callers must serialize registration, readiness recheck,
+ * and the eventual scheduler transition with event delivery.
+ */
+enum process_file_result process_file_read_wait_register(
+    struct process_instance *instance,
+    size_t descriptor
+);
+
+/**
+ * Prepares a read wait after an operation returned WOULD_BLOCK.
+ *
+ * The caller must serialize this entire operation with
+ * event delivery, using interrupts disabled on the BSP.
+ *
+ * On success:
+ * - should_block=true retains an active VFS registration;
+ * - should_block=false means the caller should retry read().
+ *
+ * When readiness is already available, the registration
+ * is cancelled before returning.
+ *
+ * On failure, no newly acquired registration remains.
+ * Any previously active wait is left unchanged, and
+ * should_block is not modified.
+ *
+ * This operation does not suspend the process.
+ */
+enum process_file_result process_file_read_wait_prepare(
+    struct process_instance *instance,
+    size_t descriptor,
+    bool *should_block
+);
+
+/**
+ * Clears the process's active read wait.
+ *
+ * If notification has not arrived, cancels its VFS
+ * registration and releases the retained file.
+ *
+ * If notification already arrived, only clears the
+ * logical process request.
+ *
+ * Returns false if no active request exists.
+ */
+bool process_file_read_wait_cancel(
+    struct process_instance *instance
 );
 
 /**

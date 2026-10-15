@@ -137,6 +137,126 @@ static int runtime_test_uname_invalid_destinations(void)
     return 0;
 }
 
+static int runtime_test_console_read_capability(void)
+{
+    static const char console_path[] =
+        "/dev/console";
+
+    syscall_result_t descriptor =
+        myos_fd_open(
+            console_path,
+            sizeof(console_path) - 1U,
+            SYSCALL_OPEN_ACCESS_READ
+        );
+
+    if (descriptor < 0) {
+        return 55;
+    }
+
+    struct syscall_file_stat status = {0};
+
+    syscall_result_t stat_result =
+        myos_fd_fstat(
+            (uint64_t) descriptor,
+            &status
+        );
+
+    /*
+     * A zero-length read validates descriptor access
+     * without consuming input or blocking.
+     *
+     * The empty-input WOULD_BLOCK contract is tested
+     * independently at the process/VFS layer.
+     */
+    uint8_t byte = 0xa5U;
+
+    syscall_result_t read_result =
+        myos_fd_read(
+            (uint64_t) descriptor,
+            &byte,
+            0U
+        );
+
+    syscall_result_t close_result =
+        myos_fd_close(
+            (uint64_t) descriptor
+        );
+
+    if (
+        stat_result != 0 ||
+        status.type !=
+            SYSCALL_FILE_TYPE_CHARACTER_DEVICE ||
+        read_result != 0 ||
+        byte != 0xa5U
+    ) {
+        return 56;
+    }
+
+    if (close_result != 0) {
+        return 57;
+    }
+
+    return 0;
+}
+
+static int runtime_test_console_stdin_rebind(void)
+{
+    static const char null_path[] =
+        "/dev/null";
+
+    static const char console_path[] =
+        "/dev/console";
+
+    /*
+     * This test process does not start with
+     * provisioned standard descriptors.
+     *
+     * Establish the same initial stdin layout
+     * used by the production /init process.
+     */
+    syscall_result_t descriptor =
+        myos_fd_open(
+            null_path,
+            sizeof(null_path) - 1U,
+            SYSCALL_OPEN_ACCESS_READ
+        );
+
+    if (descriptor != 0) {
+        return 58;
+    }
+
+    if (myos_fd_close(0U) != 0) {
+        return 59;
+    }
+
+    descriptor =
+        myos_fd_open(
+            console_path,
+            sizeof(console_path) - 1U,
+            SYSCALL_OPEN_ACCESS_READ
+        );
+
+    if (descriptor != 0) {
+        return 60;
+    }
+
+    struct syscall_file_stat status = {0};
+
+    if (
+        myos_fd_fstat(0U, &status) != 0 ||
+        status.type !=
+            SYSCALL_FILE_TYPE_CHARACTER_DEVICE
+    ) {
+        return 61;
+    }
+
+    /*
+     * Leave stdin open for the existing fork
+     * regression to verify descriptor inheritance.
+     */
+    return 0;
+}
+
 int main(
     int argc,
     char *argv[],
@@ -573,6 +693,13 @@ int main(
         return 24;
     }
 
+    int stdin_result =
+        runtime_test_console_stdin_rebind();
+
+    if (stdin_result != 0) {
+        return stdin_result;
+    }
+
     syscall_result_t parent_pid =
         myos_getpid();
 
@@ -596,6 +723,34 @@ int main(
             child_self_pid == parent_pid
         ) {
             return 41;
+        }
+
+        /*
+         * The child must inherit descriptor 0 referring
+         * to a readable character-device endpoint.
+         *
+         * A zero-length read verifies descriptor access
+         * without entering a blocking console wait.
+         */
+        struct syscall_file_stat status = {0};
+
+        uint8_t byte = 0xa5U;
+
+        if (
+            myos_fd_fstat(
+                0U,
+                &status
+            ) != 0 ||
+            status.type !=
+                SYSCALL_FILE_TYPE_CHARACTER_DEVICE ||
+            myos_fd_read(
+                0U,
+                &byte,
+                0U
+            ) != 0 ||
+            byte != 0xa5U
+        ) {
+            return 62;
         }
 
         return
@@ -651,6 +806,21 @@ int main(
         )
     ) {
         return 32;
+    }
+
+    /*
+     * Release the inherited-stdin regression fixture
+     * before continuing with unrelated runtime tests.
+     */
+    if (myos_fd_close(0U) != 0) {
+        return 63;
+    }
+
+    int console_read_result =
+        runtime_test_console_read_capability();
+
+    if (console_read_result != 0) {
+        return console_read_result;
     }
 
     int uname_result = runtime_test_uname();

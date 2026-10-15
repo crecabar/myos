@@ -28,6 +28,8 @@
 #ifndef MYOS_VFS_VFS_H
 #define MYOS_VFS_VFS_H
 
+#include "../core/wait_queue.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -93,6 +95,14 @@ enum vfs_io_result {
     VFS_IO_RESULT_NOT_SUPPORTED,
     VFS_IO_RESULT_ACCESS_DENIED,
     VFS_IO_RESULT_RESOURCE_EXHAUSTED,
+    VFS_IO_RESULT_WOULD_BLOCK,
+};
+
+enum vfs_readiness_result {
+    VFS_READINESS_RESULT_SUCCESS,
+    VFS_READINESS_RESULT_INVALID_ARGUMENT,
+    VFS_READINESS_RESULT_NOT_SUPPORTED,
+    VFS_READINESS_RESULT_ACCESS_DENIED,
 };
 
 enum vfs_open_result {
@@ -156,6 +166,24 @@ struct vfs_directory_entry {
 
 struct vfs_node;
 struct vfs_file;
+
+/**
+ * One-shot read event registration.
+ *
+ * Caller-owned storage. Must be zero-initialized before
+ * first use and must remain alive while registered.
+ *
+ * A pending registration owns one vfs_file reference,
+ * independently of the descriptor that initiated it.
+ */
+struct vfs_read_wait {
+    struct wait_queue_entry entry;
+
+    struct vfs_file *file;
+
+    wait_queue_notification_fn notification;
+    void *context;
+};
 
 /**
  * Filesystem-specific operations associated with a VFS node.
@@ -286,6 +314,38 @@ struct vfs_file_operations {
         void *buffer,
         size_t size,
         size_t *bytes_read
+    );
+
+    /**
+     * Queries whether a positive-length read can currently
+     * complete without waiting.
+     *
+     * This operation does not consume data or modify
+     * the open-file offset.
+     *
+     * On failure, ready must remain unchanged.
+     */
+    enum vfs_readiness_result (*read_ready)(
+        struct vfs_file *file,
+        bool *ready
+    );
+
+    /**
+     * Registers a one-shot read-availability notification.
+     *
+     * Does not query readiness or invoke the notification
+     * synchronously. The implementation must register the
+     * entry on the underlying resource's wait queue.
+     *
+     * Registration and event delivery must be serialized.
+     *
+     * On failure, the entry must remain unregistered.
+     */
+    enum vfs_readiness_result (*read_wait_register)(
+        struct vfs_file *file,
+        struct wait_queue_entry *entry,
+        wait_queue_notification_fn notification,
+        void *context
     );
 
     /**
@@ -561,6 +621,52 @@ enum vfs_open_result vfs_node_open(
     struct vfs_node *node,
     enum vfs_open_access access,
     struct vfs_file **result
+);
+
+/**
+ * Queries readability through one open-file description.
+ *
+ * SUCCESS with ready=false means that no data is
+ * currently available. NOT_SUPPORTED means that the
+ * file has no readiness-query capability.
+ *
+ * This operation does not consume data or change
+ * the shared file offset.
+ *
+ * On failure, ready remains unchanged.
+ */
+enum vfs_readiness_result vfs_file_read_ready(
+    struct vfs_file *file,
+    bool *ready
+);
+
+/**
+ * Registers one read waiter and retains the open file.
+ *
+ * The wait object must initially be zero-initialized
+ * or have completed a previous notification/cancellation.
+ *
+ * A successful registration retains one independent
+ * reference to file until delivery or cancellation.
+ *
+ * Does not test availability. Callers intending to block
+ * must recheck readiness after registration while holding
+ * the same serialization boundary as the event producer.
+ */
+enum vfs_readiness_result vfs_file_read_wait_register(
+    struct vfs_file *file,
+    struct vfs_read_wait *wait,
+    wait_queue_notification_fn notification,
+    void *context
+);
+
+/**
+ * Cancels an active read waiter and releases its file.
+ *
+ * Returns false if the registration is no longer pending.
+ */
+bool vfs_read_wait_cancel(
+    struct vfs_read_wait *wait
 );
 
 enum vfs_io_result vfs_file_read(

@@ -35,6 +35,13 @@ static size_t vfs_file_io_test_stat_call_count;
 static uint64_t vfs_file_io_test_stat_size;
 static enum vfs_stat_result vfs_file_io_test_stat_result;
 
+struct vfs_readiness_test_probe {
+    bool available;
+    bool mutate_offset;
+    size_t calls;
+    enum vfs_readiness_result result;
+};
+
 // Private functions and helpers declarations
 static enum vfs_io_result vfs_file_io_test_read_callback(
     struct vfs_file *file,
@@ -56,6 +63,13 @@ static enum vfs_stat_result vfs_file_io_test_stat_callback(
     struct vfs_node *node,
     struct vfs_stat *result
 );
+
+static enum vfs_readiness_result vfs_file_io_test_read_ready_callback(
+    struct vfs_file *file,
+    bool *ready
+);
+
+static void vfs_file_io_test_read_ready(void);
 
 static void vfs_file_io_test_read_success(void);
 
@@ -81,12 +95,19 @@ static void vfs_file_io_test_seek_validation(void);
 
 static void vfs_file_io_test_seek_failures(void);
 
+static void vfs_file_io_test_read_wait_notification(
+    void *context)
+{
+    (void) context;
+}
+
 // Public functions implementations
 void vfs_file_io_test_run(void)
 {
     vfs_file_io_test_read_success();
     vfs_file_io_test_read_validation();
     vfs_file_io_test_read_callback_failures();
+    vfs_file_io_test_read_ready();
 
     vfs_file_io_test_read_at_success();
     vfs_file_io_test_read_at_validation();
@@ -205,6 +226,303 @@ static enum vfs_stat_result vfs_file_io_test_stat_callback(
     return
         vfs_file_io_test_stat_result;
 }
+
+static enum vfs_readiness_result vfs_file_io_test_read_ready_callback(
+    struct vfs_file *file,
+    bool *ready)
+{
+    if (
+        file == NULL ||
+        file->private_data == NULL ||
+        ready == NULL
+    ) {
+        return
+            VFS_READINESS_RESULT_INVALID_ARGUMENT;
+    }
+
+    struct vfs_readiness_test_probe *probe =
+        file->private_data;
+
+    ++probe->calls;
+
+    /*
+     * Deliberately publish into callback-local storage,
+     * including on failure, to verify VFS isolation.
+     */
+    *ready = probe->available;
+
+    if (probe->mutate_offset) {
+        ++file->offset;
+    }
+
+    return probe->result;
+}
+
+
+static void vfs_file_io_test_read_ready(void)
+{
+    struct vfs_node node;
+    struct vfs_file file;
+
+    struct vfs_readiness_test_probe probe = {
+        .available = false,
+        .mutate_offset = false,
+        .calls = 0U,
+        .result = VFS_READINESS_RESULT_SUCCESS,
+    };
+
+    struct vfs_file_operations operations = {
+        .read = vfs_file_io_test_read_callback,
+        .read_ready =
+            vfs_file_io_test_read_ready_callback,
+    };
+
+    if (
+        !vfs_node_initialize(
+            &node,
+            VFS_NODE_TYPE_REGULAR_FILE,
+            NULL,
+            NULL
+        ) ||
+        !vfs_file_initialize(
+            &file,
+            &node,
+            VFS_OPEN_ACCESS_READ,
+            &operations,
+            &probe
+        )
+    ) {
+        kernel_panic(
+            "VFS readiness fixture initialization failed"
+        );
+    }
+
+    file.offset = 17U;
+
+    /*
+     * Supported query, but no data available.
+     */
+    bool ready = true;
+
+    if (
+        vfs_file_read_ready(
+            &file,
+            &ready
+        ) != VFS_READINESS_RESULT_SUCCESS ||
+        ready ||
+        probe.calls != 1U ||
+        file.offset != 17U
+    ) {
+        kernel_panic(
+            "VFS empty readiness query failed"
+        );
+    }
+
+    /*
+     * Report available data without performing I/O.
+     */
+    probe.available = true;
+
+    if (
+        vfs_file_read_ready(
+            &file,
+            &ready
+        ) != VFS_READINESS_RESULT_SUCCESS ||
+        !ready ||
+        probe.calls != 2U ||
+        file.offset != 17U
+    ) {
+        kernel_panic(
+            "VFS available readiness query failed"
+        );
+    }
+
+    /*
+     * Write-only files cannot be queried for reading.
+     */
+    file.access = VFS_OPEN_ACCESS_WRITE;
+
+    ready = false;
+
+    if (
+        vfs_file_read_ready(
+            &file,
+            &ready
+        ) != VFS_READINESS_RESULT_ACCESS_DENIED ||
+        ready ||
+        probe.calls != 2U
+    ) {
+        kernel_panic(
+            "VFS readiness ignored read access"
+        );
+    }
+
+    file.access = VFS_OPEN_ACCESS_READ;
+
+    /*
+     * Missing callback is not equivalent to ready=false.
+     */
+    operations.read_ready = NULL;
+
+    ready = true;
+
+    if (
+        vfs_file_read_ready(
+            &file,
+            &ready
+        ) != VFS_READINESS_RESULT_NOT_SUPPORTED ||
+        !ready ||
+        probe.calls != 2U
+    ) {
+        kernel_panic(
+            "VFS missing readiness capability failed"
+        );
+    }
+
+    operations.read_ready =
+        vfs_file_io_test_read_ready_callback;
+
+    /*
+     * Callback failure must not publish its output.
+     */
+    probe.available = false;
+    probe.result = VFS_READINESS_RESULT_NOT_SUPPORTED;
+
+    if (
+        vfs_file_read_ready(
+            &file,
+            &ready
+        ) != VFS_READINESS_RESULT_NOT_SUPPORTED ||
+        !ready ||
+        probe.calls != 3U
+    ) {
+        kernel_panic(
+            "VFS readiness failure modified result"
+        );
+    }
+
+    /*
+     * A query must never alter shared open-file offset.
+     */
+    probe.result = VFS_READINESS_RESULT_SUCCESS;
+    probe.mutate_offset = true;
+
+    if (
+        vfs_file_read_ready(
+            &file,
+            &ready
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        !ready ||
+        file.offset != 17U ||
+        probe.calls != 4U
+    ) {
+        kernel_panic(
+            "VFS readiness accepted offset mutation"
+        );
+    }
+
+    probe.mutate_offset = false;
+
+    /*
+     * Invalid inputs must fail before dispatch.
+     */
+    if (
+        vfs_file_read_ready(
+            NULL,
+            &ready
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        vfs_file_read_ready(
+            &file,
+            NULL
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        probe.calls != 4U
+    ) {
+        kernel_panic(
+            "VFS readiness invalid arguments accepted"
+        );
+    }
+
+    /*
+     * The regular-file fixture has no read-wait operation.
+     * Missing capability must not create a registration.
+     */
+    struct vfs_read_wait wait = {0};
+
+    if (
+        vfs_file_read_wait_register(
+            &file,
+            &wait,
+            vfs_file_io_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_NOT_SUPPORTED ||
+        wait.file != NULL ||
+        wait_queue_entry_registered(&wait.entry) ||
+        file.reference_count != 1U
+    ) {
+        kernel_panic(
+            "VFS unsupported read wait registration failed"
+        );
+    }
+
+    /*
+     * Read access is enforced before capability dispatch.
+     */
+    file.access = VFS_OPEN_ACCESS_WRITE;
+
+    if (
+        vfs_file_read_wait_register(
+            &file,
+            &wait,
+            vfs_file_io_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_ACCESS_DENIED ||
+        wait.file != NULL ||
+        file.reference_count != 1U
+    ) {
+        kernel_panic(
+            "VFS read wait bypassed file permissions"
+        );
+    }
+
+    file.access = VFS_OPEN_ACCESS_READ;
+
+    if (
+        vfs_file_read_wait_register(
+            NULL,
+            &wait,
+            vfs_file_io_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        vfs_file_read_wait_register(
+            &file,
+            NULL,
+            vfs_file_io_test_read_wait_notification,
+            NULL
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        vfs_file_read_wait_register(
+            &file,
+            &wait,
+            NULL,
+            NULL
+        ) != VFS_READINESS_RESULT_INVALID_ARGUMENT ||
+        vfs_read_wait_cancel(&wait) ||
+        file.reference_count != 1U
+    ) {
+        kernel_panic(
+            "VFS read wait accepted invalid arguments"
+        );
+    }
+
+    if (
+        !vfs_file_release(&file) ||
+        !vfs_node_release(&node)
+    ) {
+        kernel_panic(
+            "VFS readiness fixture cleanup failed"
+        );
+    }
+}
+
 
 static void vfs_file_io_test_read_success(void)
 {

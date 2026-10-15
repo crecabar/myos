@@ -20,10 +20,11 @@
 #ifndef MYOS_PROCESS_INSTANCE_H
 #define MYOS_PROCESS_INSTANCE_H
 
-#include "../elf/elf64.h"
 #include "fd_table.h"
 #include "image.h"
 #include "process.h"
+#include "../elf/elf64.h"
+#include "../vfs/vfs.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -80,6 +81,19 @@ struct vfs_mount_table;
      */
     bool wait_active;
     uint64_t wait_child_pid;
+
+     /*
+     * One outstanding read-availability wait per process.
+     *
+     * read_wait owns its VFS file reference while pending.
+     * Delivery releases that reference and sets notified,
+     * but the logical request remains active until cleared.
+     *
+     * This state does not itself block or wake the process.
+     */
+     struct vfs_read_wait read_wait;
+     bool read_wait_active;
+     bool read_wait_notified;
 };
 
 /**

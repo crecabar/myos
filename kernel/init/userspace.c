@@ -135,6 +135,17 @@ bool userspace_init_start(
         instance->process.id
     );
 
+    /*
+     * Boot diagnostics have completed.
+     *
+     * The framebuffer now serves the userspace
+     * console. Routine kernel diagnostics continue
+     * through serial without modifying its cursor.
+     *
+     * Panic handling may restore framebuffer output.
+     */
+    diagnostics_console_mirror_set(false);
+
     return true;
 }
 

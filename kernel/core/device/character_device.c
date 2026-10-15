@@ -53,14 +53,13 @@ bool character_device_initialize(
      * binding fails, clear the candidate capability so no apparently valid
      * unbound character interface remains.
      */
-    character->device =
-        device;
+    character->device = device;
+    character->operations = operations;
+    character->private_data = private_data;
 
-    character->operations =
-        operations;
-
-    character->private_data =
-        private_data;
+    wait_queue_init(
+        &character->read_waiters
+    );
 
     if (!device_class_bind(
         device,
@@ -120,6 +119,70 @@ bool character_device_can_read(
         ) &&
         character->operations->read !=
             NULL;
+}
+
+bool character_device_read_ready(
+    struct character_device *character,
+    bool *ready)
+{
+    if (
+        ready == NULL ||
+        !character_device_can_read(character) ||
+        character->operations->read_ready == NULL
+    ) {
+        return false;
+    }
+
+    bool available = false;
+
+    if (
+        !character->operations->read_ready(
+            character,
+            &available
+        )
+    ) {
+        return false;
+    }
+
+    *ready = available;
+
+    return true;
+}
+
+bool character_device_read_wait_register(
+    struct character_device *character,
+    struct wait_queue_entry *entry,
+    wait_queue_notification_fn notification,
+    void *context)
+{
+    if (
+        !character_device_can_read(character) ||
+        character->operations->read_ready == NULL
+    ) {
+        return false;
+    }
+
+    return wait_queue_register(
+        &character->read_waiters,
+        entry,
+        notification,
+        context
+    );
+}
+
+size_t character_device_read_wait_notify(
+    struct character_device *character)
+{
+    if (
+        !character_device_can_read(character) ||
+        character->operations->read_ready == NULL
+    ) {
+        return 0U;
+    }
+
+    return wait_queue_notify_all(
+        &character->read_waiters
+    );
 }
 
 bool character_device_can_write(
@@ -323,6 +386,7 @@ static bool character_device_io_result_valid(
         case CHARACTER_DEVICE_IO_RESULT_INVALID_ARGUMENT:
         case CHARACTER_DEVICE_IO_RESULT_NOT_SUPPORTED:
         case CHARACTER_DEVICE_IO_RESULT_RESOURCE_EXHAUSTED:
+        case CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK:
             return true;
     }
 

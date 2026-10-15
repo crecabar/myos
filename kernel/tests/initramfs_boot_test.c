@@ -585,9 +585,11 @@ static void initramfs_boot_test_core_devices(
     }
 
     /*
-     * /dev/console exposes the visible kernel console as a write-only
-     * character device. Input is deliberately unsupported until console input
-     * receives blocking and terminal semantics of its own.
+     * /dev/console exposes the visible console through a readable
+     * and writable character device.
+     *
+     * An empty input queue returns WOULD_BLOCK, not EOF.
+     * Blocking reads and terminal semantics are introduced separately.
      */
     static const char console_path[] =
         "/dev/console";
@@ -635,38 +637,65 @@ static void initramfs_boot_test_core_devices(
         );
     }
 
-    struct vfs_file *rejected_file =
-        NULL;
+    struct vfs_file *read_file = NULL;
 
     if (
         vfs_node_open(
             console_node,
             VFS_OPEN_ACCESS_READ,
-            &rejected_file
-        ) !=
-            VFS_OPEN_RESULT_NOT_SUPPORTED ||
-        rejected_file != NULL
+            &read_file
+        ) != VFS_OPEN_RESULT_OPENED ||
+        read_file == NULL
     ) {
         kernel_panic(
-            "Boot /dev/console unexpectedly supported read open"
+            "Boot /dev/console read open failed"
         );
     }
 
-    rejected_file =
-        NULL;
+    uint8_t input_byte = 0xa5U;
+    size_t input_bytes = SIZE_MAX;
+
+    if (
+        vfs_file_read(
+            read_file,
+            &input_byte,
+            sizeof(input_byte),
+            &input_bytes
+        ) != VFS_IO_RESULT_WOULD_BLOCK ||
+        input_byte != 0xa5U ||
+        input_bytes != SIZE_MAX ||
+        read_file->offset != 0
+    ) {
+        kernel_panic(
+            "Boot /dev/console empty input contract failed"
+        );
+    }
+
+    if (!vfs_file_release(read_file)) {
+        kernel_panic(
+            "Boot /dev/console read file cleanup failed"
+        );
+    }
+
+    struct vfs_file *read_write_file = NULL;
 
     if (
         vfs_node_open(
             console_node,
             VFS_OPEN_ACCESS_READ |
                 VFS_OPEN_ACCESS_WRITE,
-            &rejected_file
-        ) !=
-            VFS_OPEN_RESULT_NOT_SUPPORTED ||
-        rejected_file != NULL
+            &read_write_file
+        ) != VFS_OPEN_RESULT_OPENED ||
+        read_write_file == NULL
     ) {
         kernel_panic(
-            "Boot /dev/console unexpectedly supported read-write open"
+            "Boot /dev/console read-write open failed"
+        );
+    }
+
+    if (!vfs_file_release(read_write_file)) {
+        kernel_panic(
+            "Boot /dev/console read-write cleanup failed"
         );
     }
 

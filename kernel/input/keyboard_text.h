@@ -22,9 +22,14 @@
  * - Enter
  * - Tab
  * - Backspace
+ * - Dash
+ * - Slash
+ * - Comma and period without Shift
+ * - Apostrophe without Shift
+ * - Double quote with Shift+Apostrophe (provisional US mapping)
  *
- * Punctuation and shifted number-row symbols are intentionally left to a
- * future keyboard-layout implementation.
+ * Other punctuation and shifted number-row symbols remain
+ * unsupported until keyboard layouts are introduced.
  *
  * @return true when the event produced a character; false otherwise.
  */
