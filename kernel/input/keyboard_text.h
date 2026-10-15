@@ -22,6 +22,8 @@
  * - Enter
  * - Tab
  * - Backspace
+ * - Dash
+ * - Slash
  *
  * Punctuation and shifted number-row symbols are intentionally left to a
  * future keyboard-layout implementation.

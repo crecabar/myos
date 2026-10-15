@@ -105,6 +105,21 @@ bool keyboard_text_from_key_event(
         case INPUT_KEY_BACKSPACE:
             *character = '\b';
             return true;
+        case INPUT_KEY_MINUS:
+            if (keyboard_shift_active(event)) {
+                return false;
+            }
+
+            *character = '-';
+            return true;
+
+        case INPUT_KEY_SLASH:
+            if (keyboard_shift_active(event)) {
+                return false;
+            }
+
+            *character = '/';
+            return true;
 
         default:
             return false;

@@ -71,6 +71,20 @@ static void console_input_test_text(void)
         ) != CONSOLE_INPUT_ACCEPTED ||
         console_input_test_key(
             &buffer,
+            INPUT_KEY_MINUS,
+            INPUT_KEY_PRESSED,
+            0,
+            0
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_SLASH,
+            INPUT_KEY_PRESSED,
+            0,
+            0
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
             INPUT_KEY_ENTER,
             INPUT_KEY_PRESSED,
             0,
@@ -92,11 +106,13 @@ static void console_input_test_text(void)
             sizeof(output),
             &length
         ) ||
-        length != 4U ||
+        length != 6U ||
         output[0] != 'a' ||
         output[1] != 'B' ||
         output[2] != 'C' ||
-        output[3] != '\n'
+        output[3] != '-' ||
+        output[4] != '/' ||
+        output[5] != '\n'
     ) {
         kernel_panic(
             "Console input translated line mismatch"
