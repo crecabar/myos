@@ -61,6 +61,7 @@
 #include "tests/console_input_consumer_test.h"
 #include "tests/console_input_test.h"
 #include "tests/console_line_buffer_test.h"
+#include "tests/console_render_test.h"
 #include "tests/core_device_fd_test.h"
 #include "tests/cpu_local_test.h"
 #include "tests/deferred_work_test.h"
@@ -1165,6 +1166,7 @@ static _Noreturn void kernel_main_continue(void)
         pseudo_device_test_run();
         console_device_test_run();
         console_line_buffer_test_run();
+        console_render_test_run();
         console_input_test_run();
         console_input_consumer_test_run();
         deferred_work_test_run();

@@ -39,6 +39,8 @@ void console_init(
 
     console->foreground = foreground;
     console->scale = scale;
+
+    console->scroll_count = 0U;
 }
 
 void console_write(
@@ -94,6 +96,128 @@ void console_put_char(
     }
 
     console->cursor_x += advance;
+}
+
+bool console_erase_previous(
+    struct console *console,
+    uint64_t minimum_x,
+    uint64_t minimum_y)
+{
+    if (
+        console == NULL ||
+        console->framebuffer == NULL ||
+        console->scale == 0U ||
+        console->scale > UINT64_MAX / 9U
+    ) {
+        return false;
+    }
+
+    struct framebuffer *framebuffer =
+        console->framebuffer;
+
+    uint64_t character_width =
+        FONT_WIDTH * console->scale;
+
+    uint64_t advance =
+        (FONT_WIDTH + 1U) * console->scale;
+
+    uint64_t line_height =
+        (FONT_HEIGHT + 1U) * console->scale;
+
+    if (
+        console->origin_x >= framebuffer->width ||
+        console->origin_y >= framebuffer->height ||
+        character_width >
+            framebuffer->width - console->origin_x ||
+        console->cursor_x < console->origin_x ||
+        console->cursor_y < console->origin_y ||
+        console->cursor_y >= framebuffer->height ||
+        minimum_x < console->origin_x ||
+        minimum_y < console->origin_y
+    ) {
+        return false;
+    }
+
+    uint64_t erase_x;
+    uint64_t erase_y =
+        console->cursor_y;
+
+    if (
+        console->cursor_x >
+        console->origin_x
+    ) {
+        if (
+            console->cursor_x -
+                console->origin_x <
+            advance
+        ) {
+            return false;
+        }
+
+        erase_x =
+            console->cursor_x - advance;
+    } else {
+        /*
+         * The cursor is at the beginning of a
+         * displayed row. The preceding cell may
+         * be on the previous automatically
+         * wrapped row.
+         */
+        if (
+            console->cursor_x !=
+                console->origin_x ||
+            console->cursor_y -
+                console->origin_y <
+                line_height
+        ) {
+            return false;
+        }
+
+        erase_y -= line_height;
+
+        uint64_t available =
+            framebuffer->width -
+            console->origin_x -
+            character_width;
+
+        erase_x =
+            console->origin_x +
+            (available / advance) * advance;
+    }
+
+    /*
+     * Never erase before the caller's editing
+     * boundary. The boundary is inclusive:
+     * the first editable cell may be erased.
+     */
+    if (
+        erase_y < minimum_y ||
+        (
+            erase_y == minimum_y &&
+            erase_x < minimum_x
+        )
+    ) {
+        return false;
+    }
+
+    /*
+     * The console currently uses a black
+     * background. Clear both the glyph and
+     * its spacing cell.
+     */
+    framebuffer_fill_rect(
+        framebuffer,
+        erase_x,
+        erase_y,
+        advance,
+        line_height,
+        0U
+    );
+
+    console->cursor_x = erase_x;
+    console->cursor_y = erase_y;
+
+    return true;
 }
 
 void console_write_uint(
@@ -242,6 +366,7 @@ static void console_scroll(struct console *console)
 
     console->cursor_y =
         framebuffer->height - line_height;
+    ++console->scroll_count;
 }
 
 static void console_format_putc(
