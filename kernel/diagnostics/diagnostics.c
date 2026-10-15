@@ -12,6 +12,7 @@
 #include "diagnostics.h"
 
 static struct console *diagnostics_console = NULL;
+static bool diagnostics_console_mirror_enabled = true;
 
 static void diagnostics_putc(
     char character,
@@ -21,7 +22,10 @@ static void diagnostics_putc(
 
     serial_write_char(character);
 
-    if (diagnostics_console != NULL) {
+    if (
+        diagnostics_console_mirror_enabled &&
+        diagnostics_console != NULL
+    ) {
         console_put_char(
             diagnostics_console,
             character
@@ -32,6 +36,7 @@ static void diagnostics_putc(
 void diagnostics_init(void)
 {
     diagnostics_console = NULL;
+    diagnostics_console_mirror_enabled = true;
 }
 
 void diagnostics_attach_console(
@@ -40,12 +45,21 @@ void diagnostics_attach_console(
     diagnostics_console = console;
 }
 
+void diagnostics_console_mirror_set(
+    bool enabled)
+{
+    diagnostics_console_mirror_enabled = enabled;
+}
+
 void diagnostics_write(
     const char *string)
 {
     serial_write_string(string);
 
-    if (diagnostics_console != NULL) {
+    if (
+        diagnostics_console_mirror_enabled &&
+        diagnostics_console != NULL
+    ) {
         console_write(
             diagnostics_console,
             string
