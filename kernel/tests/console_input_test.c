@@ -120,6 +120,127 @@ static void console_input_test_text(void)
     }
 }
 
+static void console_input_test_punctuation(void)
+{
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    if (
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_A,
+            INPUT_KEY_PRESSED,
+            0U,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_COMMA,
+            INPUT_KEY_PRESSED,
+            0U,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_B,
+            INPUT_KEY_PRESSED,
+            0U,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_PERIOD,
+            INPUT_KEY_PRESSED,
+            0U,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_C,
+            INPUT_KEY_PRESSED,
+            0U,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_APOSTROPHE,
+            INPUT_KEY_PRESSED,
+            0U,
+            INPUT_LOCK_CAPS
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_APOSTROPHE,
+            INPUT_KEY_PRESSED,
+            INPUT_MODIFIER_LEFT_SHIFT,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED
+    ) {
+        kernel_panic(
+            "Console punctuation translation failed"
+        );
+    }
+
+    /*
+     * Shifted comma and period are not yet
+     * supported by the bootstrap layout.
+     */
+    if (
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_COMMA,
+            INPUT_KEY_PRESSED,
+            INPUT_MODIFIER_LEFT_SHIFT,
+            0U
+        ) != CONSOLE_INPUT_IGNORED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_PERIOD,
+            INPUT_KEY_PRESSED,
+            INPUT_MODIFIER_RIGHT_SHIFT,
+            0U
+        ) != CONSOLE_INPUT_IGNORED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_ENTER,
+            INPUT_KEY_PRESSED,
+            0U,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED
+    ) {
+        kernel_panic(
+            "Console punctuation modifier contract failed"
+        );
+    }
+
+    static const char expected[] = "a,b.c'\"\n";
+
+    char output[sizeof(expected)] = {0};
+    size_t length = 0U;
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != sizeof(expected) - 1U
+    ) {
+        kernel_panic(
+            "Console punctuation line length mismatch"
+        );
+    }
+
+    for (size_t index = 0U; index < length; ++index) {
+        if (output[index] != expected[index]) {
+            kernel_panic(
+                "Console punctuation canonical bytes mismatch"
+            );
+        }
+    }
+}
+
 static void console_input_test_editing(void)
 {
     struct console_line_buffer buffer;
@@ -256,6 +377,7 @@ static void console_input_test_full(void)
 void console_input_test_run(void)
 {
     console_input_test_text();
+    console_input_test_punctuation();
     console_input_test_editing();
     console_input_test_ignored();
     console_input_test_full();
