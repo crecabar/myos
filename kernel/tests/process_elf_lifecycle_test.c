@@ -1214,6 +1214,23 @@ static void process_elf_lifecycle_test_fork_clone(
         );
     }
 
+    /*
+     * The child inherits open-file descriptions,
+     * but never the parent's pending wait requests.
+     */
+    if (
+        child->read_wait_active ||
+        child->read_wait_notified ||
+        child->read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &child->read_wait.entry
+        )
+    ) {
+        kernel_panic(
+            "Fork child inherited read wait state"
+        );
+    }
+
     if (
         process_namespace_root_get(
             parent
@@ -1283,6 +1300,44 @@ static void process_elf_lifecycle_test_fork_clone(
     ) {
         kernel_panic(
             "Fork child lifecycle relationship is incorrect"
+        );
+    }
+
+    /*
+     * Simulate a logically active read request.
+     *
+     * waitpid must not install a second wait using
+     * the same BLOCKED process state.
+     */
+    parent->read_wait_active = true;
+
+    if (
+        process_wait_register(
+            parent,
+            child_pid
+        ) ||
+        parent->wait_active
+    ) {
+        kernel_panic(
+            "waitpid accepted concurrent read wait"
+        );
+    }
+
+    parent->read_wait_active = false;
+
+    /*
+     * Ordinary child waiting remains available
+     * after the read wait state has been cleared.
+     */
+    if (
+        !process_wait_register(
+            parent,
+            child_pid
+        ) ||
+        !process_wait_cancel(parent)
+    ) {
+        kernel_panic(
+            "waitpid registration regressed after read wait guard"
         );
     }
 
@@ -1534,6 +1589,33 @@ static void process_elf_lifecycle_test_fork_clone(
             "Fork parent termination did not release descriptor ownership"
         );
     }
+
+    /*
+     * Final reclamation must reject outstanding read
+     * requests, including requests already notified
+     * but not yet logically cleared.
+     *
+     * These are synthetic state guards: no actual VFS
+     * registration is installed in this fixture.
+     */
+    parent->read_wait_active = true;
+
+    if (process_release_terminated(parent)) {
+        kernel_panic(
+            "Process reclamation accepted active read wait"
+        );
+    }
+
+    parent->read_wait_active = false;
+    parent->read_wait_notified = true;
+
+    if (process_release_terminated(parent)) {
+        kernel_panic(
+            "Process reclamation accepted delivered read wait"
+        );
+    }
+
+    parent->read_wait_notified = false;
 
     if (!process_release_terminated(
         parent
@@ -3174,6 +3256,37 @@ void process_elf_lifecycle_test_run(void)
             "Discardable ELF process instance is not ready"
         );
     }
+
+    /*
+     * A prepared process with an outstanding logical
+     * read wait must not be discarded.
+     */
+    discarded_instance.read_wait_active = true;
+
+    if (
+        process_instance_discard(
+            &discarded_instance
+        )
+    ) {
+        kernel_panic(
+            "Discard accepted active process read wait"
+        );
+    }
+
+    discarded_instance.read_wait_active = false;
+    discarded_instance.read_wait_notified = true;
+
+    if (
+        process_instance_discard(
+            &discarded_instance
+        )
+    ) {
+        kernel_panic(
+            "Discard accepted delivered process read wait"
+        );
+    }
+
+    discarded_instance.read_wait_notified = false;
 
     if (!process_instance_discard(
         &discarded_instance

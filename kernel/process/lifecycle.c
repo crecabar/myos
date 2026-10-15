@@ -12,6 +12,7 @@
 
 #include "cwd.h"
 #include "fd_table.h"
+#include "file.h"
 #include "namespace.h"
 #include "wait.h"
 
@@ -47,6 +48,41 @@ void process_lifecycle_notify_terminated(
     ) {
         kernel_panic(
             "Process lifecycle instance link is inconsistent"
+        );
+    }
+
+    /*
+     * A terminated process must not retain callbacks
+     * registered against a readable resource.
+     *
+     * Cancel the process-owned request before releasing
+     * descriptor references and namespace resources.
+     */
+    struct process_instance *instance =
+        process->instance;
+
+    if (instance->read_wait_active) {
+        if (!process_file_read_wait_cancel(instance)) {
+            kernel_panic(
+                "Unable to cancel terminated process read wait"
+            );
+        }
+    }
+
+    /*
+     * Cancellation must remove both pending registrations
+     * and already-delivered logical requests.
+     */
+    if (
+        instance->read_wait_active ||
+        instance->read_wait_notified ||
+        instance->read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &instance->read_wait.entry
+        )
+    ) {
+        kernel_panic(
+            "Terminated process retained read wait state"
         );
     }
 

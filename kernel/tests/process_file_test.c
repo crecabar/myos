@@ -14,6 +14,7 @@
 #include "../diagnostics/diagnostics.h"
 #include "../process/fd_table.h"
 #include "../process/file.h"
+#include "../process/lifecycle.h"
 #include "../process/namespace.h"
 #include "../vfs/vfs.h"
 
@@ -110,6 +111,11 @@ static void process_file_test_expect_baseline(
     const struct process_file_test_fixture *fixture
 );
 
+static void process_file_test_read_wait_termination(
+    bool notify_before_termination,
+    bool close_before_termination
+);
+
 static void process_file_test_open_close(void);
 
 static void process_file_test_failures(void);
@@ -169,6 +175,40 @@ void process_file_test_run(void)
     process_file_test_io_failures();
     process_file_test_read_ready();
     process_file_test_read_wait();
+
+    /*
+     * Termination cancels a pending wait with an open FD.
+     */
+    process_file_test_read_wait_termination(
+        false,
+        false
+    );
+
+    /*
+     * Termination clears an already-delivered request.
+     */
+    process_file_test_read_wait_termination(
+        true,
+        false
+    );
+
+    /*
+     * Termination cancels a pending wait even after
+     * the original descriptor has been closed.
+     */
+    process_file_test_read_wait_termination(
+        false,
+        true
+    );
+
+    /*
+     * A delivered request also cleans up correctly
+     * when its original descriptor was closed.
+     */
+    process_file_test_read_wait_termination(
+        true,
+        true
+    );
     process_file_test_would_block();
     process_file_test_seek_stat_failures();
     process_file_test_failures();
@@ -2403,5 +2443,162 @@ static void process_file_test_read_wait(void)
     }
 
     process_file_test_expect_baseline(&fixture);
+    process_file_test_fixture_release(&fixture);
+}
+
+static void process_file_test_read_wait_termination(
+    bool notify_before_termination,
+    bool close_before_termination)
+{
+    struct process_file_test_fixture fixture;
+
+    process_file_test_fixture_initialize(&fixture);
+
+    /*
+     * Lightweight lifecycle fixture.
+     *
+     * The instance is not a scheduled ELF process,
+     * but its descriptor and VFS ownership are real.
+     */
+    fixture.instance.process.instance =
+        &fixture.instance;
+
+    fixture.instance.process.state =
+        PROCESS_STATE_READY;
+
+    struct wait_queue queue;
+    wait_queue_init(&queue);
+
+    size_t descriptor = SIZE_MAX;
+
+    if (
+        process_file_open(
+            &fixture.instance,
+            "/file",
+            sizeof("/file") - 1U,
+            VFS_OPEN_ACCESS_READ,
+            &descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        descriptor != 0U
+    ) {
+        kernel_panic(
+            "Read wait termination fixture open failed"
+        );
+    }
+
+    struct vfs_file_operations operations =
+        process_file_test_io_operations;
+
+    operations.read_ready =
+        process_file_test_wait_readiness;
+
+    operations.read_wait_register =
+        process_file_test_wait_registration;
+
+    fixture.file_storage.operations = &operations;
+    fixture.file_storage.private_data = &queue;
+
+    if (
+        process_file_read_wait_register(
+            &fixture.instance,
+            descriptor
+        ) != PROCESS_FILE_RESULT_SUCCESS ||
+        !fixture.instance.read_wait_active ||
+        fixture.instance.read_wait_notified ||
+        fixture.file_storage.reference_count != 2U
+    ) {
+        kernel_panic(
+            "Read wait termination registration failed"
+        );
+    }
+
+    /*
+     * Optionally deliver the event before termination.
+     *
+     * The VFS registration is removed, but the logical
+     * process request remains active until cancellation.
+     */
+    if (notify_before_termination) {
+        if (
+            wait_queue_notify_all(&queue) != 1U ||
+            !fixture.instance.read_wait_active ||
+            !fixture.instance.read_wait_notified
+        ) {
+            kernel_panic(
+                "Read wait termination notification failed"
+            );
+        }
+    }
+
+    /*
+     * Optionally remove the descriptor first.
+     *
+     * A pending wait must survive this close because
+     * it owns an independent VFS file reference.
+     */
+    if (close_before_termination) {
+        if (
+            process_file_close(
+                &fixture.instance,
+                descriptor
+            ) != PROCESS_FILE_RESULT_SUCCESS
+        ) {
+            kernel_panic(
+                "Read wait termination descriptor close failed"
+            );
+        }
+    }
+
+    /*
+     * Simulate scheduler detachment and termination.
+     *
+     * The lifecycle hook must cancel the read request
+     * before releasing any remaining descriptors.
+     */
+    fixture.instance.process.state =
+        PROCESS_STATE_TERMINATED;
+
+    fixture.instance.process.termination_reason =
+        PROCESS_TERMINATION_EXITED;
+
+    fixture.instance.process.exit_status = 0U;
+
+    process_lifecycle_notify_terminated(
+        &fixture.instance.process
+    );
+
+    if (
+        fixture.instance.read_wait_active ||
+        fixture.instance.read_wait_notified ||
+        fixture.instance.read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &fixture.instance.read_wait.entry
+        ) ||
+        queue.head != NULL ||
+        queue.tail != NULL ||
+        fixture.file_storage.reference_count != 0U ||
+        fixture.file_node.reference_count != 1U ||
+        fixture.root.reference_count != 1U ||
+        process_fd_table_get(
+            &fixture.instance.file_descriptors,
+            descriptor
+        ) != NULL ||
+        wait_queue_notify_all(&queue) != 0U ||
+        process_file_read_wait_cancel(
+            &fixture.instance
+        )
+    ) {
+        kernel_panic(
+            "Terminated process leaked read wait ownership"
+        );
+    }
+
+    /*
+     * The lifecycle hook already released descriptor
+     * and namespace ownership.
+     *
+     * The fixture cleanup releases only its remaining
+     * caller-owned VFS nodes.
+     */
     process_file_test_fixture_release(&fixture);
 }

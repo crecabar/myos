@@ -138,7 +138,13 @@ bool process_release_terminated(
         instance->first_child != NULL ||
         instance->next_sibling != NULL ||
         instance->wait_active ||
-        instance->wait_child_pid != 0
+        instance->wait_child_pid != 0 ||
+        instance->read_wait_active ||
+        instance->read_wait_notified ||
+        instance->read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &instance->read_wait.entry
+        )
     ) {
         return false;
     }

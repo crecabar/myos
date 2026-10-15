@@ -43,7 +43,13 @@ bool process_wait_register(
         parent->process.instance != parent ||
         parent->process.state ==
             PROCESS_STATE_TERMINATED ||
-        parent->wait_active
+        parent->wait_active ||
+        parent->read_wait_active ||
+        parent->read_wait_notified ||
+        parent->read_wait.file != NULL ||
+        wait_queue_entry_registered(
+            &parent->read_wait.entry
+        )
     ) {
         return false;
     }
