@@ -10,10 +10,12 @@
 
 #include "user_processes.h"
 #include "user_processes/block.h"
+#include "user_processes/blocking_read.h"
 #include "user_processes/commands.h"
 #include "user_processes/elf_isolation.h"
 #include "user_processes/elf_protection.h"
 #include "user_processes/exec.h"
+#include "user_processes/fd_syscalls.h"
 #include "user_processes/fork.h"
 #include "user_processes/lifecycle_stress.h"
 #include "user_processes/runtime_malloc.h"
@@ -25,7 +27,6 @@
 #include "user_processes/standard.h"
 #include "user_processes/syscall_abi.h"
 #include "user_processes/syscall_pointer.h"
-#include "user_processes/fd_syscalls.h"
 #include "user_processes/vfs_elf.h"
 #include "user_processes/waitpid.h"
 
@@ -105,6 +106,10 @@ static void user_process_runtime_stdio_terminated_handler(
 );
 
 static void user_process_runtime_syscalls_terminated_handler(
+    struct process *process
+);
+
+static void user_process_blocking_read_terminated_handler(
     struct process *process
 );
 
@@ -394,6 +399,24 @@ static void user_process_runtime_syscalls_terminated_handler(
     struct process *process)
 {
     if (!user_process_runtime_syscalls_test_terminated(
+        process
+    )) {
+        return;
+    }
+
+    scheduler_set_terminated_handler(
+        user_process_blocking_read_terminated_handler
+    );
+
+    user_process_blocking_read_test_prepare(
+        user_process_test_mounts
+    );
+}
+
+static void user_process_blocking_read_terminated_handler(
+    struct process *process)
+{
+    if (!user_process_blocking_read_test_terminated(
         process
     )) {
         return;

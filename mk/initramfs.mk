@@ -48,6 +48,7 @@ $(TEST_INITRAMFS_IMAGE): \
 	$(RUNTIME_MALLOC_ELF) \
 	$(RUNTIME_STDIO_ELF) \
 	$(RUNTIME_SYSCALLS_ELF) \
+	$(BLOCKING_READ_ELF) \
 	| $(BUILD_DIR)
 	rm -rf $(TEST_INITRAMFS_ROOT)
 	mkdir -p $(TEST_INITRAMFS_ROOT)/bin
@@ -77,6 +78,9 @@ $(TEST_INITRAMFS_IMAGE): \
 	cp \
 		$(RUNTIME_SYSCALLS_ELF) \
 		$(TEST_INITRAMFS_ROOT)/bin/runtime-syscalls
+	cp \
+		$(BLOCKING_READ_ELF) \
+		$(TEST_INITRAMFS_ROOT)/bin/blocking-read
 	printf 'MyOS cat fixture\n' > \
 		$(TEST_INITRAMFS_ROOT)/cat-fixture.txt
 	python3 \
