@@ -26,11 +26,26 @@ typedef void (*console_input_accepted_fn)(
     char character
 );
 
+/**
+ * Observes an accepted canonical control operation.
+ *
+ * Currently emitted for Ctrl+D (EOF).
+ * It does not represent a printable character.
+ *
+ * Executes outside IRQ context and must not block
+ * or recursively drain the consumer.
+ */
+typedef void (*console_input_accepted_control_fn)(
+    void *context
+);
+
 struct console_input_consumer {
     bool has_pending_event;
     struct input_event pending_event;
     console_input_accepted_fn accepted;
     void *accepted_context;
+    console_input_accepted_control_fn accepted_control;
+    void *accepted_control_context;
 };
 
 void console_input_consumer_init(
@@ -46,6 +61,18 @@ void console_input_consumer_init(
 void console_input_consumer_accepted_observer_set(
     struct console_input_consumer *consumer,
     console_input_accepted_fn accepted,
+    void *context
+);
+
+/**
+ * Sets or removes the accepted-control observer.
+ *
+ * Currently reports accepted Ctrl+D operations.
+ * NULL disables notifications.
+ */
+void console_input_consumer_control_observer_set(
+    struct console_input_consumer *consumer,
+    console_input_accepted_control_fn accepted_control,
     void *context
 );
 

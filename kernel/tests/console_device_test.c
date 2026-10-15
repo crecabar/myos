@@ -177,6 +177,14 @@ static void console_device_test_readability_key(
     enum input_key_code code
 );
 
+static void console_device_test_ctrl_d(
+    struct console_device *device);
+
+static void console_device_test_eof_readiness(
+    struct console_device *device);
+
+static void console_device_test_eof_edit_boundary(
+    struct console_device *device);
 
 static void console_device_test_readability_expect_line(
     struct console_device *device,
@@ -556,6 +564,398 @@ static void console_device_test_readability_key(
     ) {
         kernel_panic(
             "Console readability key dispatch failed"
+        );
+    }
+}
+
+static void console_device_test_ctrl_d(
+    struct console_device *device)
+{
+    const struct {
+        enum input_key_code code;
+        enum input_key_state state;
+    } keys[] = {
+        { INPUT_KEY_LEFT_CTRL, INPUT_KEY_PRESSED },
+        { INPUT_KEY_D, INPUT_KEY_PRESSED },
+        { INPUT_KEY_D, INPUT_KEY_RELEASED },
+        { INPUT_KEY_LEFT_CTRL, INPUT_KEY_RELEASED },
+    };
+
+    for (
+        size_t index = 0U;
+        index < sizeof(keys) / sizeof(keys[0]);
+        ++index
+    ) {
+        struct input_event event = {
+            .type = INPUT_EVENT_KEY,
+            .key = {
+                .code = keys[index].code,
+                .state = keys[index].state,
+            },
+        };
+
+        if (
+            !input_event_submit(&event) ||
+            console_device_drain_input(
+                device, 1U
+            ) != 1U ||
+            input_event_pending() != 0U
+        ) {
+            kernel_panic(
+                "Console Ctrl+D device dispatch failed"
+            );
+        }
+    }
+}
+
+static void console_device_test_eof_readiness(
+    struct console_device *device)
+{
+    if (
+        device == NULL ||
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 0U ||
+        device->echo_visible_characters != 0U ||
+        device->readable_notification != NULL ||
+        device->character.read_waiters.head != NULL ||
+        input_event_pending() != 0U
+    ) {
+        kernel_panic(
+            "Console EOF device fixture is not clean"
+        );
+    }
+
+    console_device_test_expect_read_ready(
+        device, false
+    );
+
+    uint8_t output[4] = {0};
+    size_t bytes_read = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device->character,
+            output,
+            sizeof(output),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK ||
+        bytes_read != SIZE_MAX
+    ) {
+        kernel_panic(
+            "Console empty input was confused with EOF"
+        );
+    }
+
+    struct wait_queue_entry waiter;
+    wait_queue_entry_init(&waiter);
+
+    struct console_read_wait_probe probe = {0};
+
+    struct console_readability_probe legacy = {
+        .device = device,
+        .calls = 0U,
+    };
+
+    if (
+        !console_device_readable_notification_set(
+            device,
+            console_device_test_readable_notification,
+            &legacy
+        ) ||
+        !character_device_read_wait_register(
+            &device->character,
+            &waiter,
+            console_device_test_read_wait_notification,
+            &probe
+        )
+    ) {
+        kernel_panic(
+            "Console EOF waiter registration failed"
+        );
+    }
+
+    uint64_t cursor_x = device->console->cursor_x;
+    uint64_t cursor_y = device->console->cursor_y;
+
+    console_device_test_ctrl_d(device);
+
+    console_device_test_expect_read_ready(
+        device, true
+    );
+
+    if (
+        probe.calls != 1U ||
+        legacy.calls != 1U ||
+        wait_queue_entry_registered(&waiter) ||
+        device->input.completed_count != 1U ||
+        !device->input.completed_eof[
+            device->input.completed_head
+        ] ||
+        device->console->cursor_x != cursor_x ||
+        device->console->cursor_y != cursor_y ||
+        device->echo_visible_characters != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D readiness or echo failed"
+        );
+    }
+
+    if (
+        character_device_read(
+            &device->character,
+            output,
+            sizeof(output),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        bytes_read != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D did not deliver zero-byte EOF"
+        );
+    }
+
+    console_device_test_expect_read_ready(
+        device, false
+    );
+
+    bytes_read = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &device->character,
+            output,
+            sizeof(output),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK ||
+        bytes_read != SIZE_MAX
+    ) {
+        kernel_panic(
+            "Console EOF was not consumed exactly once"
+        );
+    }
+
+    /*
+     * The same console must accept new input
+     * after EOF has been consumed.
+     */
+    if (
+        !console_device_readable_notification_set(
+            device, NULL, NULL
+        ) ||
+        !character_device_read_wait_register(
+            &device->character,
+            &waiter,
+            console_device_test_read_wait_notification,
+            &probe
+        )
+    ) {
+        kernel_panic(
+            "Console EOF recovery registration failed"
+        );
+    }
+
+    console_device_test_readability_key(
+        device, INPUT_KEY_A
+    );
+
+    console_device_test_expect_read_ready(
+        device, false
+    );
+
+    if (probe.calls != 1U) {
+        kernel_panic(
+            "Console notified before new line completion"
+        );
+    }
+
+    console_device_test_readability_key(
+        device, INPUT_KEY_ENTER
+    );
+
+    console_device_test_expect_read_ready(
+        device, true
+    );
+
+    if (
+        probe.calls != 2U ||
+        wait_queue_entry_registered(&waiter) ||
+        character_device_read(
+            &device->character,
+            output,
+            sizeof(output),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        bytes_read != 2U ||
+        output[0] != 'a' ||
+        output[1] != '\n'
+    ) {
+        kernel_panic(
+            "Console failed to resume normal input after EOF"
+        );
+    }
+
+    console_device_test_expect_read_ready(
+        device, false
+    );
+
+    if (
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 0U ||
+        device->input_consumer.has_pending_event ||
+        device->character.read_waiters.head != NULL ||
+        input_event_pending() != 0U ||
+        deferred_work_pending(&device->input_work)
+    ) {
+        kernel_panic(
+            "Console EOF device test leaked state"
+        );
+    }
+}
+
+static void console_device_test_eof_edit_boundary(
+    struct console_device *device)
+{
+    if (
+        device == NULL ||
+        device->input.completed_count != 0U ||
+        device->input.editing_length != 0U ||
+        device->echo_visible_characters != 0U
+    ) {
+        kernel_panic(
+            "Console EOF editing fixture is not clean"
+        );
+    }
+
+    /*
+     * Start at a text-row boundary, avoiding
+     * an unrelated automatic wrap.
+     */
+    console_put_char(device->console, '\n');
+
+    uint64_t start_x = device->console->cursor_x;
+    uint64_t start_y = device->console->cursor_y;
+
+    console_device_test_readability_key(
+        device, INPUT_KEY_A
+    );
+
+    console_device_test_readability_key(
+        device, INPUT_KEY_B
+    );
+
+    if (
+        device->input.editing_length != 2U ||
+        device->echo_visible_characters != 2U
+    ) {
+        kernel_panic(
+            "Console EOF visual fixture setup failed"
+        );
+    }
+
+    uint64_t end_x = device->console->cursor_x;
+    uint64_t end_y = device->console->cursor_y;
+
+    console_device_test_ctrl_d(device);
+
+    if (
+        device->input.editing_length != 0U ||
+        device->input.completed_count != 1U ||
+        device->echo_visible_characters != 0U ||
+        device->console->cursor_x != end_x ||
+        device->console->cursor_y != end_y
+    ) {
+        kernel_panic(
+            "Console EOF did not close editing segment"
+        );
+    }
+
+    /*
+     * Backspace after EOF must not erase
+     * characters from the completed segment.
+     */
+    console_device_test_readability_key(
+        device, INPUT_KEY_BACKSPACE
+    );
+
+    if (
+        device->echo_visible_characters != 0U ||
+        device->console->cursor_x != end_x ||
+        device->console->cursor_y != end_y
+    ) {
+        kernel_panic(
+            "Console Backspace crossed EOF boundary"
+        );
+    }
+
+    uint8_t output[4] = {0};
+    size_t bytes_read = 0U;
+
+    if (
+        character_device_read(
+            &device->character,
+            output,
+            sizeof(output),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        bytes_read != 2U ||
+        output[0] != 'a' ||
+        output[1] != 'b'
+    ) {
+        kernel_panic(
+            "Console EOF lost completed text"
+        );
+    }
+
+    /*
+     * A new character starts a fresh editable
+     * segment at the current cursor position.
+     */
+    console_device_test_readability_key(
+        device, INPUT_KEY_C
+    );
+
+    if (
+        device->input.editing_length != 1U ||
+        device->echo_visible_characters != 1U
+    ) {
+        kernel_panic(
+            "Console failed to start editing after EOF"
+        );
+    }
+
+    console_device_test_readability_key(
+        device, INPUT_KEY_BACKSPACE
+    );
+
+    if (
+        device->input.editing_length != 0U ||
+        device->echo_visible_characters != 0U ||
+        device->console->cursor_x != end_x ||
+        device->console->cursor_y != end_y ||
+        device->input.completed_count != 0U
+    ) {
+        kernel_panic(
+            "Console new editing segment erased incorrectly"
+        );
+    }
+
+    /*
+     * The original visible text remains intact.
+     */
+    if (
+        !console_device_test_glyph_visible(
+            device->console->framebuffer->address,
+            start_x,
+            start_y
+        ) ||
+        !console_device_test_glyph_visible(
+            device->console->framebuffer->address,
+            start_x + 9U,
+            start_y
+        )
+    ) {
+        kernel_panic(
+            "Console EOF erased completed visual text"
         );
     }
 }
@@ -1480,6 +1880,10 @@ static void console_device_test_deferred_input(void)
     console_device_test_readability(&device);
 
     console_device_test_read_waiters(&device);
+
+    console_device_test_eof_readiness(&device);
+
+    console_device_test_eof_edit_boundary(&device);
 
     struct input_event events[] = {
         {

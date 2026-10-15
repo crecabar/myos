@@ -53,6 +53,10 @@ static void console_device_echo_accepted(
     char character
 );
 
+static void console_device_echo_control(
+    void *context
+);
+
 static void console_device_echo_rebase(
     struct console_device *device
 );
@@ -165,6 +169,12 @@ enum console_device_initialize_result console_device_initialize(
     console_input_consumer_accepted_observer_set(
         &console_device->input_consumer,
         console_device_echo_accepted,
+        console_device
+    );
+
+    console_input_consumer_control_observer_set(
+        &console_device->input_consumer,
+        console_device_echo_control,
         console_device
     );
 
@@ -388,6 +398,38 @@ static bool console_device_read_ready(
         device->input.completed_count != 0U;
 
     return true;
+}
+
+static void console_device_echo_control(
+    void *context)
+{
+    struct console_device *device = context;
+
+    if (
+        device == NULL ||
+        device->console == NULL
+    ) {
+        return;
+    }
+
+    /*
+     * Ctrl+D completes the current canonical
+     * editing segment without displaying a
+     * character or advancing the cursor.
+     *
+     * Previously delivered characters must not
+     * remain editable by a later Backspace.
+     */
+    device->echo_visible_characters = 0U;
+
+    device->echo_start_x =
+        device->console->cursor_x;
+
+    device->echo_start_y =
+        device->console->cursor_y;
+
+    device->echo_scroll_count =
+        device->console->scroll_count;
 }
 
 static void console_device_echo_rebase(

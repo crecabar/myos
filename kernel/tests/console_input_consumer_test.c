@@ -62,6 +62,24 @@ static void consumer_test_accepted_notification(
     probe->characters[probe->count++] = character;
 }
 
+struct consumer_control_probe {
+    size_t calls;
+};
+
+static void consumer_test_control_notification(
+    void *context)
+{
+    struct consumer_control_probe *probe = context;
+
+    if (probe == NULL) {
+        kernel_panic(
+            "Console control observer invalid context"
+        );
+    }
+
+    ++probe->calls;
+}
+
 static void consumer_test_basic(void)
 {
     input_init();
@@ -532,6 +550,14 @@ static void consumer_test_control_eof(void)
         &probe
     );
 
+    struct consumer_control_probe control = {0};
+
+    console_input_consumer_control_observer_set(
+        &consumer,
+        consumer_test_control_notification,
+        &control
+    );
+
     /*
      * input_event_submit() maintains modifier
      * snapshots, so submit physical Ctrl make
@@ -564,6 +590,7 @@ static void consumer_test_control_eof(void)
         probe.count != 2U ||
         probe.characters[0] != 'a' ||
         probe.characters[1] != '\n' ||
+        control.calls != 1U ||
         buffer.completed_count != 2U
     ) {
         kernel_panic(
@@ -633,6 +660,14 @@ static void consumer_test_control_eof_backpressure(void)
         &probe
     );
 
+    struct consumer_control_probe control = {0};
+
+    console_input_consumer_control_observer_set(
+        &consumer,
+        consumer_test_control_notification,
+        &control
+    );
+
     consumer_test_submit(
         INPUT_KEY_LEFT_CTRL, INPUT_KEY_PRESSED
     );
@@ -651,6 +686,7 @@ static void consumer_test_control_eof_backpressure(void)
         consumer.pending_event.key.code !=
             INPUT_KEY_D ||
         input_event_pending() != 1U ||
+        control.calls != 0U ||
         probe.count != 0U
     ) {
         kernel_panic(
@@ -686,6 +722,7 @@ static void consumer_test_control_eof_backpressure(void)
         ) != 2U ||
         consumer.has_pending_event ||
         input_event_pending() != 0U ||
+        control.calls != 1U ||
         probe.count != 0U
     ) {
         kernel_panic(
