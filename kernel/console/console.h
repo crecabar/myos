@@ -52,6 +52,16 @@ void console_put_char(
 );
 
 /**
+ * Returns the framebuffer height of one console
+ * text row, including interline spacing.
+ *
+ * Returns zero for invalid arguments or scale.
+ */
+uint64_t console_row_height(
+    const struct console *console
+);
+
+/**
  * Erases the character cell immediately preceding
  * the cursor, including across an automatic wrap.
  *

@@ -98,6 +98,23 @@ void console_put_char(
     console->cursor_x += advance;
 }
 
+uint64_t console_row_height(
+    const struct console *console)
+{
+    if (
+        console == NULL ||
+        console->scale == 0U ||
+        console->scale >
+            UINT64_MAX / (FONT_HEIGHT + 1U)
+    ) {
+        return 0U;
+    }
+
+    return
+        (FONT_HEIGHT + 1U) *
+        console->scale;
+}
+
 bool console_erase_previous(
     struct console *console,
     uint64_t minimum_x,
@@ -335,37 +352,74 @@ static void console_new_line(struct console *console)
 static void console_scroll(struct console *console)
 {
     uint64_t line_height =
-        FONT_HEIGHT * console->scale + console->scale;
+        FONT_HEIGHT * console->scale +
+        console->scale;
 
     struct framebuffer *framebuffer =
         console->framebuffer;
 
-    framebuffer_copy_rect(
-        framebuffer,
-        0,
-        console->origin_y + line_height,
-        0,
-        console->origin_y,
-        framebuffer->width,
-        framebuffer->height -
-            console->origin_y -
-            line_height
-    );
+    if (
+        line_height == 0U ||
+        console->origin_y >= framebuffer->height ||
+        line_height >
+            framebuffer->height - console->origin_y
+    ) {
+        return;
+    }
 
+    /*
+     * Only complete text rows belong to the
+     * scrollable console region.
+     */
+    uint64_t available_height =
+        framebuffer->height - console->origin_y;
+
+    uint64_t visible_rows =
+        available_height / line_height;
+
+    uint64_t scroll_height =
+        (visible_rows - 1U) * line_height;
+
+    uint64_t last_row_y =
+        console->origin_y + scroll_height;
+
+    /*
+     * Move every complete row except the first
+     * one position upward.
+     *
+     * A single-row console has nothing to copy.
+     */
+    if (scroll_height != 0U) {
+        framebuffer_copy_rect(
+            framebuffer,
+            0U,
+            console->origin_y + line_height,
+            0U,
+            console->origin_y,
+            framebuffer->width,
+            scroll_height
+        );
+    }
+
+    /*
+     * Clear exactly the last complete text row.
+     * Leave any unused bottom pixels untouched.
+     */
     framebuffer_fill_rect(
         framebuffer,
-        0,
-        framebuffer->height - line_height,
+        0U,
+        last_row_y,
         framebuffer->width,
         line_height,
-        0
+        0U
     );
 
     console->cursor_x =
         console->origin_x;
 
     console->cursor_y =
-        framebuffer->height - line_height;
+        last_row_y;
+
     ++console->scroll_count;
 }
 

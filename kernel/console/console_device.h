@@ -104,6 +104,21 @@ struct console_device {
     struct console_line_buffer input;
     struct console_input_consumer input_consumer;
 
+    /*
+     * Visible canonical-line editing state.
+     *
+     * These coordinates belong to the framebuffer,
+     * not to a userspace file descriptor.
+     *
+     * Output written by another producer invalidates
+     * the visible editing region without modifying
+     * the canonical input buffer.
+     */
+    uint64_t echo_start_x;
+    uint64_t echo_start_y;
+    uint64_t echo_scroll_count;
+    size_t echo_visible_characters;
+
     struct deferred_work input_work;
 
     console_device_readable_notification_fn

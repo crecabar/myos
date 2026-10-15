@@ -307,12 +307,103 @@ static void test_scroll_tracking(void)
     test_expect_storage_safe();
 }
 
+static void test_offset_origin_scroll_erase(void)
+{
+    test_reset();
+
+    struct console console;
+
+    console_init(
+        &console,
+        &test_framebuffer,
+        0U,
+        2U,
+        TEST_FOREGROUND,
+        1U
+    );
+
+    /*
+     * Simulate nonzero pixels below the last
+     * complete text row.
+     *
+     * Scroll must not copy them into the editable
+     * text area or erase them.
+     */
+    framebuffer_put_pixel(
+        &test_framebuffer,
+        25U,
+        20U,
+        TEST_FOREGROUND
+    );
+
+    /*
+     * The framebuffer fits two text rows with
+     * origin_y = 2. Seven characters trigger
+     * wrapping followed by one scroll.
+     */
+    for (char character = 'A';
+         character <= 'G';
+         ++character) {
+        console_put_char(&console, character);
+    }
+
+    if (
+        test_pixel(25U, 11U) != 0U ||
+        test_pixel(25U, 20U) !=
+            TEST_FOREGROUND
+    ) {
+        kernel_panic(
+            "Console scroll crossed text-grid boundary"
+        );
+    }
+
+    if (
+        console.scroll_count != 1U ||
+        console.cursor_x != 9U ||
+        console.cursor_y != 11U ||
+        !test_region_has_ink(18U, 2U) ||
+        !test_region_has_ink(0U, 11U)
+    ) {
+        kernel_panic(
+            "Console offset-origin scroll alignment failed"
+        );
+    }
+
+    /*
+     * Erase G on the last row, then F on the
+     * previous row. Both must use the same
+     * origin-aligned text grid.
+     */
+    if (
+        !console_erase_previous(
+            &console, 0U, 2U
+        ) ||
+        console.cursor_x != 0U ||
+        console.cursor_y != 11U ||
+        test_region_has_ink(0U, 11U) ||
+        !console_erase_previous(
+            &console, 0U, 2U
+        ) ||
+        console.cursor_x != 18U ||
+        console.cursor_y != 2U ||
+        test_region_has_ink(18U, 2U) ||
+        !test_region_has_ink(9U, 2U)
+    ) {
+        kernel_panic(
+            "Console offset-origin wrapped erase failed"
+        );
+    }
+
+    test_expect_storage_safe();
+}
+
 void console_render_test_run(void)
 {
     test_basic_erase();
     test_edit_boundary();
     test_wrapped_erase();
     test_scroll_tracking();
+    test_offset_origin_scroll_erase();
 
     if (
         console_erase_previous(

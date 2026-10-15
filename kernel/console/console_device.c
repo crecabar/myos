@@ -48,6 +48,15 @@ static bool console_device_read_ready(
     bool *ready
 );
 
+static void console_device_echo_accepted(
+    void *context,
+    char character
+);
+
+static void console_device_echo_rebase(
+    struct console_device *device
+);
+
 // Static local variables
 static const struct character_device_operations
     console_device_character_operations = {
@@ -88,6 +97,10 @@ enum console_device_initialize_result console_device_initialize(
     console_device->console = console;
     console_line_buffer_init(&console_device->input);
     console_input_consumer_init(&console_device->input_consumer);
+    console_device->echo_start_x = console->cursor_x;
+    console_device->echo_start_y = console->cursor_y;
+    console_device->echo_scroll_count = console->scroll_count;
+    console_device->echo_visible_characters = 0U;
     console_device->readable_notification = NULL;
     console_device->readable_notification_context = NULL;
 
@@ -148,6 +161,12 @@ enum console_device_initialize_result console_device_initialize(
         return
             CONSOLE_DEVICE_INITIALIZE_RESULT_REGISTRY_REJECTED;
     }
+
+    console_input_consumer_accepted_observer_set(
+        &console_device->input_consumer,
+        console_device_echo_accepted,
+        console_device
+    );
 
     return
         CONSOLE_DEVICE_INITIALIZE_RESULT_INITIALIZED;
@@ -371,6 +390,137 @@ static bool console_device_read_ready(
     return true;
 }
 
+static void console_device_echo_rebase(
+    struct console_device *device)
+{
+    struct console *console = device->console;
+
+    uint64_t scrolls =
+        console->scroll_count -
+        device->echo_scroll_count;
+
+    if (scrolls == 0U) {
+        return;
+    }
+
+    uint64_t row_height =
+        console_row_height(console);
+
+    if (
+        row_height == 0U ||
+        device->echo_start_y <
+            console->origin_y
+    ) {
+        device->echo_visible_characters = 0U;
+        device->echo_scroll_count =
+            console->scroll_count;
+        return;
+    }
+
+    uint64_t preceding_rows =
+        (device->echo_start_y -
+            console->origin_y) /
+        row_height;
+
+    if (scrolls > preceding_rows) {
+        /*
+         * The original editing boundary has
+         * scrolled off the visible framebuffer.
+         *
+         * Never permit erasure outside the screen.
+         */
+        device->echo_start_x =
+            console->origin_x;
+
+        device->echo_start_y =
+            console->origin_y;
+    } else {
+        device->echo_start_y -=
+            scrolls * row_height;
+    }
+
+    device->echo_scroll_count =
+        console->scroll_count;
+}
+
+static void console_device_echo_accepted(
+    void *context,
+    char character)
+{
+    struct console_device *device = context;
+
+    if (
+        device == NULL ||
+        device->console == NULL
+    ) {
+        return;
+    }
+
+    struct console *console = device->console;
+
+    if (character == '\n') {
+        console_put_char(console, '\n');
+
+        /*
+         * A completed canonical line no longer
+         * has any editable visible characters.
+         */
+        device->echo_visible_characters = 0U;
+        device->echo_scroll_count =
+            console->scroll_count;
+        return;
+    }
+
+    if (character == '\b') {
+        if (device->echo_visible_characters == 0U) {
+            return;
+        }
+
+        console_device_echo_rebase(device);
+
+        if (
+            console_erase_previous(
+                console,
+                device->echo_start_x,
+                device->echo_start_y
+            )
+        ) {
+            --device->echo_visible_characters;
+        } else {
+            /*
+             * The previous visible region is no
+             * longer available. Canonical editing
+             * still continues independently.
+             */
+            device->echo_visible_characters = 0U;
+        }
+
+        return;
+    }
+
+    /*
+     * Establish the editable boundary immediately
+     * before displaying the first character of
+     * a visible editing segment.
+     */
+    if (device->echo_visible_characters == 0U) {
+        device->echo_start_x =
+            console->cursor_x;
+
+        device->echo_start_y =
+            console->cursor_y;
+
+        device->echo_scroll_count =
+            console->scroll_count;
+    }
+
+    console_put_char(console, character);
+
+    ++device->echo_visible_characters;
+
+    console_device_echo_rebase(device);
+}
+
 static enum character_device_io_result console_device_write(
     struct character_device *character,
     const void *buffer,
@@ -392,6 +542,20 @@ static enum character_device_io_result console_device_write(
     ) {
         return
             CHARACTER_DEVICE_IO_RESULT_INVALID_ARGUMENT;
+    }
+
+    /*
+     * A nonempty external write may insert text
+     * between the characters of an editing line.
+     *
+     * Invalidate the current visible undo region
+     * so Backspace cannot erase another producer's
+     * output.
+     *
+     * Canonical input remains untouched.
+     */
+    if (size != 0U) {
+        console_device->echo_visible_characters = 0U;
     }
 
     /*

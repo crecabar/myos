@@ -116,6 +116,32 @@ static void console_device_test_readable_notification(
     ++probe->calls;
 }
 
+static bool console_device_test_glyph_visible(
+    const uint32_t *pixels,
+    uint64_t x,
+    uint64_t y)
+{
+    for (uint64_t row = 0U; row < 8U; ++row) {
+        for (
+            uint64_t column = 0U;
+            column < 8U;
+            ++column
+        ) {
+            if (
+                pixels[
+                    (y + row) *
+                    CONSOLE_DEVICE_TEST_WIDTH +
+                    x + column
+                ] != 0U
+            ) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 // Private functions and helpers declarations
 static void console_device_test_unregister(
     struct device_registry *registry,
@@ -1125,6 +1151,109 @@ static void console_device_test_registration_and_write(void)
     }
 
     /*
+     * The accepted input was echoed as "hi"
+     * followed by a visual newline.
+     */
+    if (
+        console.cursor_x != 0U ||
+        console.cursor_y != 9U ||
+        !console_device_test_glyph_visible(
+            pixels, 0U, 0U
+        ) ||
+        !console_device_test_glyph_visible(
+            pixels, 9U, 0U
+        )
+    ) {
+        kernel_panic(
+            "Console accepted input was not echoed"
+        );
+    }
+
+    static const uint8_t prompt[] = {
+        '>',
+        ' ',
+    };
+
+    size_t prompt_written = 0U;
+
+    if (
+        character_device_write(
+            &device.character,
+            prompt,
+            sizeof(prompt),
+            &prompt_written
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        prompt_written != sizeof(prompt) ||
+        console.cursor_x != 18U ||
+        console.cursor_y != 9U
+    ) {
+        kernel_panic(
+            "Console echo prompt setup failed"
+        );
+    }
+
+    /*
+     * Backspace on an empty editing buffer must
+     * not erase any part of the prompt.
+     */
+    console_device_test_readability_key(
+        &device, INPUT_KEY_BACKSPACE
+    );
+
+    console_device_test_readability_key(
+        &device, INPUT_KEY_A
+    );
+
+    console_device_test_readability_key(
+        &device, INPUT_KEY_B
+    );
+
+    console_device_test_readability_key(
+        &device, INPUT_KEY_BACKSPACE
+    );
+
+    console_device_test_readability_key(
+        &device, INPUT_KEY_ENTER
+    );
+
+    if (
+        console.cursor_x != 0U ||
+        console.cursor_y != 18U ||
+        !console_device_test_glyph_visible(
+            pixels, 0U, 9U
+        ) ||
+        !console_device_test_glyph_visible(
+            pixels, 18U, 9U
+        ) ||
+        console_device_test_glyph_visible(
+            pixels, 27U, 9U
+        )
+    ) {
+        kernel_panic(
+            "Console visual Backspace or prompt protection failed"
+        );
+    }
+
+    uint8_t edited_line[4] = {0};
+    size_t edited_length = 0U;
+
+    if (
+        character_device_read(
+            &device.character,
+            edited_line,
+            sizeof(edited_line),
+            &edited_length
+        ) != CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        edited_length != 2U ||
+        edited_line[0] != 'a' ||
+        edited_line[1] != '\n'
+    ) {
+        kernel_panic(
+            "Console visual editing changed canonical input"
+        );
+    }
+
+    /*
      * Embedded NUL proves that character-device writes are length-delimited
      * byte streams rather than C strings.
      *
@@ -1148,12 +1277,9 @@ static void console_device_test_registration_and_write(void)
             &bytes_written
         ) !=
             CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
-        bytes_written !=
-            sizeof(payload) ||
-        console.cursor_x !=
-            27 ||
-        console.cursor_y !=
-            0
+        bytes_written != sizeof(payload) ||
+        console.cursor_x != 27 ||
+        console.cursor_y != 18U
     ) {
         kernel_panic(
             "Console-device byte-stream write failed"
