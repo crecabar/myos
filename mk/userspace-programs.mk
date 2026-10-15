@@ -35,6 +35,7 @@ $(SH_MAIN_OBJECT): $(SH_SOURCE_DIR)/main.c \
 	$(SH_INCLUDE_DIR)/sh/parser.h \
 	$(SH_INCLUDE_DIR)/sh/execute.h \
 	$(SH_INCLUDE_DIR)/sh/builtin.h \
+	$(SH_INCLUDE_DIR)/sh/input.h \
 	| $(USER_PROGRAM_BUILD_DIR)
 	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
 		-I$(SH_INCLUDE_DIR) \
