@@ -20,11 +20,14 @@ SH_MAIN_OBJECT   := $(USER_PROGRAM_BUILD_DIR)/sh.o
 SH_PARSER_OBJECT := $(USER_PROGRAM_BUILD_DIR)/sh-parser.o
 SH_EXECUTE_OBJECT := $(USER_PROGRAM_BUILD_DIR)/sh-execute.o
 SH_BUILTIN_OBJECT := $(USER_PROGRAM_BUILD_DIR)/sh-builtin.o
+SH_INPUT_OBJECT   := $(USER_PROGRAM_BUILD_DIR)/sh-input.o
+
 SH_OBJECTS := \
 	$(SH_MAIN_OBJECT) \
 	$(SH_PARSER_OBJECT) \
 	$(SH_EXECUTE_OBJECT) \
-	$(SH_BUILTIN_OBJECT)
+	$(SH_BUILTIN_OBJECT) \
+	$(SH_INPUT_OBJECT)
 
 .SECONDARY: $(SH_OBJECTS)
 
@@ -57,6 +60,16 @@ $(SH_EXECUTE_OBJECT): \
 $(SH_BUILTIN_OBJECT): \
 	$(SH_SOURCE_DIR)/builtin.c \
 	$(SH_INCLUDE_DIR)/sh/builtin.h \
+	| $(USER_PROGRAM_BUILD_DIR)
+	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
+		-I$(SH_INCLUDE_DIR) \
+		-c $< \
+		-o $@
+
+$(SH_INPUT_OBJECT): \
+	$(SH_SOURCE_DIR)/input.c \
+	$(SH_INCLUDE_DIR)/sh/input.h \
+	$(USER_BOOTSTRAP_FILE_HEADER) \
 	| $(USER_PROGRAM_BUILD_DIR)
 	$(CLANG) $(USER_BOOTSTRAP_CFLAGS) \
 		-I$(SH_INCLUDE_DIR) \
@@ -120,3 +133,17 @@ test-sh-builtins:
 		$(SH_TEST_DIR)/builtin_test.c \
 		-o $(BUILD_DIR)/host-tests/sh-builtin-test
 	$(BUILD_DIR)/host-tests/sh-builtin-test
+
+.PHONY: test-sh-input
+
+test-sh-input:
+	mkdir -p $(BUILD_DIR)/host-tests
+	cc -std=c11 \
+		-Wall -Wextra -Werror -Wpedantic \
+		-I$(MYOS_INCLUDE_DIR) \
+		-I$(USER_RUNTIME_INCLUDE_DIR) \
+		-I$(SH_INCLUDE_DIR) \
+		$(SH_SOURCE_DIR)/input.c \
+		$(SH_TEST_DIR)/input_test.c \
+		-o $(BUILD_DIR)/host-tests/sh-input-test
+	$(BUILD_DIR)/host-tests/sh-input-test
