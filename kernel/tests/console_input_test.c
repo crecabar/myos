@@ -374,6 +374,271 @@ static void console_input_test_full(void)
     }
 }
 
+static void console_input_test_control_eof(void)
+{
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    struct input_event event = {
+        .type = INPUT_EVENT_KEY,
+        .key = {
+            .code = INPUT_KEY_D,
+            .state = INPUT_KEY_PRESSED,
+            .modifiers = INPUT_MODIFIER_LEFT_CTRL,
+            .locks = INPUT_LOCK_CAPS,
+        },
+    };
+
+    char accepted_character = '?';
+
+    if (
+        console_input_process_event_with_character(
+            &buffer,
+            &event,
+            &accepted_character
+        ) != CONSOLE_INPUT_ACCEPTED_CONTROL ||
+        accepted_character != '?' ||
+        buffer.completed_count != 1U ||
+        !buffer.completed_eof[buffer.completed_head]
+    ) {
+        kernel_panic(
+            "Console Ctrl+D EOF translation failed"
+        );
+    }
+
+    char output[4] = {0};
+    size_t length = SIZE_MAX;
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 0U ||
+        console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        )
+    ) {
+        kernel_panic(
+            "Console Ctrl+D one-shot EOF failed"
+        );
+    }
+
+    /*
+     * Ctrl+D also flushes pending text without
+     * appending a newline.
+     */
+    if (
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_A,
+            INPUT_KEY_PRESSED,
+            0U,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED ||
+        console_input_test_key(
+            &buffer,
+            INPUT_KEY_B,
+            INPUT_KEY_PRESSED,
+            0U,
+            0U
+        ) != CONSOLE_INPUT_ACCEPTED
+    ) {
+        kernel_panic(
+            "Console Ctrl+D text setup failed"
+        );
+    }
+
+    event.key.modifiers =
+        INPUT_MODIFIER_RIGHT_CTRL;
+
+    if (
+        console_input_process_event_with_character(
+            &buffer,
+            &event,
+            &accepted_character
+        ) != CONSOLE_INPUT_ACCEPTED_CONTROL ||
+        accepted_character != '?' ||
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 2U ||
+        output[0] != 'a' ||
+        output[1] != 'b' ||
+        buffer.completed_count != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D pending-text flush failed"
+        );
+    }
+
+    /*
+     * Other Ctrl combinations must not fall
+     * through and insert printable characters.
+     */
+    event.key.code = INPUT_KEY_C;
+    event.key.modifiers =
+        INPUT_MODIFIER_LEFT_CTRL;
+
+    if (
+        console_input_process_event(
+            &buffer,
+            &event
+        ) != CONSOLE_INPUT_IGNORED
+    ) {
+        kernel_panic(
+            "Console inserted unsupported Ctrl sequence"
+        );
+    }
+
+    event.key.code = INPUT_KEY_D;
+    event.key.state = INPUT_KEY_RELEASED;
+
+    if (
+        console_input_process_event(
+            &buffer,
+            &event
+        ) != CONSOLE_INPUT_IGNORED
+    ) {
+        kernel_panic(
+            "Console accepted released Ctrl+D"
+        );
+    }
+
+    event.key.state = INPUT_KEY_PRESSED;
+    event.key.modifiers =
+        INPUT_MODIFIER_LEFT_CTRL |
+        INPUT_MODIFIER_LEFT_ALT;
+
+    if (
+        console_input_process_event(
+            &buffer,
+            &event
+        ) != CONSOLE_INPUT_IGNORED ||
+        buffer.completed_count != 0U ||
+        buffer.editing_length != 0U
+    ) {
+        kernel_panic(
+            "Console accepted reserved control chord"
+        );
+    }
+}
+
+static void console_input_test_control_eof_full(void)
+{
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    for (
+        size_t index = 0U;
+        index < CONSOLE_LINE_QUEUE_CAPACITY;
+        ++index
+    ) {
+        if (
+            console_line_buffer_submit(
+                &buffer, '\n'
+            ) != CONSOLE_LINE_INPUT_ACCEPTED
+        ) {
+            kernel_panic(
+                "Console Ctrl+D full fixture failed"
+            );
+        }
+    }
+
+    struct input_event event = {
+        .type = INPUT_EVENT_KEY,
+        .key = {
+            .code = INPUT_KEY_D,
+            .state = INPUT_KEY_PRESSED,
+            .modifiers = INPUT_MODIFIER_LEFT_CTRL,
+        },
+    };
+
+    char accepted_character = '?';
+
+    if (
+        console_input_process_event_with_character(
+            &buffer,
+            &event,
+            &accepted_character
+        ) != CONSOLE_INPUT_FULL ||
+        accepted_character != '?' ||
+        buffer.completed_count !=
+            CONSOLE_LINE_QUEUE_CAPACITY
+    ) {
+        kernel_panic(
+            "Console Ctrl+D backpressure failed"
+        );
+    }
+
+    char output[4] = {0};
+    size_t length = 0U;
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 1U ||
+        output[0] != '\n' ||
+        console_input_process_event_with_character(
+            &buffer,
+            &event,
+            &accepted_character
+        ) != CONSOLE_INPUT_ACCEPTED_CONTROL ||
+        accepted_character != '?'
+    ) {
+        kernel_panic(
+            "Console Ctrl+D backpressure recovery failed"
+        );
+    }
+
+    /*
+     * Three older records must precede EOF.
+     */
+    for (size_t index = 0U; index < 3U; ++index) {
+        if (
+            !console_line_buffer_read(
+                &buffer,
+                output,
+                sizeof(output),
+                &length
+            ) ||
+            length != 1U ||
+            output[0] != '\n'
+        ) {
+            kernel_panic(
+                "Console Ctrl+D changed FIFO ordering"
+            );
+        }
+    }
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 0U ||
+        buffer.completed_count != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D deferred EOF missing"
+        );
+    }
+}
+
 void console_input_test_run(void)
 {
     console_input_test_text();
@@ -381,6 +646,8 @@ void console_input_test_run(void)
     console_input_test_editing();
     console_input_test_ignored();
     console_input_test_full();
+    console_input_test_control_eof();
+    console_input_test_control_eof_full();
 
     diagnostics_write(
         "[console] Input adapter tests passed\n"

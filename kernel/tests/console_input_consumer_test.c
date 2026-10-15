@@ -514,6 +514,218 @@ static void consumer_test_accepted_backpressure(void)
     }
 }
 
+static void consumer_test_control_eof(void)
+{
+    input_init();
+
+    struct console_input_consumer consumer;
+    console_input_consumer_init(&consumer);
+
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    struct consumer_accepted_probe probe = {0};
+
+    console_input_consumer_accepted_observer_set(
+        &consumer,
+        consumer_test_accepted_notification,
+        &probe
+    );
+
+    /*
+     * input_event_submit() maintains modifier
+     * snapshots, so submit physical Ctrl make
+     * and break events.
+     */
+    consumer_test_submit(
+        INPUT_KEY_LEFT_CTRL, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_D, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_LEFT_CTRL, INPUT_KEY_RELEASED
+    );
+    consumer_test_submit(
+        INPUT_KEY_A, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_ENTER, INPUT_KEY_PRESSED
+    );
+
+    if (
+        console_input_consumer_drain(
+            &consumer,
+            &buffer,
+            8U
+        ) != 5U ||
+        consumer.has_pending_event ||
+        input_event_pending() != 0U ||
+        probe.count != 2U ||
+        probe.characters[0] != 'a' ||
+        probe.characters[1] != '\n' ||
+        buffer.completed_count != 2U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D consumer notification failed"
+        );
+    }
+
+    char output[4] = {0};
+    size_t length = SIZE_MAX;
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 0U ||
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 2U ||
+        output[0] != 'a' ||
+        output[1] != '\n' ||
+        buffer.completed_count != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D consumer FIFO failed"
+        );
+    }
+}
+
+static void consumer_test_control_eof_backpressure(void)
+{
+    input_init();
+
+    struct console_input_consumer consumer;
+    console_input_consumer_init(&consumer);
+
+    struct console_line_buffer buffer;
+    console_line_buffer_init(&buffer);
+
+    for (
+        size_t index = 0U;
+        index < CONSOLE_LINE_QUEUE_CAPACITY;
+        ++index
+    ) {
+        if (
+            console_line_buffer_submit(
+                &buffer, '\n'
+            ) != CONSOLE_LINE_INPUT_ACCEPTED
+        ) {
+            kernel_panic(
+                "Console Ctrl+D consumer fixture failed"
+            );
+        }
+    }
+
+    struct consumer_accepted_probe probe = {0};
+
+    console_input_consumer_accepted_observer_set(
+        &consumer,
+        consumer_test_accepted_notification,
+        &probe
+    );
+
+    consumer_test_submit(
+        INPUT_KEY_LEFT_CTRL, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_D, INPUT_KEY_PRESSED
+    );
+    consumer_test_submit(
+        INPUT_KEY_LEFT_CTRL, INPUT_KEY_RELEASED
+    );
+
+    if (
+        console_input_consumer_drain(
+            &consumer, &buffer, 8U
+        ) != 1U ||
+        !consumer.has_pending_event ||
+        consumer.pending_event.key.code !=
+            INPUT_KEY_D ||
+        input_event_pending() != 1U ||
+        probe.count != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D pending event lost"
+        );
+    }
+
+    if (
+        console_input_consumer_drain(
+            &consumer, &buffer, 8U
+        ) != 0U ||
+        probe.count != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D pending event duplicated"
+        );
+    }
+
+    char output[4] = {0};
+    size_t length = 0U;
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 1U ||
+        output[0] != '\n' ||
+        console_input_consumer_drain(
+            &consumer, &buffer, 8U
+        ) != 2U ||
+        consumer.has_pending_event ||
+        input_event_pending() != 0U ||
+        probe.count != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D pending recovery failed"
+        );
+    }
+
+    for (size_t index = 0U; index < 3U; ++index) {
+        if (
+            !console_line_buffer_read(
+                &buffer,
+                output,
+                sizeof(output),
+                &length
+            ) ||
+            length != 1U ||
+            output[0] != '\n'
+        ) {
+            kernel_panic(
+                "Console Ctrl+D changed earlier records"
+            );
+        }
+    }
+
+    if (
+        !console_line_buffer_read(
+            &buffer,
+            output,
+            sizeof(output),
+            &length
+        ) ||
+        length != 0U ||
+        buffer.completed_count != 0U
+    ) {
+        kernel_panic(
+            "Console Ctrl+D was not delivered once"
+        );
+    }
+}
+
 void console_input_consumer_test_run(void)
 {
     consumer_test_basic();
@@ -523,6 +735,9 @@ void console_input_consumer_test_run(void)
 
     consumer_test_accepted_notifications();
     consumer_test_accepted_backpressure();
+
+    consumer_test_control_eof();
+    consumer_test_control_eof_backpressure();
 
     diagnostics_write(
         "[console] Input consumer tests passed\n"

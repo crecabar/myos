@@ -14,6 +14,7 @@ enum console_input_result {
     CONSOLE_INPUT_ACCEPTED,
     CONSOLE_INPUT_IGNORED,
     CONSOLE_INPUT_FULL,
+    CONSOLE_INPUT_ACCEPTED_CONTROL,
 };
 
 enum console_input_result console_input_process_event(
@@ -22,11 +23,14 @@ enum console_input_result console_input_process_event(
 );
 
 /**
- * Processes an event and optionally reports the
- * character accepted into the canonical buffer.
+ * Processes a normalized input event.
+ *
+ * ACCEPTED reports one canonical character.
+ * ACCEPTED_CONTROL reports a canonical operation
+ * without producing a character for echo.
  *
  * accepted_character is written only on ACCEPTED.
- * On IGNORED or FULL its value is left untouched.
+ * Other results leave it unchanged.
  */
 enum console_input_result
 console_input_process_event_with_character(
