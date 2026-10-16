@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
+
 ENTRY(kernel_main)
 
 SECTIONS
@@ -25,9 +30,13 @@ SECTIONS
     . = ALIGN(0x1000);
     .limine_requests :
     {
+        __boot_protocol_data_start = .;
+
         KEEP(*(.limine_requests_start))
         KEEP(*(.limine_requests))
         KEEP(*(.limine_requests_end))
+
+        __boot_protocol_data_end = .;
     }
 
     . = ALIGN(0x1000);

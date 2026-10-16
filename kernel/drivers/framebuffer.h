@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #ifndef MYOS_DRIVERS_FRAMEBUFFER_H
 #define MYOS_DRIVERS_FRAMEBUFFER_H
@@ -56,6 +59,23 @@ void framebuffer_fill_rect(
     uint64_t width,
     uint64_t height,
     uint32_t color
+);
+
+/**
+ * Copies a rectangle within the visible framebuffer.
+ *
+ * Source and destination rectangles are clipped to the visible framebuffer.
+ * Overlapping copies preserve the original source contents with memmove-like
+ * semantics. Empty, fully out-of-bounds, or invalid requests perform no writes.
+ */
+void framebuffer_copy_rect(
+    struct framebuffer *framebuffer,
+    uint64_t source_x,
+    uint64_t source_y,
+    uint64_t destination_x,
+    uint64_t destination_y,
+    uint64_t width,
+    uint64_t height
 );
 
 /**

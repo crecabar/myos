@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #include "gdt.h"
 #include "../../diagnostics/diagnostics.h"
@@ -51,6 +54,41 @@ _Static_assert(
 _Static_assert(
     sizeof(struct task_state_segment) == 104,
     "struct task_state_segment must be 104 bytes"
+);
+
+_Static_assert(
+    _Alignof(struct gdt_descriptor) == 1,
+    "struct gdt_descriptor must be byte-aligned"
+);
+
+_Static_assert(
+    offsetof(struct gdt_descriptor, limit) == 0,
+    "gdt_descriptor.limit offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct gdt_descriptor, base) == 2,
+    "gdt_descriptor.base offset mismatch"
+);
+
+_Static_assert(
+    _Alignof(struct task_state_segment) == 1,
+    "struct task_state_segment must be byte-aligned"
+);
+
+_Static_assert(
+    offsetof(struct task_state_segment, rsp0) == 4,
+    "task_state_segment.rsp0 offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct task_state_segment, ist1) == 36,
+    "task_state_segment.ist1 offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct task_state_segment, io_map_base) == 102,
+    "task_state_segment.io_map_base offset mismatch"
 );
 
 static uint64_t gdt[GDT_ENTRY_COUNT];
@@ -135,4 +173,50 @@ void gdt_init(void)
 uint64_t gdt_kernel_stack_top(void)
 {
     return tss.rsp0;
+}
+
+bool gdt_kernel_state_active(void)
+{
+    struct gdt_descriptor active_gdtr;
+    uint16_t active_tr;
+    uint16_t active_cs;
+    uint16_t active_ss;
+
+    __asm__ volatile (
+        "sgdt %0"
+        : "=m" (active_gdtr)
+        :
+        : "memory"
+    );
+
+    __asm__ volatile (
+        "str %w0"
+        : "=r" (active_tr)
+    );
+
+    __asm__ volatile (
+        "mov %%cs, %w0"
+        : "=r" (active_cs)
+    );
+
+    __asm__ volatile (
+        "mov %%ss, %w0"
+        : "=r" (active_ss)
+    );
+
+    return
+        active_gdtr.base == (uint64_t) gdt &&
+        active_gdtr.limit ==
+            (uint16_t) (sizeof(gdt) - 1) &&
+        active_tr == GDT_TSS_SELECTOR &&
+        active_cs == GDT_KERNEL_CODE_SELECTOR &&
+        active_ss == GDT_KERNEL_DATA_SELECTOR &&
+        tss.rsp0 ==
+            (uint64_t) &kernel_stack[GDT_KERNEL_STACK_SIZE] &&
+        tss.ist1 ==
+            (uint64_t) &double_fault_stack[
+                GDT_DOUBLE_FAULT_STACK_SIZE
+            ] &&
+        tss.io_map_base ==
+            (uint16_t) sizeof(struct task_state_segment);
 }

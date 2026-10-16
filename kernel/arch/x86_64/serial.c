@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -8,10 +11,8 @@
 
 #define COM1_PORT 0x3F8
 
-static bool serial_can_transmit(void)
-{
-    return (inb(COM1_PORT + 5) & 0x20) != 0;
-}
+static bool serial_can_transmit(void);
+static void serial_write_raw_char(char character);
 
 void serial_init(void)
 {
@@ -26,13 +27,11 @@ void serial_init(void)
 
 void serial_write_char(char character)
 {
-    while (!serial_can_transmit()) {
+    if (character == '\n') {
+        serial_write_raw_char('\r');
     }
 
-    outb(
-        COM1_PORT,
-        (uint8_t) character
-    );
+    serial_write_raw_char(character);
 }
 
 void serial_write_string(const char *string)
@@ -41,4 +40,20 @@ void serial_write_string(const char *string)
         serial_write_char(*string);
         ++string;
     }
+}
+
+static bool serial_can_transmit(void)
+{
+    return (inb(COM1_PORT + 5) & 0x20) != 0;
+}
+
+static void serial_write_raw_char(char character)
+{
+    while (!serial_can_transmit()) {
+    }
+
+    outb(
+        COM1_PORT,
+        (uint8_t) character
+    );
 }

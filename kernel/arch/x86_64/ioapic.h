@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 /**
  * @file ioapic.h
@@ -22,6 +25,19 @@
 bool ioapic_init(
     uint64_t physical_address,
     uint32_t gsi_base
+);
+
+/**
+ * Returns the active I/O APIC MMIO mapping.
+ *
+ * @param physical_address Receives the physical MMIO base.
+ * @param virtual_address Receives the kernel virtual mapping.
+ *
+ * @return true when the I/O APIC has been initialized; false otherwise.
+ */
+bool ioapic_mapping_info(
+    uint64_t *physical_address,
+    uint64_t *virtual_address
 );
 
 /**

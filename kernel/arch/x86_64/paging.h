@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 /**
  * @file paging.h
@@ -24,6 +27,7 @@
 #define PAGE_ENTRY_WRITE_THROUGH (1ULL << 3)
 #define PAGE_ENTRY_CACHE_DISABLE (1ULL << 4)
 #define PAGE_ENTRY_ACCESSED      (1ULL << 5)
+#define PAGE_ENTRY_DIRTY         (1ULL << 6)
 #define PAGE_ENTRY_HUGE          (1ULL << 7)
 #define PAGE_ENTRY_NO_EXECUTE    (1ULL << 63)
 
@@ -31,6 +35,12 @@ enum paging_page_size {
     PAGING_PAGE_SIZE_4K,
     PAGING_PAGE_SIZE_2M,
     PAGING_PAGE_SIZE_1G,
+};
+
+enum paging_cache_type {
+    PAGING_CACHE_WRITE_BACK,
+    PAGING_CACHE_WRITE_COMBINING,
+    PAGING_CACHE_UNCACHEABLE,
 };
 
 struct paging_translation {
@@ -84,6 +94,22 @@ uint64_t paging_entry_address(uint64_t entry);
 
 struct paging_address_space *paging_kernel_address_space(void);
 
+/**
+ * Returns the physical address of the boot-time PML4 root that was active
+ * before MyOS installed its own kernel address-space root.
+ *
+ * The returned frame remains owned by the boot environment until explicitly
+ * reclaimed.
+ *
+ * @param physical_address Receives the boot-time PML4 physical address.
+ *
+ * @return true when paging is initialized and the address is available; false
+ *         otherwise.
+ */
+bool paging_boot_pml4_physical(
+    uint64_t *physical_address
+);
+
 uint64_t paging_read_cr3(void);
 
 void paging_invalidate_page(uint64_t virtual_address);
@@ -104,6 +130,33 @@ bool paging_translate_address_space(
 );
 
 bool paging_address_space_activate(const struct paging_address_space *address_space);
+
+/**
+ * Transfers one owned PML4 branch from one address space to another.
+ *
+ * The source entry must be present and mutable by the source address space.
+ * The destination entry must also be mutable by the destination address
+ * space. The source entry is cleared after the transfer.
+ *
+ * The previous destination entry is returned to the caller without being
+ * reclaimed. Ownership of that replaced branch therefore remains the
+ * caller's responsibility.
+ *
+ * This operation does not invalidate the TLB or reload CR3.
+ *
+ * @param destination Address space receiving the branch.
+ * @param source Address space relinquishing the branch.
+ * @param pml4_index PML4 entry to transfer.
+ * @param replaced_entry Receives the previous destination entry.
+ *
+ * @return true when ownership was transferred; false otherwise.
+ */
+bool paging_address_space_transfer_pml4_branch(
+    struct paging_address_space *destination,
+    struct paging_address_space *source,
+    uint16_t pml4_index,
+    uint64_t *replaced_entry
+);
 
 bool paging_create_empty_table(uint64_t *physical_address, uint64_t **virtual_address);
 
@@ -171,19 +224,22 @@ bool paging_map_page(
 );
 
 /**
- * Maps one physical MMIO page into the kernel direct-map region.
+ * Maps one 4 KiB device page into the kernel address space.
  *
- * The mapping is supervisor-only, writable, and configured for uncached
- * device access.
+ * The mapping is supervisor-only, writable, and non-executable. Cache
+ * attributes are selected from the active IA32_PAT configuration according
+ * to the requested semantic memory type.
  *
- * @param physical_address 4 KiB-aligned physical MMIO page address.
- * @param virtual_address Receives the kernel virtual address of the mapping.
+ * @param virtual_address Kernel virtual page address.
+ * @param physical_address Physical device page address.
+ * @param cache_type Required cache policy.
  *
- * @return true when the MMIO page is available to the kernel; false otherwise.
+ * @return true when the mapping was created; false otherwise.
  */
-bool paging_map_mmio_page(
+bool paging_map_kernel_device_page(
+    uint64_t virtual_address,
     uint64_t physical_address,
-    volatile void **virtual_address
+    enum paging_cache_type cache_type
 );
 
 /**

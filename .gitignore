@@ -12,6 +12,7 @@ cmake-build-*/
 *.swp
 *.swo
 *~
+scripts/__pycache__/
 
 # Third-party dependencies
 vendor/

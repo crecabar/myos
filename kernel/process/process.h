@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 /**
  * @file process.h
@@ -27,14 +30,31 @@
 #include "memory.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
+struct process_image;
+struct process_instance;
 
 /**
  * Represents the execution state of a process.
+ *
+ * READY processes may be selected by the scheduler.
+ * RUNNING identifies the process currently executing.
+ *
+ * BLOCKED processes wait for an explicit event-driven wakeup.
+ * SLEEPING processes wait for a timer-driven wakeup.
+ *
+ * Neither BLOCKED nor SLEEPING processes are runnable.
+ * TERMINATED processes cannot transition back to a runnable state.
+ *
+ * Execution-state transitions are managed by the scheduler.
  */
 enum process_state {
     PROCESS_STATE_READY,
     PROCESS_STATE_RUNNING,
+    PROCESS_STATE_BLOCKED,
+    PROCESS_STATE_SLEEPING,
     PROCESS_STATE_TERMINATED,
 };
 
@@ -80,6 +100,37 @@ struct process_context {
     uint64_t rflags;
 };
 
+_Static_assert(
+    sizeof(struct process_context) == 144,
+    "struct process_context must be 144 bytes"
+);
+
+_Static_assert(
+    _Alignof(struct process_context) == 8,
+    "struct process_context must be 8-byte aligned"
+);
+
+_Static_assert(offsetof(struct process_context, r15) == 0, "process_context.r15 offset mismatch");
+_Static_assert(offsetof(struct process_context, r14) == 8, "process_context.r14 offset mismatch");
+_Static_assert(offsetof(struct process_context, r13) == 16, "process_context.r13 offset mismatch");
+_Static_assert(offsetof(struct process_context, r12) == 24, "process_context.r12 offset mismatch");
+_Static_assert(offsetof(struct process_context, r11) == 32, "process_context.r11 offset mismatch");
+_Static_assert(offsetof(struct process_context, r10) == 40, "process_context.r10 offset mismatch");
+_Static_assert(offsetof(struct process_context, r9) == 48, "process_context.r9 offset mismatch");
+_Static_assert(offsetof(struct process_context, r8) == 56, "process_context.r8 offset mismatch");
+
+_Static_assert(offsetof(struct process_context, rbp) == 64, "process_context.rbp offset mismatch");
+_Static_assert(offsetof(struct process_context, rdi) == 72, "process_context.rdi offset mismatch");
+_Static_assert(offsetof(struct process_context, rsi) == 80, "process_context.rsi offset mismatch");
+_Static_assert(offsetof(struct process_context, rdx) == 88, "process_context.rdx offset mismatch");
+_Static_assert(offsetof(struct process_context, rcx) == 96, "process_context.rcx offset mismatch");
+_Static_assert(offsetof(struct process_context, rbx) == 104, "process_context.rbx offset mismatch");
+_Static_assert(offsetof(struct process_context, rax) == 112, "process_context.rax offset mismatch");
+
+_Static_assert(offsetof(struct process_context, rip) == 120, "process_context.rip offset mismatch");
+_Static_assert(offsetof(struct process_context, rsp) == 128, "process_context.rsp offset mismatch");
+_Static_assert(offsetof(struct process_context, rflags) == 136, "process_context.rflags offset mismatch");
+
 /**
  * Represents a schedulable MyOS user process.
  *
@@ -99,16 +150,73 @@ struct process_context {
  * Their descriptor, layout, memory, PID, and termination information remain
  * valid until the lifecycle owner explicitly reclaims or recycles them.
  */
-struct process {
+ struct process {
     uint64_t id;
     enum process_state state;
     enum process_termination_reason termination_reason;
     uint64_t exit_status;
 
+    /*
+     * Timer-wait metadata owned by the scheduler.
+     *
+     * These fields are meaningful only while the process is
+     * SLEEPING. The requested duration must be greater than zero
+     * and must not exceed TIMER_SLEEP_MAX_TICKS.
+     *
+     * The scheduler will determine expiration using unsigned
+     * elapsed-tick arithmetic:
+     *
+     *     (uint64_t) (now - sleep_start_ticks)
+     *         >= sleep_duration_ticks
+     *
+     * Both fields are zero for a newly initialized process.
+     * They must be cleared when its timed wait completes.
+     */
+    uint64_t sleep_start_ticks;
+    uint64_t sleep_duration_ticks;
+
+    /*
+     * Borrowed reference to the lifecycle owner when this descriptor belongs
+     * to a process_instance. Legacy/test descriptors may leave this NULL.
+     *
+     * Termination and address-space reclamation do not invalidate this link;
+     * it remains valid until the lifecycle instance itself is reaped.
+     */
+    struct process_instance *instance;
+
+    /*
+     * Borrowed executable-image reference when this process is backed by a
+     * process_image. Legacy/test processes may leave this NULL.
+     *
+     * memory and layout, when image is non-NULL, must refer to the objects
+     * embedded in that same image.
+     */
+    struct process_image *image;
+
     struct process_memory *memory;
     struct process_layout *layout;
     struct process_context context;
 };
+
+/**
+ * Initializes a fresh userspace CPU context for a process layout.
+ *
+ * All general-purpose registers are cleared. RIP and RSP are initialized from
+ * the executable layout and userspace begins with the deterministic MyOS
+ * RFLAGS value 0x202.
+ *
+ * This function changes only the supplied CPU context. Process identity,
+ * scheduler state, termination state and image ownership are unaffected.
+ *
+ * @param context Context to initialize.
+ * @param layout Executable layout providing entry point and initial stack.
+ *
+ * @return true when the initial context was created; false otherwise.
+ */
+bool process_context_initialize(
+    struct process_context *context,
+    const struct process_layout *layout
+);
 
 /**
  * Initializes a schedulable process descriptor.

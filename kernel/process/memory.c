@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #include "memory.h"
 #include "../memory/memory.h"
@@ -316,6 +319,69 @@ bool process_memory_write(
     return true;
 }
 
+bool process_memory_zero(
+    struct process_memory *memory,
+    uint64_t virtual_address,
+    size_t size)
+{
+    if (memory == NULL) return false;
+
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        size
+    )) {
+        return false;
+    }
+
+    if (size == 0) {
+        return true;
+    }
+
+    size_t remaining = size;
+    uint64_t current_virtual_address = virtual_address;
+
+    while (remaining > 0) {
+        struct paging_translation translation;
+
+        if (!paging_translate_address_space(
+            &memory->address_space,
+            current_virtual_address,
+            &translation
+        )) {
+            return false;
+        }
+
+        if (translation.page_size != PAGING_PAGE_SIZE_4K) {
+            return false;
+        }
+
+        uint64_t page_offset =
+            current_virtual_address & 0xfffULL;
+
+        size_t page_remaining =
+            (size_t) (4096ULL - page_offset);
+
+        size_t chunk_size =
+            remaining < page_remaining
+                ? remaining
+                : page_remaining;
+
+        uint8_t *destination =
+            memory_physical_to_virtual(
+                translation.physical_address
+            );
+
+        for (size_t index = 0; index < chunk_size; ++index) {
+            destination[index] = 0;
+        }
+
+        current_virtual_address += chunk_size;
+        remaining -= chunk_size;
+    }
+
+    return true;
+}
+
 bool process_memory_read(
     const struct process_memory *memory,
     uint64_t virtual_address,
@@ -413,6 +479,133 @@ bool process_memory_allocate_executable_page(
         physical_free_frame(physical_address);
 
         return false;
+    }
+
+    return true;
+}
+
+bool process_memory_clone_page(
+    struct process_memory *destination,
+    const struct process_memory *source,
+    uint64_t virtual_address)
+{
+    if (
+        destination == NULL ||
+        source == NULL ||
+        destination == source
+    ) {
+        return false;
+    }
+
+    if (
+        (virtual_address &
+         (PROCESS_MEMORY_PAGE_SIZE - 1)) != 0
+    ) {
+        return false;
+    }
+
+    if (!process_memory_user_range_valid(
+        virtual_address,
+        PROCESS_MEMORY_PAGE_SIZE
+    )) {
+        return false;
+    }
+
+    struct paging_translation source_translation;
+
+    if (!paging_translate_address_space(
+        &source->address_space,
+        virtual_address,
+        &source_translation
+    )) {
+        return false;
+    }
+
+    if (
+        source_translation.page_size !=
+        PAGING_PAGE_SIZE_4K
+    ) {
+        return false;
+    }
+
+    const uint64_t user_entries[] = {
+        source_translation.pml4_entry,
+        source_translation.pdpt_entry,
+        source_translation.pd_entry,
+        source_translation.pt_entry,
+    };
+
+    for (
+        size_t index = 0;
+        index <
+            sizeof(user_entries) /
+            sizeof(user_entries[0]);
+        ++index
+    ) {
+        if (
+            (user_entries[index] &
+             PAGE_ENTRY_USER) == 0
+        ) {
+            return false;
+        }
+    }
+
+    bool writable =
+        (
+            source_translation.pt_entry &
+            PAGE_ENTRY_WRITABLE
+        ) != 0;
+
+    bool executable =
+        (
+            source_translation.pt_entry &
+            PAGE_ENTRY_NO_EXECUTE
+        ) == 0;
+
+    if (writable && executable) {
+        return false;
+    }
+
+    uint64_t destination_physical_address;
+
+    if (!physical_alloc_frame(
+        &destination_physical_address
+    )) {
+        return false;
+    }
+
+    if (!paging_map_page(
+        &destination->address_space,
+        virtual_address,
+        destination_physical_address,
+        writable,
+        true,
+        executable
+    )) {
+        physical_free_frame(
+            destination_physical_address
+        );
+
+        return false;
+    }
+
+    const uint8_t *source_bytes =
+        memory_physical_to_virtual(
+            source_translation.physical_address
+        );
+
+    uint8_t *destination_bytes =
+        memory_physical_to_virtual(
+            destination_physical_address
+        );
+
+    for (
+        size_t index = 0;
+        index < PROCESS_MEMORY_PAGE_SIZE;
+        ++index
+    ) {
+        destination_bytes[index] =
+            source_bytes[index];
     }
 
     return true;

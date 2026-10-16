@@ -1,8 +1,56 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
+#include "image.h"
 #include "process.h"
 
 #include <stddef.h>
+
+bool process_context_initialize(
+    struct process_context *context,
+    const struct process_layout *layout)
+{
+    if (context == NULL) return false;
+    if (layout == NULL) return false;
+
+    if (
+        layout->initial_rsp <
+        layout->stack.base_address ||
+        layout->initial_rsp >
+        layout->stack.stack_top
+    ) {
+        return false;
+    }
+
+    if ((layout->initial_rsp & 0xFULL) != 0) {
+        return false;
+    }
+
+    context->r15 = 0;
+    context->r14 = 0;
+    context->r13 = 0;
+    context->r12 = 0;
+    context->r11 = 0;
+    context->r10 = 0;
+    context->r9 = 0;
+    context->r8 = 0;
+
+    context->rbp = 0;
+    context->rdi = 0;
+    context->rsi = 0;
+    context->rdx = 0;
+    context->rcx = 0;
+    context->rbx = 0;
+    context->rax = 0;
+
+    context->rip = layout->entry_point;
+    context->rsp = layout->initial_rsp;
+    context->rflags = 0x202;
+
+    return true;
+}
 
 bool process_init(
     struct process *process,
@@ -14,33 +62,25 @@ bool process_init(
     if (memory == NULL) return false;
     if (layout == NULL) return false;
 
+    if (!process_context_initialize(
+        &process->context,
+        layout
+    )) {
+        return false;
+    }
+
     process->id = id;
     process->state = PROCESS_STATE_READY;
     process->termination_reason = PROCESS_TERMINATION_NONE;
     process->exit_status = 0;
+
+    process->sleep_start_ticks = 0;
+    process->sleep_duration_ticks = 0;
+
+    process->instance = NULL;
+    process->image = NULL;
     process->memory = memory;
     process->layout = layout;
-
-    process->context.r15 = 0;
-    process->context.r14 = 0;
-    process->context.r13 = 0;
-    process->context.r12 = 0;
-    process->context.r11 = 0;
-    process->context.r10 = 0;
-    process->context.r9 = 0;
-    process->context.r8 = 0;
-
-    process->context.rbp = 0;
-    process->context.rdi = 0;
-    process->context.rsi = 0;
-    process->context.rdx = 0;
-    process->context.rcx = 0;
-    process->context.rbx = 0;
-    process->context.rax = 0;
-
-    process->context.rip = layout->entry_point;
-    process->context.rsp = layout->stack.stack_top;
-    process->context.rflags = 0x202; //0x002 = reserved, mandatory; 0x200 = IF, interrupt enable flag
 
     return true;
 }
@@ -51,6 +91,18 @@ bool process_reclaim_resources(struct process *process)
     if (process->state != PROCESS_STATE_TERMINATED) return false;
     if (process->memory == NULL) return false;
     if (process->layout == NULL) return false;
+
+    if (
+        process->image != NULL &&
+        (
+            process->memory !=
+                &process->image->memory ||
+            process->layout !=
+                &process->image->layout
+        )
+    ) {
+        return false;
+    }
 
     if (!process_layout_destroy(
         process->memory,
@@ -65,6 +117,7 @@ bool process_reclaim_resources(struct process *process)
         return false;
     }
 
+    process->image = NULL;
     process->layout = NULL;
     process->memory = NULL;
 

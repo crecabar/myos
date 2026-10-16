@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #include "display.h"
 #include "../core/panic.h"
@@ -9,7 +12,8 @@
 
 void display_init(
     struct kernel_display *display,
-    struct framebuffer *framebuffer)
+    struct framebuffer *framebuffer,
+    uint64_t scale)
 {
     if (display == NULL) {
         kernel_panic(
@@ -37,7 +41,7 @@ void display_init(
         8,
         4,
         white,
-        2
+        scale
     );
 
     diagnostics_attach_console(

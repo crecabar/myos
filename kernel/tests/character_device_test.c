@@ -1,0 +1,1377 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
+
+/**
+ * @file character_device_test.c
+ * @brief Character-device capability and I/O contract regression tests.
+ */
+
+#include "character_device_test.h"
+
+#include "../core/device/character_device.h"
+#include "../core/device/device.h"
+#include "../core/panic.h"
+#include "../diagnostics/diagnostics.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+struct character_device_test_state {
+    enum character_device_io_result read_result;
+    enum character_device_io_result write_result;
+
+    size_t read_transfer;
+    size_t write_transfer;
+
+    size_t read_calls;
+    size_t write_calls;
+
+    size_t last_write_size;
+    uint8_t last_write_first_byte;
+
+    uint8_t read_fill;
+
+    bool read_ready;
+    size_t read_ready_calls;
+};
+
+struct character_device_read_wait_probe {
+    size_t calls;
+};
+
+
+// Private functions and helpers declarations
+static enum character_device_io_result character_device_test_read(
+    struct character_device *character,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read
+);
+
+static enum character_device_io_result character_device_test_write(
+    struct character_device *character,
+    const void *buffer,
+    size_t size,
+    size_t *bytes_written
+);
+
+static bool character_device_test_read_ready(
+    struct character_device *character,
+    bool *ready);
+
+static void character_device_test_remove_generic(
+    struct device *device
+);
+
+static void character_device_test_initialization(void);
+
+static void character_device_test_invalid_initialization(void);
+
+static void character_device_test_io_dispatch(void);
+
+static void character_device_test_missing_capability(void);
+
+static void character_device_test_backend_failure(void);
+
+static void character_device_test_overreport_rejection(void);
+
+static void character_device_test_class_discovery(void);
+
+static void character_device_test_read_wait_notification(
+    void *context);
+
+static void character_device_test_read_wait(void);
+
+// Static local variables
+static const struct character_device_operations
+    character_device_test_operations = {
+        .read =
+            character_device_test_read,
+        .write =
+            character_device_test_write,
+        .read_ready =
+            character_device_test_read_ready,
+    };
+
+static const struct character_device_operations
+    character_device_test_write_only_operations = {
+        .read =
+            NULL,
+        .write =
+            character_device_test_write,
+    };
+
+static void character_device_test_would_block(void);
+
+// Public functions implementations
+void character_device_test_run(void)
+{
+    character_device_test_initialization();
+    character_device_test_class_discovery();
+    character_device_test_invalid_initialization();
+    character_device_test_io_dispatch();
+    character_device_test_read_wait();
+    character_device_test_missing_capability();
+    character_device_test_backend_failure();
+    character_device_test_would_block();
+    character_device_test_overreport_rejection();
+
+    diagnostics_write(
+        "[device] Character-device capability and I/O contract tests passed\n"
+    );
+}
+
+// Private functions and helpers implementations
+static enum character_device_io_result character_device_test_read(
+    struct character_device *character,
+    void *buffer,
+    size_t size,
+    size_t *bytes_read)
+{
+    if (
+        character == NULL ||
+        buffer == NULL ||
+        bytes_read == NULL ||
+        character->private_data == NULL
+    ) {
+        kernel_panic(
+            "Character-device test read received invalid state"
+        );
+    }
+
+    struct character_device_test_state *state =
+        character->private_data;
+
+    ++state->read_calls;
+
+    if (
+        state->read_result !=
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS
+    ) {
+        return
+            state->read_result;
+    }
+
+    uint8_t *bytes =
+        buffer;
+
+    size_t fill =
+        state->read_transfer < size
+            ? state->read_transfer
+            : size;
+
+    for (
+        size_t index = 0;
+        index < fill;
+        ++index
+    ) {
+        bytes[index] =
+            state->read_fill;
+    }
+
+    /*
+     * Deliberately report the configured transfer rather than the bounded fill
+     * amount. This lets the generic wrapper regression-test an over-reporting
+     * backend without writing beyond the supplied buffer.
+     */
+    *bytes_read =
+        state->read_transfer;
+
+    return
+        CHARACTER_DEVICE_IO_RESULT_SUCCESS;
+}
+
+static enum character_device_io_result character_device_test_write(
+    struct character_device *character,
+    const void *buffer,
+    size_t size,
+    size_t *bytes_written)
+{
+    if (
+        character == NULL ||
+        buffer == NULL ||
+        bytes_written == NULL ||
+        character->private_data == NULL
+    ) {
+        kernel_panic(
+            "Character-device test write received invalid state"
+        );
+    }
+
+    struct character_device_test_state *state =
+        character->private_data;
+
+    ++state->write_calls;
+
+    state->last_write_size =
+        size;
+
+    if (size != 0) {
+        const uint8_t *bytes =
+            buffer;
+
+        state->last_write_first_byte =
+            bytes[0];
+    }
+
+    if (
+        state->write_result !=
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS
+    ) {
+        return
+            state->write_result;
+    }
+
+    *bytes_written =
+        state->write_transfer;
+
+    return
+        CHARACTER_DEVICE_IO_RESULT_SUCCESS;
+}
+
+static bool character_device_test_read_ready(
+    struct character_device *character,
+    bool *ready)
+{
+    if (
+        character == NULL ||
+        ready == NULL ||
+        character->private_data == NULL
+    ) {
+        return false;
+    }
+
+    struct character_device_test_state *state =
+        character->private_data;
+
+    ++state->read_ready_calls;
+    *ready = state->read_ready;
+
+    return true;
+}
+
+static void character_device_test_remove_generic(
+    struct device *device)
+{
+    if (
+        device == NULL ||
+        !device_begin_removal(
+            device
+        ) ||
+        !device_finish_removal(
+            device
+        ) ||
+        !device_release(
+            device
+        )
+    ) {
+        kernel_panic(
+            "Character-device generic fixture cleanup failed"
+        );
+    }
+}
+
+static void character_device_test_initialization(void)
+{
+    struct device generic;
+
+    uint64_t generic_private =
+        0x1122334455667788ULL;
+
+    if (!device_initialize(
+        &generic,
+        6400,
+        "char-test",
+        sizeof("char-test") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        &generic_private
+    )) {
+        kernel_panic(
+            "Character-device generic initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .read_transfer =
+            0,
+        .write_transfer =
+            0,
+        .read_calls =
+            0,
+        .write_calls =
+            0,
+        .last_write_size =
+            0,
+        .last_write_first_byte =
+            0,
+        .read_fill =
+            0,
+    };
+
+    struct character_device character;
+
+    if (!character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        &state
+    )) {
+        kernel_panic(
+            "Character-device initialization rejected valid capability"
+        );
+    }
+
+    if (
+        character.device !=
+            &generic ||
+        character.operations !=
+            &character_device_test_operations ||
+        character.private_data !=
+            &state ||
+        generic.device_class !=
+            DEVICE_CLASS_CHARACTER ||
+        generic.class_interface !=
+            &character ||
+        character_device_from_device(
+            &generic
+        ) !=
+            &character ||
+        generic.reference_count !=
+            1 ||
+        generic.private_data !=
+            &generic_private ||
+        !character_device_can_read(
+            &character
+        ) ||
+        !character_device_can_write(
+            &character
+        )
+    ) {
+        kernel_panic(
+            "Character-device initialization produced invalid state"
+        );
+    }
+
+    character_device_test_remove_generic(
+        &generic
+    );
+}
+
+static void character_device_test_class_discovery(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6405,
+        "char-class",
+        sizeof("char-class") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character-device class fixture initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+    };
+
+    struct character_device character;
+
+    if (
+        !character_device_initialize(
+            &character,
+            &generic,
+            &character_device_test_operations,
+            &state
+        ) ||
+        character_device_from_device(
+            &generic
+        ) !=
+            &character
+    ) {
+        kernel_panic(
+            "Character-device class discovery failed"
+        );
+    }
+
+    /*
+     * Reinitializing the currently published interface must fail before the
+     * live capability is mutated.
+     */
+    struct character_device_test_state replacement_state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+    };
+
+    if (
+        character_device_initialize(
+            &character,
+            &generic,
+            &character_device_test_write_only_operations,
+            &replacement_state
+        ) ||
+        character.device !=
+            &generic ||
+        character.operations !=
+            &character_device_test_operations ||
+        character.private_data !=
+            &state ||
+        character_device_from_device(
+            &generic
+        ) !=
+            &character
+    ) {
+        kernel_panic(
+            "Character-device self-reinitialization corrupted binding"
+        );
+    }
+
+    /*
+     * Rejection must likewise leave an unrelated candidate untouched.
+     */
+    struct character_device duplicate = {
+        .device =
+            (struct device *) &state,
+        .operations =
+            &character_device_test_operations,
+        .private_data =
+            &generic,
+    };
+
+    if (
+        character_device_initialize(
+            &duplicate,
+            &generic,
+            &character_device_test_operations,
+            &state
+        ) ||
+        duplicate.device !=
+            (struct device *) &state ||
+        duplicate.operations !=
+            &character_device_test_operations ||
+        duplicate.private_data !=
+            &generic ||
+        character_device_from_device(
+            &generic
+        ) !=
+            &character
+    ) {
+        kernel_panic(
+            "Character-device duplicate binding mutated candidate"
+        );
+    }
+
+    if (!device_begin_removal(
+        &generic
+    )) {
+        kernel_panic(
+            "Character-device class fixture removal failed"
+        );
+    }
+
+    if (
+        character_device_from_device(
+            &generic
+        ) != NULL ||
+        character_device_can_read(
+            &character
+        ) ||
+        character_device_can_write(
+            &character
+        )
+    ) {
+        kernel_panic(
+            "Removing character device remained discoverable"
+        );
+    }
+
+    if (
+        !device_finish_removal(
+            &generic
+        ) ||
+        !device_release(
+            &generic
+        )
+    ) {
+        kernel_panic(
+            "Character-device class fixture cleanup failed"
+        );
+    }
+}
+
+static void character_device_test_read_wait_notification(
+    void *context)
+{
+    struct character_device_read_wait_probe *probe =
+        context;
+
+    if (probe == NULL) {
+        kernel_panic(
+            "Character read wait notification has invalid context"
+        );
+    }
+
+    ++probe->calls;
+}
+
+static void character_device_test_read_wait(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6470,
+        "char-read-wait",
+        sizeof("char-read-wait") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character read wait device initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result = CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result = CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .read_ready = false,
+    };
+
+    struct character_device character;
+
+    if (!character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        &state
+    )) {
+        kernel_panic(
+            "Character read wait capability initialization failed"
+        );
+    }
+
+    struct wait_queue_entry first;
+    struct wait_queue_entry second;
+
+    wait_queue_entry_init(&first);
+    wait_queue_entry_init(&second);
+
+    struct character_device_read_wait_probe a = {0};
+    struct character_device_read_wait_probe b = {0};
+
+    if (
+        !character_device_read_wait_register(
+            &character,
+            &first,
+            character_device_test_read_wait_notification,
+            &a
+        ) ||
+        !character_device_read_wait_register(
+            &character,
+            &second,
+            character_device_test_read_wait_notification,
+            &b
+        ) ||
+        !wait_queue_entry_registered(&first) ||
+        !wait_queue_entry_registered(&second) ||
+        state.read_ready_calls != 0U
+    ) {
+        kernel_panic(
+            "Character read wait registration failed"
+        );
+    }
+
+    /*
+     * Duplicate registration must not replace
+     * an existing reader.
+     */
+    if (
+        character_device_read_wait_register(
+            &character,
+            &first,
+            character_device_test_read_wait_notification,
+            &b
+        )
+    ) {
+        kernel_panic(
+            "Character read wait accepted duplicate entry"
+        );
+    }
+
+    /*
+     * One event wakes both readers.
+     *
+     * Notification must not execute the read callback
+     * or consume the device's input.
+     */
+    if (
+        character_device_read_wait_notify(
+            &character
+        ) != 2U ||
+        a.calls != 1U ||
+        b.calls != 1U ||
+        wait_queue_entry_registered(&first) ||
+        wait_queue_entry_registered(&second) ||
+        state.read_calls != 0U ||
+        state.read_ready_calls != 0U
+    ) {
+        kernel_panic(
+            "Character read wait broadcast failed"
+        );
+    }
+
+    /*
+     * Registrations are one-shot.
+     */
+    if (
+        character_device_read_wait_notify(
+            &character
+        ) != 0U ||
+        a.calls != 1U ||
+        b.calls != 1U
+    ) {
+        kernel_panic(
+            "Character read wait duplicated notification"
+        );
+    }
+
+    /*
+     * Registrations can be reused after delivery.
+     */
+    if (
+        !character_device_read_wait_register(
+            &character,
+            &first,
+            character_device_test_read_wait_notification,
+            &a
+        ) ||
+        !character_device_read_wait_register(
+            &character,
+            &second,
+            character_device_test_read_wait_notification,
+            &b
+        ) ||
+        !wait_queue_cancel(&first) ||
+        character_device_read_wait_notify(
+            &character
+        ) != 1U ||
+        a.calls != 1U ||
+        b.calls != 2U ||
+        wait_queue_entry_registered(&first) ||
+        wait_queue_entry_registered(&second)
+    ) {
+        kernel_panic(
+            "Character read wait cancellation failed"
+        );
+    }
+
+    /*
+     * Invalid registrations are rejected without
+     * leaving pending entries.
+     */
+    if (
+        character_device_read_wait_register(
+            NULL,
+            &first,
+            character_device_test_read_wait_notification,
+            &a
+        ) ||
+        character_device_read_wait_register(
+            &character,
+            NULL,
+            character_device_test_read_wait_notification,
+            &a
+        ) ||
+        character_device_read_wait_register(
+            &character,
+            &first,
+            NULL,
+            &a
+        ) ||
+        character_device_read_wait_notify(
+            NULL
+        ) != 0U ||
+        character.read_waiters.head != NULL ||
+        character.read_waiters.tail != NULL
+    ) {
+        kernel_panic(
+            "Character read wait invalid request contract failed"
+        );
+    }
+
+    character_device_test_remove_generic(
+        &generic
+    );
+}
+
+static void character_device_test_invalid_initialization(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6410,
+        "char-invalid",
+        sizeof("char-invalid") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character-device invalid fixture initialization failed"
+        );
+    }
+
+    struct character_device character;
+
+    struct character_device_operations empty_operations = {
+        .read =
+            NULL,
+        .write =
+            NULL,
+    };
+
+    if (
+        character_device_initialize(
+            NULL,
+            &generic,
+            &character_device_test_operations,
+            NULL
+        ) ||
+        character_device_initialize(
+            &character,
+            NULL,
+            &character_device_test_operations,
+            NULL
+        ) ||
+        character_device_initialize(
+            &character,
+            &generic,
+            NULL,
+            NULL
+        ) ||
+        character_device_initialize(
+            &character,
+            &generic,
+            &empty_operations,
+            NULL
+        )
+    ) {
+        kernel_panic(
+            "Character-device initialization accepted invalid arguments"
+        );
+    }
+
+    if (!device_begin_removal(
+        &generic
+    )) {
+        kernel_panic(
+            "Character-device inactive fixture transition failed"
+        );
+    }
+
+    if (character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        NULL
+    )) {
+        kernel_panic(
+            "Character-device initialization accepted non-ACTIVE device"
+        );
+    }
+
+    if (
+        !device_finish_removal(
+            &generic
+        ) ||
+        !device_release(
+            &generic
+        )
+    ) {
+        kernel_panic(
+            "Character-device invalid fixture cleanup failed"
+        );
+    }
+}
+
+static void character_device_test_io_dispatch(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6420,
+        "char-io",
+        sizeof("char-io") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character-device I/O generic initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .read_transfer =
+            3,
+        .write_transfer =
+            4,
+        .read_calls =
+            0,
+        .write_calls =
+            0,
+        .last_write_size =
+            0,
+        .last_write_first_byte =
+            0,
+        .read_fill =
+            0xa5U,
+    };
+
+    struct character_device character;
+
+    if (!character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        &state
+    )) {
+        kernel_panic(
+            "Character-device I/O capability initialization failed"
+        );
+    }
+
+    uint8_t read_buffer[8] = {0};
+
+    size_t bytes_read =
+        SIZE_MAX;
+
+    bool ready = true;
+
+    if (
+        !character_device_read_ready(
+            &character,
+            &ready
+        ) ||
+        ready ||
+        state.read_ready_calls != 1U
+    ) {
+        kernel_panic(
+            "Character-device empty readiness query failed"
+        );
+    }
+
+    state.read_ready = true;
+
+    if (
+        !character_device_read_ready(
+            &character,
+            &ready
+        ) ||
+        !ready ||
+        state.read_ready_calls != 2U
+    ) {
+        kernel_panic(
+            "Character-device ready query failed"
+        );
+    }
+
+    if (
+        character_device_read(
+            &character,
+            read_buffer,
+            sizeof(read_buffer),
+            &bytes_read
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        bytes_read != 3 ||
+        state.read_calls != 1 ||
+        read_buffer[0] != 0xa5U ||
+        read_buffer[1] != 0xa5U ||
+        read_buffer[2] != 0xa5U ||
+        read_buffer[3] != 0
+    ) {
+        kernel_panic(
+            "Character-device read dispatch failed"
+        );
+    }
+
+    static const uint8_t write_buffer[] = {
+        0x31U,
+        0x32U,
+        0x33U,
+        0x34U,
+    };
+
+    size_t bytes_written =
+        SIZE_MAX;
+
+    if (
+        character_device_write(
+            &character,
+            write_buffer,
+            sizeof(write_buffer),
+            &bytes_written
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        bytes_written !=
+            sizeof(write_buffer) ||
+        state.write_calls != 1 ||
+        state.last_write_size !=
+            sizeof(write_buffer) ||
+        state.last_write_first_byte !=
+            write_buffer[0]
+    ) {
+        kernel_panic(
+            "Character-device write dispatch failed"
+        );
+    }
+
+    bytes_read =
+        SIZE_MAX;
+
+    bytes_written =
+        SIZE_MAX;
+
+    if (
+        character_device_read(
+            &character,
+            NULL,
+            0,
+            &bytes_read
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        character_device_write(
+            &character,
+            NULL,
+            0,
+            &bytes_written
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS ||
+        bytes_read != 0 ||
+        bytes_written != 0 ||
+        state.read_calls != 1 ||
+        state.write_calls != 1
+    ) {
+        kernel_panic(
+            "Character-device zero-length I/O contract failed"
+        );
+    }
+
+    character_device_test_remove_generic(
+        &generic
+    );
+}
+
+static void character_device_test_missing_capability(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6430,
+        "char-write-only",
+        sizeof("char-write-only") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character-device capability fixture initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .read_transfer =
+            0,
+        .write_transfer =
+            1,
+        .read_calls =
+            0,
+        .write_calls =
+            0,
+        .last_write_size =
+            0,
+        .last_write_first_byte =
+            0,
+        .read_fill =
+            0,
+    };
+
+    struct character_device character;
+
+    if (
+        !character_device_initialize(
+            &character,
+            &generic,
+            &character_device_test_write_only_operations,
+            &state
+        ) ||
+        character_device_can_read(
+            &character
+        ) ||
+        !character_device_can_write(
+            &character
+        )
+    ) {
+        kernel_panic(
+            "Character-device capability discovery failed"
+        );
+    }
+
+    struct wait_queue_entry unsupported_entry;
+
+    wait_queue_entry_init(&unsupported_entry);
+
+    struct character_device_read_wait_probe unsupported_probe = {0};
+
+    if (
+        character_device_read_wait_register(
+            &character,
+            &unsupported_entry,
+            character_device_test_read_wait_notification,
+            &unsupported_probe
+        ) ||
+        character_device_read_wait_notify(
+            &character
+        ) != 0U ||
+        wait_queue_entry_registered(&unsupported_entry) ||
+        unsupported_probe.calls != 0U
+    ) {
+        kernel_panic(
+            "Character write-only device accepted read wait"
+        );
+    }
+
+    bool ready = true;
+
+    if (
+        character_device_read_ready(
+            &character,
+            &ready
+        ) ||
+        !ready
+    ) {
+        kernel_panic(
+            "Unsupported read readiness query was accepted"
+        );
+    }
+
+    uint8_t byte =
+        0;
+
+    size_t bytes_read =
+        91;
+
+    if (
+        character_device_read(
+            &character,
+            &byte,
+            sizeof(byte),
+            &bytes_read
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_NOT_SUPPORTED ||
+        bytes_read != 91 ||
+        state.read_calls != 0
+    ) {
+        kernel_panic(
+            "Character-device missing read capability was not rejected"
+        );
+    }
+
+    bytes_read =
+        92;
+
+    if (
+        character_device_read(
+            &character,
+            NULL,
+            0,
+            &bytes_read
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_NOT_SUPPORTED ||
+        bytes_read != 92
+    ) {
+        kernel_panic(
+            "Character-device zero-length unsupported read was accepted"
+        );
+    }
+
+    character_device_test_remove_generic(
+        &generic
+    );
+}
+
+static void character_device_test_backend_failure(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6440,
+        "char-failure",
+        sizeof("char-failure") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character-device failure fixture initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_RESOURCE_EXHAUSTED,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_NOT_SUPPORTED,
+        .read_transfer =
+            0,
+        .write_transfer =
+            0,
+        .read_calls =
+            0,
+        .write_calls =
+            0,
+        .last_write_size =
+            0,
+        .last_write_first_byte =
+            0,
+        .read_fill =
+            0,
+    };
+
+    struct character_device character;
+
+    if (!character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        &state
+    )) {
+        kernel_panic(
+            "Character-device failure capability initialization failed"
+        );
+    }
+
+    uint8_t buffer =
+        0x5aU;
+
+    size_t bytes_read =
+        71;
+
+    size_t bytes_written =
+        72;
+
+    if (
+        character_device_read(
+            &character,
+            &buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_RESOURCE_EXHAUSTED ||
+        character_device_write(
+            &character,
+            &buffer,
+            sizeof(buffer),
+            &bytes_written
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_NOT_SUPPORTED ||
+        bytes_read != 71 ||
+        bytes_written != 72 ||
+        state.read_calls != 1 ||
+        state.write_calls != 1
+    ) {
+        kernel_panic(
+            "Character-device backend failure contract failed"
+        );
+    }
+
+    character_device_test_remove_generic(
+        &generic
+    );
+}
+
+static void character_device_test_overreport_rejection(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6450,
+        "char-overreport",
+        sizeof("char-overreport") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic(
+            "Character-device over-report fixture initialization failed"
+        );
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+        .read_transfer =
+            5,
+        .write_transfer =
+            5,
+        .read_calls =
+            0,
+        .write_calls =
+            0,
+        .last_write_size =
+            0,
+        .last_write_first_byte =
+            0,
+        .read_fill =
+            0xccU,
+    };
+
+    struct character_device character;
+
+    if (!character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        &state
+    )) {
+        kernel_panic(
+            "Character-device over-report capability initialization failed"
+        );
+    }
+
+    uint8_t buffer[4] = {
+        0,
+        0,
+        0,
+        0,
+    };
+
+    size_t bytes_read =
+        81;
+
+    size_t bytes_written =
+        82;
+
+    if (
+        character_device_read(
+            &character,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_INVALID_ARGUMENT ||
+        character_device_write(
+            &character,
+            buffer,
+            sizeof(buffer),
+            &bytes_written
+        ) !=
+            CHARACTER_DEVICE_IO_RESULT_INVALID_ARGUMENT ||
+        bytes_read != 81 ||
+        bytes_written != 82 ||
+        state.read_calls != 1 ||
+        state.write_calls != 1
+    ) {
+        kernel_panic(
+            "Character-device backend over-report was not contained"
+        );
+    }
+
+    character_device_test_remove_generic(
+        &generic
+    );
+}
+
+static void character_device_test_would_block(void)
+{
+    struct device generic;
+
+    if (!device_initialize(
+        &generic,
+        6450,
+        "char-would-block",
+        sizeof("char-would-block") - 1U,
+        DEVICE_KIND_PSEUDO,
+        NULL,
+        NULL
+    )) {
+        kernel_panic("Character WOULD_BLOCK setup failed");
+    }
+
+    struct character_device_test_state state = {
+        .read_result =
+            CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK,
+        .write_result =
+            CHARACTER_DEVICE_IO_RESULT_SUCCESS,
+    };
+
+    struct character_device character;
+
+    if (!character_device_initialize(
+        &character,
+        &generic,
+        &character_device_test_operations,
+        &state
+    )) {
+        kernel_panic("Character WOULD_BLOCK binding failed");
+    }
+
+    uint8_t buffer[4] = {
+        0x11U, 0x22U, 0x33U, 0x44U,
+    };
+
+    size_t bytes_read = SIZE_MAX;
+
+    if (
+        character_device_read(
+            &character,
+            buffer,
+            sizeof(buffer),
+            &bytes_read
+        ) != CHARACTER_DEVICE_IO_RESULT_WOULD_BLOCK ||
+        state.read_calls != 1U ||
+        bytes_read != SIZE_MAX ||
+        buffer[0] != 0x11U ||
+        buffer[1] != 0x22U ||
+        buffer[2] != 0x33U ||
+        buffer[3] != 0x44U
+    ) {
+        kernel_panic("Character WOULD_BLOCK contract failed");
+    }
+
+    character_device_test_remove_generic(&generic);
+}

@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #include "usermode.h"
 
@@ -19,6 +22,22 @@ _Noreturn void usermode_enter(
         instruction_pointer,
         stack_pointer,
         GDT_USER_CODE_SELECTOR,
+        GDT_USER_DATA_SELECTOR
+    );
+
+    __builtin_unreachable();
+}
+
+extern _Noreturn void usermode_resume_asm(
+    const struct interrupt_context *context,
+    uint64_t data_selector
+);
+
+_Noreturn void usermode_resume(
+    const struct interrupt_context *context)
+{
+    usermode_resume_asm(
+        context,
         GDT_USER_DATA_SELECTOR
     );
 

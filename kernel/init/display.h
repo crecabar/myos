@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #ifndef MYOS_INIT_DISPLAY_H
 #define MYOS_INIT_DISPLAY_H
@@ -12,7 +15,8 @@ struct kernel_display {
 
 void display_init(
     struct kernel_display *display,
-    struct framebuffer *framebuffer
+    struct framebuffer *framebuffer,
+    uint64_t scale
 );
 
 #endif

@@ -1,20 +1,36 @@
 // SPDX-License-Identifier: GPL-2.0-only
-
-#include <stdint.h>
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 #include "idt.h"
 #include "interrupts.h"
 #include "timer.h"
+#include "ps2_keyboard.h"
+#include "ps2_mouse.h"
 #include "../../core/panic.h"
 #include "../../diagnostics/diagnostics.h"
+#include "../../process/exec.h"
+#include "../../process/file.h"
+#include "../../process/fork.h"
 #include "../../process/process.h"
+#include "../../process/wait.h"
 #include "../../scheduler/scheduler.h"
 #include "../../syscall/syscall.h"
+#if MYOS_KERNEL_TESTS
+#include "../../tests/user_processes/exec.h"
+#include "../../tests/user_processes/scheduler_context.h"
+#endif
+
+#include <stddef.h>
+#include <stdint.h>
 
 #define IDT_ENTRIES 256
 
 #define IDT_IST_NONE 0
 #define IDT_IST_DOUBLE_FAULT 1
+
+#define X86_INT_IMM8_INSTRUCTION_SIZE 2ULL
 
 enum x86_exception_vector {
     X86_EXCEPTION_DIVIDE_ERROR = 0,
@@ -63,6 +79,8 @@ extern void isr_control_protection(void);
 extern void isr_syscall(void);
 extern void isr_timer(void);
 extern void isr_spurious(void);
+extern void isr_ps2_keyboard(void);
+extern void isr_ps2_mouse(void);
 
 static void idt_set_gate(
     uint8_t vector, 
@@ -74,6 +92,11 @@ static void idt_set_gate(
 static uint64_t read_cr2(void);
 static void page_fault_dump(const struct interrupt_context *context);
 static bool exception_from_user_mode(const struct interrupt_context *context);
+
+static void process_context_from_interrupt(
+    const struct interrupt_context *source,
+    struct process_context *destination
+);
 
 struct idt_entry {
     uint16_t offset_low;
@@ -98,6 +121,61 @@ _Static_assert(
 _Static_assert(
     sizeof(struct idt_descriptor) == 10,
     "struct idt_descriptor must be 10 bytes"
+);
+
+_Static_assert(
+    _Alignof(struct idt_entry) == 1,
+    "struct idt_entry must be byte-aligned"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, offset_low) == 0,
+    "idt_entry.offset_low offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, selector) == 2,
+    "idt_entry.selector offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, ist) == 4,
+    "idt_entry.ist offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, type_attributes) == 5,
+    "idt_entry.type_attributes offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, offset_middle) == 6,
+    "idt_entry.offset_middle offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, offset_high) == 8,
+    "idt_entry.offset_high offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_entry, zero) == 12,
+    "idt_entry.zero offset mismatch"
+);
+
+_Static_assert(
+    _Alignof(struct idt_descriptor) == 1,
+    "struct idt_descriptor must be byte-aligned"
+);
+
+_Static_assert(
+    offsetof(struct idt_descriptor, limit) == 0,
+    "idt_descriptor.limit offset mismatch"
+);
+
+_Static_assert(
+    offsetof(struct idt_descriptor, base) == 2,
+    "idt_descriptor.base offset mismatch"
 );
 
 static struct idt_entry idt[IDT_ENTRIES];
@@ -327,6 +405,24 @@ void idt_init(void)
         0x8E
     );
 
+    // PS/2 keyboard interrupt
+    idt_set_gate(
+        PS2_KEYBOARD_INTERRUPT_VECTOR,
+        (uint64_t) isr_ps2_keyboard,
+        code_selector,
+        IDT_IST_NONE,
+        0x8E
+    );
+
+    // PS/2 mouse interrupt
+    idt_set_gate(
+        PS2_MOUSE_INTERRUPT_VECTOR,
+        (uint64_t) isr_ps2_mouse,
+        code_selector,
+        IDT_IST_NONE,
+        0x8E
+    );
+
     // Local APIC spurious interrupt
     idt_set_gate(
         0xFF,
@@ -357,6 +453,27 @@ void idt_init(void)
     );
 }
 
+bool idt_kernel_state_active(void)
+{
+    struct idt_descriptor active_idtr;
+
+    __asm__ volatile (
+        "sidt %0"
+        : "=m" (active_idtr)
+        :
+        : "memory"
+    );
+
+    return
+        active_idtr.base == (uint64_t) idt &&
+        active_idtr.limit ==
+            (uint16_t) (sizeof(idt) - 1) &&
+        (idt[X86_EXCEPTION_DOUBLE_FAULT].type_attributes &
+         0x80U) != 0 &&
+        idt[X86_EXCEPTION_DOUBLE_FAULT].ist ==
+            IDT_IST_DOUBLE_FAULT;
+}
+
 static uint64_t read_cr2(void)
 {
     uint64_t value;
@@ -372,6 +489,32 @@ static uint64_t read_cr2(void)
 static bool exception_from_user_mode(const struct interrupt_context *context)
 {
     return (context->cs & 0x3) == 3;
+}
+
+static void process_context_from_interrupt(
+    const struct interrupt_context *source,
+    struct process_context *destination)
+{
+    destination->r15 = source->r15;
+    destination->r14 = source->r14;
+    destination->r13 = source->r13;
+    destination->r12 = source->r12;
+    destination->r11 = source->r11;
+    destination->r10 = source->r10;
+    destination->r9 = source->r9;
+    destination->r8 = source->r8;
+
+    destination->rbp = source->rbp;
+    destination->rdi = source->rdi;
+    destination->rsi = source->rsi;
+    destination->rdx = source->rdx;
+    destination->rcx = source->rcx;
+    destination->rbx = source->rbx;
+    destination->rax = source->rax;
+
+    destination->rip = source->rip;
+    destination->rsp = source->rsp;
+    destination->rflags = source->rflags;
 }
 
 static void page_fault_dump(
@@ -668,11 +811,454 @@ void exception_handler(struct interrupt_context *context)
 
 void syscall_handler(struct interrupt_context *context)
 {
+    if (context->rax == SYSCALL_FORK) {
+        struct process *parent_process =
+            scheduler_current();
+
+        if (
+            parent_process == NULL ||
+            parent_process->state !=
+                PROCESS_STATE_RUNNING ||
+            parent_process->instance == NULL ||
+            parent_process->instance->process.instance !=
+                parent_process->instance ||
+            (context->cs & 0x3) != 3
+        ) {
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        struct process_context parent_context;
+
+        process_context_from_interrupt(
+            context,
+            &parent_context
+        );
+
+        struct process_instance *child =
+            process_fork_create_child(
+                parent_process->instance,
+                &parent_context
+            );
+
+        if (child == NULL) {
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_RESOURCE_EXHAUSTED
+                );
+
+            return;
+        }
+
+        /*
+         * The child already owns an independent copy of this post-syscall
+         * context with RAX = 0.
+         *
+         * The interrupt frame belongs to the parent, so returning the child PID
+         * here produces the complementary fork result.
+         */
+        context->rax =
+            child->process.id;
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_WAITPID) {
+        syscall_result_t result;
+
+        enum syscall_waitpid_action action =
+            syscall_waitpid_prepare(
+                context->rdi,
+                context->rsi,
+                context->rdx,
+                &result
+            );
+
+        if (
+            action ==
+            SYSCALL_WAITPID_ACTION_RETURN
+        ) {
+            context->rax =
+                (uint64_t) result;
+
+            return;
+        }
+
+        if (
+            action !=
+            SYSCALL_WAITPID_ACTION_BLOCK
+        ) {
+            kernel_panic(
+                "waitpid returned invalid architecture action"
+            );
+        }
+
+        struct process *process =
+            scheduler_current();
+
+        if (
+            process == NULL ||
+            process->instance == NULL
+        ) {
+            kernel_panic(
+                "waitpid lost current process before blocking"
+            );
+        }
+
+        struct process_instance *parent =
+            process->instance;
+
+        /*
+         * INT imm8 is exactly two bytes on x86-64. The saved RIP points to
+         * the instruction following int 0x80, so rewinding it makes the
+         * blocked process retry the complete syscall after wakeup.
+         */
+        if (
+            context->rip <
+                X86_INT_IMM8_INSTRUCTION_SIZE
+        ) {
+            if (!process_wait_cancel(parent)) {
+                kernel_panic(
+                    "Unable to cancel waitpid after invalid return RIP"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        uint64_t syscall_rip =
+            context->rip -
+            X86_INT_IMM8_INSTRUCTION_SIZE;
+
+        if (!process_memory_user_range_valid(
+            syscall_rip,
+            X86_INT_IMM8_INSTRUCTION_SIZE
+        )) {
+            if (!process_wait_cancel(parent)) {
+                kernel_panic(
+                    "Unable to cancel waitpid after invalid syscall RIP"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        context->rip =
+            syscall_rip;
+
+        if (!scheduler_block_current_preserve_context(
+            context
+        )) {
+            context->rip +=
+                X86_INT_IMM8_INSTRUCTION_SIZE;
+
+            if (!process_wait_cancel(parent)) {
+                kernel_panic(
+                    "Unable to cancel failed waitpid block"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+        }
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_FD_READ) {
+        syscall_result_t result;
+
+        enum syscall_fd_read_action action =
+            syscall_fd_read_prepare(
+                context->rdi,
+                context->rsi,
+                context->rdx,
+                &result
+            );
+
+        if (
+            action ==
+            SYSCALL_FD_READ_ACTION_RETURN
+        ) {
+            context->rax =
+                (uint64_t) result;
+
+            return;
+        }
+
+        if (
+            action !=
+            SYSCALL_FD_READ_ACTION_BLOCK
+        ) {
+            kernel_panic(
+                "fd_read returned invalid architecture action"
+            );
+        }
+
+        struct process *process =
+            scheduler_current();
+
+        if (
+            process == NULL ||
+            process->instance == NULL
+        ) {
+            kernel_panic(
+                "fd_read lost current process before blocking"
+            );
+        }
+
+        struct process_instance *instance =
+            process->instance;
+
+        if (
+            !instance->read_wait_active ||
+            instance->read_wait_notified
+        ) {
+            kernel_panic(
+                "fd_read attempted to block without pending wait"
+            );
+        }
+
+        /*
+         * Rewind the saved RIP to retry the complete
+         * int 0x80 instruction after notification.
+         *
+         * No bytes were transferred by the read that
+         * originally returned WOULD_BLOCK.
+         */
+        if (
+            context->rip <
+                X86_INT_IMM8_INSTRUCTION_SIZE ||
+            !process_memory_user_range_valid(
+                context->rip -
+                    X86_INT_IMM8_INSTRUCTION_SIZE,
+                X86_INT_IMM8_INSTRUCTION_SIZE
+            )
+        ) {
+            if (!process_file_read_wait_cancel(
+                instance
+            )) {
+                kernel_panic(
+                    "Unable to cancel read wait after invalid RIP"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        context->rip -=
+            X86_INT_IMM8_INSTRUCTION_SIZE;
+
+        if (!scheduler_block_current_preserve_context(
+            context
+        )) {
+            context->rip +=
+                X86_INT_IMM8_INSTRUCTION_SIZE;
+
+            if (!process_file_read_wait_cancel(
+                instance
+            )) {
+                kernel_panic(
+                    "Unable to cancel failed fd_read block"
+                );
+            }
+
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+        }
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_EXECVE) {
+        if ((context->cs & 0x3) != 3) {
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+
+            return;
+        }
+
+        struct process_exec_candidate candidate = {
+            .prepared = false,
+        };
+
+        syscall_result_t result =
+            syscall_execve_prepare(
+                context->rdi,
+                context->rsi,
+                context->rdx,
+                context->r10,
+                context->r8,
+                context->r9,
+                &candidate
+            );
+
+        if (syscall_result_is_error(
+            result
+        )) {
+            if (candidate.prepared) {
+                kernel_panic(
+                    "Failed execve left prepared candidate"
+                );
+            }
+
+            context->rax =
+                (uint64_t) result;
+
+            return;
+        }
+
+        if (!candidate.prepared) {
+            kernel_panic(
+                "Successful execve preparation produced no candidate"
+            );
+        }
+
+        struct process *process =
+            scheduler_current();
+
+        if (
+            process == NULL ||
+            process->state !=
+                PROCESS_STATE_RUNNING ||
+            process->instance == NULL ||
+            process->instance->process.instance !=
+                process->instance
+        ) {
+            if (!process_exec_candidate_discard(
+                &candidate
+            )) {
+                kernel_panic(
+                    "Unable to discard execve candidate after lost process"
+                );
+            }
+
+            kernel_panic(
+                "execve lost current process after preparation"
+            );
+        }
+
+        if (!process_exec_candidate_commit_current(
+            process,
+            &candidate
+        )) {
+            if (
+                candidate.prepared &&
+                !process_exec_candidate_discard(
+                    &candidate
+                )
+            ) {
+                kernel_panic(
+                    "Unable to discard failed execve candidate"
+                );
+            }
+
+            /*
+             * A prepared candidate and a validated running process should
+             * always satisfy the commit preconditions. A failure here means
+             * the kernel's exec transaction became internally inconsistent;
+             * it is not a userspace validation error.
+             */
+            kernel_panic(
+                "Unable to commit prepared execve candidate"
+            );
+        }
+
+        if (candidate.prepared) {
+            kernel_panic(
+                "Committed execve candidate remained prepared"
+            );
+        }
+
+        /*
+         * process_exec_candidate_commit_current() replaced process->context
+         * and activated its new address space. Rewrite this active interrupt
+         * frame so IRETQ enters the replacement ELF rather than returning to
+         * the old int 0x80 caller.
+         */
+        if (!scheduler_load_current_context(
+            context
+        )) {
+            kernel_panic(
+                "Unable to load replacement execve context"
+            );
+        }
+
+        return;
+    }
+
     if (context->rax == SYSCALL_YIELD) {
         scheduler_yield_current(context);
 
         return;
     }
+
+#if MYOS_KERNEL_TESTS
+    if (context->rax == SYSCALL_TEST_CONTEXT_GATE) {
+        user_process_scheduler_context_test_syscall(
+            context,
+            context->rdi
+        );
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_TEST_EXEC) {
+        user_process_exec_test_syscall(
+            context,
+            context->rdi
+        );
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_TEST_SLEEP) {
+        if (!scheduler_sleep_current(context, context->rdi)) {
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+        }
+
+        return;
+    }
+
+    if (context->rax == SYSCALL_TEST_BLOCK) {
+        if (!scheduler_block_current(context)) {
+            context->rax =
+                (uint64_t) syscall_result_error(
+                    SYSCALL_ERROR_INVALID_ARGUMENT
+                );
+        }
+
+        return;
+    }
+#endif
 
     if (context->rax == SYSCALL_EXIT) {
         scheduler_exit_current(
@@ -683,13 +1269,14 @@ void syscall_handler(struct interrupt_context *context)
         return;
     }
 
-    context->rax = syscall_dispatch(
-        context->rax,
-        context->rdi,
-        context->rsi,
-        context->rdx,
-        context->r10,
-        context->r8,
-        context->r9
-    );
+    context->rax =
+        (uint64_t) syscall_dispatch(
+            context->rax,
+            context->rdi,
+            context->rsi,
+            context->rdx,
+            context->r10,
+            context->r8,
+            context->r9
+        );
 }

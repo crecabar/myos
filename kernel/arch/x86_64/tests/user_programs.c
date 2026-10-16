@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 /**
  * @file user_programs.c
@@ -6,6 +9,12 @@
  */
 
 #include "user_programs.h"
+
+extern const uint8_t user_program_sleep_probe_start[];
+extern const uint8_t user_program_sleep_probe_end[];
+
+extern const uint8_t user_program_block_probe_start[];
+extern const uint8_t user_program_block_probe_end[];
 
 static const uint8_t hello_program_data[] = {
     // write(message, 24)
@@ -309,6 +318,16 @@ static const struct user_program survivor_program = {
     .size = sizeof(survivor_program_data),
 };
 
+static struct user_program sleep_probe_program = {
+    .data = user_program_sleep_probe_start,
+    .size = 0,
+};
+
+static struct user_program block_probe_program = {
+    .data = user_program_block_probe_start,
+    .size = 0,
+};
+
 const struct user_program *user_program_hello(void)
 {
     return &hello_program;
@@ -342,4 +361,26 @@ const struct user_program *user_program_malicious_x87(void)
 const struct user_program *user_program_survivor(void)
 {
     return &survivor_program;
+}
+
+const struct user_program *user_program_sleep_probe(void)
+{
+    sleep_probe_program.size =
+        (size_t) (
+            (uintptr_t) user_program_sleep_probe_end -
+            (uintptr_t) user_program_sleep_probe_start
+        );
+
+    return &sleep_probe_program;
+}
+
+const struct user_program *user_program_block_probe(void)
+{
+    block_probe_program.size =
+        (size_t) (
+            (uintptr_t) user_program_block_probe_end -
+            (uintptr_t) user_program_block_probe_start
+        );
+
+    return &block_probe_program;
 }

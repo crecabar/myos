@@ -1,37 +1,130 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 /**
  * @file syscall.h
- * @brief MyOS system call dispatch interface.
+ * @brief MyOS kernel system call dispatch interface.
  */
 
 #ifndef MYOS_SYSCALL_SYSCALL_H
 #define MYOS_SYSCALL_SYSCALL_H
 
+#include <myos/abi/syscall.h>
+
 #include <stdint.h>
 
+#if MYOS_KERNEL_TESTS
+#include "test_numbers.h"
+#endif
+
+struct process_exec_candidate;
+
 /**
- * Debug system call that writes one character through kernel diagnostics.
+ * Describes how the architecture syscall path must complete waitpid().
+ *
+ * This is a kernel-internal control result and is not part of the published
+ * userspace syscall ABI.
  */
-#define SYSCALL_DEBUG_PUTC 1    // RDI = character
-#define SYSCALL_EXIT       2    // RDI = status
-#define SYSCALL_YIELD      3    // no arguments
-#define SYSCALL_WRITE      4    // RDI = buffer, RSI = length
+enum syscall_waitpid_action {
+    SYSCALL_WAITPID_ACTION_RETURN,
+    SYSCALL_WAITPID_ACTION_BLOCK,
+};
+
+/**
+ * Prepares one waitpid operation.
+ *
+ * Immediate results are written to result and return
+ * SYSCALL_WAITPID_ACTION_RETURN.
+ *
+ * A blocking wait is registered in the process lifecycle and returns
+ * SYSCALL_WAITPID_ACTION_BLOCK. The architecture syscall path must then
+ * preserve and suspend the current process context.
+ *
+ * @param child_pid Direct child PID, or zero for any direct child.
+ * @param status_address Userspace status destination, or zero to discard it.
+ * @param options waitpid option flags.
+ * @param result Receives an immediate syscall result.
+ *
+ * @return Required completion action.
+ */
+enum syscall_waitpid_action syscall_waitpid_prepare(
+    uint64_t child_pid,
+    uint64_t status_address,
+    uint64_t options,
+    syscall_result_t *result
+);
+
+/**
+ * Describes how the architecture syscall path completes fd_read().
+ *
+ * This is a kernel-internal control result, not part of
+ * the published userspace ABI.
+ */
+enum syscall_fd_read_action {
+    SYSCALL_FD_READ_ACTION_RETURN,
+    SYSCALL_FD_READ_ACTION_BLOCK,
+};
+
+/**
+ * Attempts one descriptor read and prepares a blocking wait
+ * only when the backend returns WOULD_BLOCK.
+ *
+ * A previously delivered read wait is cleared before retrying
+ * the read operation.
+ *
+ * The caller must execute with interrupts disabled on the BSP
+ * and preserve that serialization until suspension completes.
+ *
+ * RETURN writes the immediate syscall result to result.
+ * BLOCK leaves an active read wait owned by the process.
+ *
+ * The architecture path must preserve the complete interrupted
+ * context and retry the syscall after notification.
+ */
+enum syscall_fd_read_action syscall_fd_read_prepare(
+    uint64_t descriptor,
+    uint64_t user_address,
+    uint64_t length,
+    syscall_result_t *result
+);
+
+/**
+ * Imports and validates one userspace execve request and prepares a complete
+ * replacement process image.
+ *
+ * path is an explicit byte sequence. argv and envp are userspace arrays of
+ * 64-bit pointers to NUL-terminated strings; their element counts are supplied
+ * explicitly.
+ *
+ * All userspace pathname, vector and string data is copied into kernel-owned
+ * storage before candidate construction. The current process image remains
+ * unchanged throughout this operation.
+ *
+ * On success, candidate owns a fully prepared replacement and zero is
+ * returned. The architecture syscall path must then commit candidate and
+ * replace the active interrupt frame. A successful execve therefore never
+ * returns to the original userspace image.
+ *
+ * On failure, candidate remains unprepared and a negative syscall error is
+ * returned.
+ */
+syscall_result_t syscall_execve_prepare(
+    uint64_t user_path_address,
+    uint64_t path_length,
+    uint64_t user_argv_address,
+    uint64_t argc,
+    uint64_t user_envp_address,
+    uint64_t envc,
+    struct process_exec_candidate *candidate
+);
 
 /**
  * Dispatches one system call requested by user mode.
  *
- * MyOS uses the x86-64 system call register convention:
- *
- *   RAX = system call number
- *   RDI = argument 0
- *   RSI = argument 1
- *   RDX = argument 2
- *   R10 = argument 3
- *   R8  = argument 4
- *   R9  = argument 5
- *
- * The system call result is returned in RAX.
+ * The architecture-specific entry path supplies registers according to the
+ * published MyOS syscall ABI.
  *
  * @param number System call number.
  * @param argument0 First system call argument.
@@ -43,7 +136,7 @@
  *
  * @return System call result returned to user mode.
  */
-uint64_t syscall_dispatch(
+syscall_result_t syscall_dispatch(
     uint64_t number,
     uint64_t argument0,
     uint64_t argument1,

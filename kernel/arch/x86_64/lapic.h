@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 /**
  * @file lapic.h
@@ -20,6 +23,19 @@
  * @return true when the Local APIC was initialized; false otherwise.
  */
 bool lapic_init(void);
+
+/**
+ * Returns the active Local APIC MMIO mapping.
+ *
+ * @param physical_address Receives the physical MMIO base.
+ * @param virtual_address Receives the kernel virtual mapping.
+ *
+ * @return true when the Local APIC has been initialized; false otherwise.
+ */
+bool lapic_mapping_info(
+    uint64_t *physical_address,
+    uint64_t *virtual_address
+);
 
 /**
  * Returns the current Local APIC identifier.

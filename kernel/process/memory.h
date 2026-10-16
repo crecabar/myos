@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
 
 /**
  * @file memory.h
@@ -265,6 +268,25 @@ bool process_memory_write(
 );
 
 /**
+ * Fills mapped process memory with zero bytes.
+ *
+ * The destination range must already be completely mapped. Process page
+ * permissions are not modified, allowing the kernel to initialize read-only
+ * or executable user mappings safely before execution begins.
+ *
+ * @param memory Process memory containing the destination mapping.
+ * @param virtual_address First process virtual address to clear.
+ * @param size Number of bytes to clear.
+ *
+ * @return true when the complete range was cleared; false otherwise.
+ */
+bool process_memory_zero(
+    struct process_memory *memory,
+    uint64_t virtual_address,
+    size_t size
+);
+
+/**
  * Copies bytes from a process virtual address into a kernel buffer.
  *
  * The complete source range must be mapped in the process address space and
@@ -299,6 +321,33 @@ bool process_memory_read(
  */
 bool process_memory_allocate_executable_page(
     struct process_memory *memory,
+    uint64_t virtual_address
+);
+
+/**
+ * Creates an independent copy of one mapped userspace page.
+ *
+ * The source mapping must be a normal 4 KiB user mapping. A new physical
+ * frame is allocated for the destination at the same virtual address, with
+ * the source writable and executable permissions preserved.
+ *
+ * The destination receives an independent physical frame containing an exact
+ * byte-for-byte copy of the source page.
+ *
+ * This operation does not clone shared higher-half kernel mappings and never
+ * transfers ownership of the source frame.
+ *
+ * On failure, no destination data frame remains owned by this operation.
+ *
+ * @param destination Process memory receiving the copied page.
+ * @param source Process memory containing the existing page.
+ * @param virtual_address 4 KiB-aligned userspace virtual address.
+ *
+ * @return true when the page was copied successfully; false otherwise.
+ */
+bool process_memory_clone_page(
+    struct process_memory *destination,
+    const struct process_memory *source,
     uint64_t virtual_address
 );
 
