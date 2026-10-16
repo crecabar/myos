@@ -15,7 +15,8 @@ struct kernel_display {
 
 void display_init(
     struct kernel_display *display,
-    struct framebuffer *framebuffer
+    struct framebuffer *framebuffer,
+    uint64_t scale
 );
 
 #endif

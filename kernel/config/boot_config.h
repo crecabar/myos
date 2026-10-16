@@ -11,6 +11,11 @@
 #ifndef MYOS_CONFIG_BOOT_CONFIG_H
 #define MYOS_CONFIG_BOOT_CONFIG_H
 
+#include <stdint.h>
+
+#define KERNEL_CONSOLE_SCALE_DEFAULT 1U
+#define KERNEL_CONSOLE_SCALE_MAX     4U
+
 enum kernel_boot_mode {
     KERNEL_BOOT_MODE_NORMAL,
     KERNEL_BOOT_MODE_TEST,
@@ -26,6 +31,7 @@ enum kernel_log_level {
 struct kernel_boot_config {
     enum kernel_boot_mode mode;
     enum kernel_log_level log_level;
+    uint64_t console_scale;
 };
 
 /**

@@ -702,7 +702,8 @@ static _Noreturn void kernel_main_continue(void)
 
     display_init(
         &kernel_display,
-        &kernel_boot_info.framebuffer
+        &kernel_boot_info.framebuffer,
+        kernel_boot_config.console_scale
     );
 
     struct cpu_info cpu;

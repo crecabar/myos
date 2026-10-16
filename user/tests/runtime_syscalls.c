@@ -29,7 +29,7 @@ static int runtime_test_uname(void)
     }
 
     static const char expected_sysname[] = "MyOS";
-    static const char expected_release[] = "0.2.0";
+    static const char expected_release[] = "0.3.0";
     static const char expected_machine[] = "x86_64";
 
     const char *actual[] = {

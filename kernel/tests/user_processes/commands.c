@@ -359,8 +359,8 @@ command_test_cases[] = {
             sizeof(command_test_uname_release_arguments[0]),
         .arguments = command_test_uname_release_arguments,
         .capture_stdout = true,
-        .expected_stdout = "0.2.0\n",
-        .expected_stdout_length = sizeof("0.2.0\n") - 1U,
+        .expected_stdout = "0.3.0\n",
+        .expected_stdout_length = sizeof("0.3.0\n") - 1U,
     },
     {
         .name = "uname-machine",
@@ -385,9 +385,9 @@ command_test_cases[] = {
             sizeof(command_test_uname_all_arguments[0]),
         .arguments = command_test_uname_all_arguments,
         .capture_stdout = true,
-        .expected_stdout = "MyOS 0.2.0 x86_64\n",
+        .expected_stdout = "MyOS 0.3.0 x86_64\n",
         .expected_stdout_length =
-            sizeof("MyOS 0.2.0 x86_64\n") - 1U,
+            sizeof("MyOS 0.3.0 x86_64\n") - 1U,
     },
     {
         .name = "uname-invalid-option",

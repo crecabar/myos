@@ -27,12 +27,12 @@ The public syscall ABI remains independent of the kernel release number.
 Initially supported values:
 
 - `sysname`: `MyOS`
-- `release`: `0.2.0`
+- `release`: `0.3.0`
 - `machine`: `x86_64`
 
 The values above describe the current implementation; they are not permanent ABI constants.
 
-## Proposed native interface
+## Native interface
 
 The initial native interface uses SYSCALL_UNAME (number 17) and struct syscall_utsname, with five fixed-capacity, NUL-terminated fields of 65 bytes each. Fields not yet available are returned as empty strings. A successful query returns zero; invalid userspace destinations return the established negative syscall errors. The syscall is implemented in a subsequent slice.
 

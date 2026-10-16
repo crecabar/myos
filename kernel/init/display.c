@@ -12,7 +12,8 @@
 
 void display_init(
     struct kernel_display *display,
-    struct framebuffer *framebuffer)
+    struct framebuffer *framebuffer,
+    uint64_t scale)
 {
     if (display == NULL) {
         kernel_panic(
@@ -40,7 +41,7 @@ void display_init(
         8,
         4,
         white,
-        1
+        scale
     );
 
     diagnostics_attach_console(

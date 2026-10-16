@@ -17,6 +17,8 @@
 
 #define BOOT_CONFIG_BOOT_KEY     "myos.boot"
 #define BOOT_CONFIG_LOGLEVEL_KEY "myos.loglevel"
+#define BOOT_CONFIG_CONSOLE_SCALE_KEY \
+    "myos.console.scale"
 
 static bool boot_config_is_separator(
     char character
@@ -45,6 +47,11 @@ static void boot_config_parse_log_level(
     size_t value_length,
     struct kernel_boot_config *config
 );
+
+static void boot_config_parse_console_scale(
+    const char *value,
+    size_t value_length,
+    struct kernel_boot_config *config);
 
 static bool boot_config_is_separator(
     char character)
@@ -163,6 +170,28 @@ static void boot_config_parse_log_level(
     }
 }
 
+static void boot_config_parse_console_scale(
+    const char *value,
+    size_t value_length,
+    struct kernel_boot_config *config)
+{
+    if (value_length != 1U) {
+        return;
+    }
+
+    unsigned int scale =
+        (unsigned int) (value[0] - '0');
+
+    if (
+        scale < KERNEL_CONSOLE_SCALE_DEFAULT ||
+        scale > KERNEL_CONSOLE_SCALE_MAX
+    ) {
+        return;
+    }
+
+    config->console_scale = (uint64_t) scale;
+}
+
 static void boot_config_parse_token(
     const char *token,
     size_t token_length,
@@ -224,6 +253,24 @@ static void boot_config_parse_token(
             value_length,
             config
         );
+
+        return;
+    }
+
+    if (
+        boot_config_token_equals(
+            token,
+            separator_index,
+            BOOT_CONFIG_CONSOLE_SCALE_KEY
+        )
+    ) {
+        boot_config_parse_console_scale(
+            value,
+            value_length,
+            config
+        );
+
+        return;
     }
 }
 
@@ -242,6 +289,9 @@ void boot_config_parse(
 
     config->log_level =
         KERNEL_LOG_LEVEL_NORMAL;
+
+    config->console_scale =
+        KERNEL_CONSOLE_SCALE_DEFAULT;
 
     if (command_line == NULL) {
         return;
