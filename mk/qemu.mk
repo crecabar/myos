@@ -22,7 +22,6 @@ run: $(ISO_IMAGE)
 		-vga none \
 		-device VGA,edid=on,$(QEMU_DISPLAY_RESOLUTION) \
 		-display $(QEMU_DISPLAY) \
-		-no-reboot \
 		-no-shutdown \
 		-serial stdio
 
@@ -78,7 +77,6 @@ run-usb: $(USB_IMAGE)
 		-vga none \
 		-device VGA,edid=on,$(QEMU_DISPLAY_RESOLUTION) \
 		-display $(QEMU_DISPLAY) \
-		-no-reboot \
 		-no-shutdown \
 		-serial stdio
 
