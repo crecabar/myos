@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "reclaim_preflight.h"
+#include <myos/kernel/boot/reclaim_preflight.h>
 
 #include <myos/kernel/arch/x86_64/arch.h>
 #include <myos/kernel/arch/x86_64/paging.h>
@@ -11,6 +11,7 @@
 #include <myos/kernel/memory/direct_mapping.h>
 #include <myos/kernel/memory/kernel_mapping.h>
 #include <myos/kernel/memory/memory.h>
+#include "boot.h"
 
 #include <stdint.h>
 

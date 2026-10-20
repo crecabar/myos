@@ -3,7 +3,9 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "active_paging_audit.h"
+#include <myos/kernel/boot/active_paging_audit.h>
+
+#include "boot.h"
 
 #include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/memory/memory.h>

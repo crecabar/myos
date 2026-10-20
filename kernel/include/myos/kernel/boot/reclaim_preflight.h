@@ -8,13 +8,15 @@
  * @brief Read-only checks before general bootloader-memory reclamation.
  */
 
-#ifndef MYOS_BOOT_RECLAIM_PREFLIGHT_H
-#define MYOS_BOOT_RECLAIM_PREFLIGHT_H
+#ifndef MYOS_KERNEL_BOOT_RECLAIM_PREFLIGHT_H
+#define MYOS_KERNEL_BOOT_RECLAIM_PREFLIGHT_H
+
+#include <myos/kernel/memory/memory.h>
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "boot.h"
+struct boot_info;
 
 /**
  * Snapshot of the allocator state at the bootloader-memory preflight.

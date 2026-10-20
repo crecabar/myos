@@ -15,12 +15,12 @@
 #include <myos/kernel/arch/x86_64/rtc.h>
 #include <myos/kernel/arch/x86_64/serial.h>
 #include <myos/kernel/arch/x86_64/stack.h>
-#include "boot/active_paging_audit.h"
+#include <myos/kernel/boot/active_paging_audit.h>
 #include "boot/boot.h"
 #include <myos/kernel/boot/initramfs.h>
-#include "boot/memory_reclaim.h"
-#include "boot/physical_range_audit.h"
-#include "boot/reclaim_preflight.h"
+#include <myos/kernel/boot/memory_reclaim.h>
+#include <myos/kernel/boot/physical_range_audit.h>
+#include <myos/kernel/boot/reclaim_preflight.h>
 #include "config/boot_config.h"
 #include "console/console_device.h"
 #include <myos/kernel/core/panic.h>

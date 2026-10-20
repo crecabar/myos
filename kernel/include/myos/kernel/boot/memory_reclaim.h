@@ -8,13 +8,13 @@
  * @brief Transfer of remaining bootloader-reclaimable frames to MyOS.
  */
 
-#ifndef MYOS_BOOT_MEMORY_RECLAIM_H
-#define MYOS_BOOT_MEMORY_RECLAIM_H
+#ifndef MYOS_KERNEL_BOOT_MEMORY_RECLAIM_H
+#define MYOS_KERNEL_BOOT_MEMORY_RECLAIM_H
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "boot.h"
+struct boot_info;
 
 /**
  * Accounting result of one completed general reclamation.

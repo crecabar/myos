@@ -3,10 +3,12 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "physical_range_audit.h"
+#include <myos/kernel/boot/physical_range_audit.h>
 
 #include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/boot/reclaim_preflight.h>
 #include <myos/kernel/memory/memory.h>
+#include "boot.h"
 
 #include <stddef.h>
 #include <stdint.h>

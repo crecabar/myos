@@ -8,14 +8,14 @@
  * @brief Read-only audit of physical ranges before boot-memory reclamation.
  */
 
-#ifndef MYOS_BOOT_PHYSICAL_RANGE_AUDIT_H
-#define MYOS_BOOT_PHYSICAL_RANGE_AUDIT_H
+#ifndef MYOS_KERNEL_BOOT_PHYSICAL_RANGE_AUDIT_H
+#define MYOS_KERNEL_BOOT_PHYSICAL_RANGE_AUDIT_H
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "boot.h"
-#include "reclaim_preflight.h"
+struct boot_info;
+struct boot_reclaim_preflight_report;
 
 /**
  * Results of the physical-range checks implemented by this audit.

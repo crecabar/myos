@@ -8,13 +8,13 @@
  * @brief Read-only audit of active kernel page-table frames.
  */
 
-#ifndef MYOS_BOOT_ACTIVE_PAGING_AUDIT_H
-#define MYOS_BOOT_ACTIVE_PAGING_AUDIT_H
+#ifndef MYOS_KERNEL_BOOT_ACTIVE_PAGING_AUDIT_H
+#define MYOS_KERNEL_BOOT_ACTIVE_PAGING_AUDIT_H
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "boot.h"
+struct boot_info;
 
 /**
  * Counts paging-structure references reachable from the active CR3.
