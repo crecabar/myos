@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_CORE_DEFERRED_WORK_H
-#define MYOS_CORE_DEFERRED_WORK_H
+#ifndef MYOS_KERNEL_CORE_DEFERRED_WORK_H
+#define MYOS_KERNEL_CORE_DEFERRED_WORK_H
 
 #include <stdbool.h>
 #include <stddef.h>

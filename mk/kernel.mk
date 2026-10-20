@@ -8,6 +8,8 @@ LIMINE_PROTOCOL_DIR          := vendor/limine-protocol
 LIMINE_HEADER                := $(LIMINE_PROTOCOL_DIR)/limine.h
 LIMINE_PROTOCOL_FETCH_SCRIPT := scripts/fetch-limine-protocol.sh
 
+KERNEL_INCLUDE_DIR := kernel/include
+
 CFLAGS := \
 	--target=$(TARGET) \
 	-ffreestanding \
@@ -20,6 +22,7 @@ CFLAGS := \
 	-g \
 	-I$(LIMINE_PROTOCOL_DIR) \
 	-I$(MYOS_INCLUDE_DIR) \
+	-I$(KERNEL_INCLUDE_DIR) \
 	-DMYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS) \
 	-DMYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS) \
 	-DMYOS_QEMU_TEST_EXIT=$(MYOS_QEMU_TEST_EXIT) \

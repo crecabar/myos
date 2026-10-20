@@ -36,7 +36,7 @@
 #include "console_input_consumer.h"
 #include "line_buffer.h"
 
-#include "../core/deferred_work/deferred_work.h"
+#include <myos/kernel/core/deferred_work/deferred_work.h>
 #include "../core/device/character_device.h"
 #include "../core/device/device.h"
 #include "../core/device/registry.h"
