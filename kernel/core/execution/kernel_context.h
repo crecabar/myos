@@ -6,7 +6,7 @@
 #ifndef MYOS_CORE_EXECUTION_KERNEL_CONTEXT_H
 #define MYOS_CORE_EXECUTION_KERNEL_CONTEXT_H
 
-#include "../../arch/x86_64/kernel_switch.h"
+#include <myos/kernel/arch/x86_64/kernel_switch.h>
 
 #include <stdbool.h>
 #include <stddef.h>

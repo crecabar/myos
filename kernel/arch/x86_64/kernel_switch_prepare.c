@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "kernel_switch.h"
+#include <myos/kernel/arch/x86_64/kernel_switch.h>
 
 #include <stddef.h>
 #include <stdint.h>
