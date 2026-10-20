@@ -17,7 +17,7 @@
 #include "pid.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../memory/heap.h"
+#include <myos/kernel/memory/heap.h>
 #include "../scheduler/scheduler.h"
 
 #include <stddef.h>

@@ -11,8 +11,8 @@
  * through the kernel direct map.
  */
 
-#ifndef MYOS_MEMORY_HEAP_H
-#define MYOS_MEMORY_HEAP_H
+#ifndef MYOS_KERNEL_MEMORY_HEAP_H
+#define MYOS_KERNEL_MEMORY_HEAP_H
 
 #include <stdbool.h>
 #include <stddef.h>

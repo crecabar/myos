@@ -36,7 +36,7 @@
 #include <myos/kernel/memory/boot_paging.h>
 #include <myos/kernel/memory/device_mapping.h>
 #include <myos/kernel/memory/direct_mapping.h>
-#include "memory/heap.h"
+#include <myos/kernel/memory/heap.h>
 #include <myos/kernel/memory/kernel_mapping.h>
 #include <myos/kernel/memory/memory.h>
 #include "process/pid.h"

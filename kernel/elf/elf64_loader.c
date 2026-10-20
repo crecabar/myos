@@ -10,7 +10,7 @@
 
 #include "elf64_loader.h"
 
-#include "../memory/heap.h"
+#include <myos/kernel/memory/heap.h>
 #include "../process/memory.h"
 
 #include <stddef.h>

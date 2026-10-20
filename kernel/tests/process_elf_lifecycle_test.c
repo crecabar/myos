@@ -16,7 +16,7 @@
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64.h"
 #include <myos/kernel/memory/memory.h>
-#include "../memory/heap.h"
+#include <myos/kernel/memory/heap.h>
 #include "../process/create.h"
 #include "../process/cwd.h"
 #include "../process/exec.h"

@@ -74,7 +74,7 @@ kernel/input/keyboard_text.h,kernel/include/myos/kernel/input/keyboard_text.h,ke
 kernel/memory/boot_paging.h,kernel/include/myos/kernel/memory/boot_paging.h,kernel-shared,3,verified
 kernel/memory/device_mapping.h,kernel/include/myos/kernel/memory/device_mapping.h,kernel-shared,3,verified
 kernel/memory/direct_mapping.h,kernel/include/myos/kernel/memory/direct_mapping.h,kernel-shared,5,verified
-kernel/memory/heap.h,kernel/include/myos/kernel/memory/heap.h,kernel-shared,18,proposed
+kernel/memory/heap.h,kernel/include/myos/kernel/memory/heap.h,kernel-shared,18,verified
 kernel/memory/kernel_mapping.h,kernel/include/myos/kernel/memory/kernel_mapping.h,kernel-shared,3,verified
 kernel/memory/memory.h,kernel/include/myos/kernel/memory/memory.h,kernel-shared,37,verified
 kernel/process/create.h,kernel/include/myos/kernel/process/create.h,kernel-shared,19,proposed

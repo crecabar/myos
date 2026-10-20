@@ -8,7 +8,7 @@
  * @brief Minimal page-backed dynamic kernel heap allocator.
  */
 
-#include "heap.h"
+#include <myos/kernel/memory/heap.h>
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/memory.h>
