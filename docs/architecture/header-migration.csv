@@ -1,5 +1,5 @@
 source,destination,classification,external_consumers,review_status
-kernel/arch/x86_64/arch.h,kernel/include/myos/kernel/arch/x86_64/arch.h,kernel-shared,2,proposed
+kernel/arch/x86_64/arch.h,kernel/include/myos/kernel/arch/x86_64/arch.h,kernel-shared,2,verified
 kernel/arch/x86_64/cpu.h,kernel/include/myos/kernel/arch/x86_64/cpu.h,kernel-shared,2,verified
 kernel/arch/x86_64/cpu_identity.h,kernel/include/myos/kernel/arch/x86_64/cpu_identity.h,kernel-shared,6,verified
 kernel/arch/x86_64/gdt.h,kernel/include/myos/kernel/arch/x86_64/gdt.h,kernel-shared,3,proposed

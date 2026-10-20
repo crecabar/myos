@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "arch.h"
+#include <myos/kernel/arch/x86_64/arch.h>
 #include "gdt.h"
 #include "idt.h"
 #include <myos/kernel/arch/x86_64/interrupt_topology.h>
