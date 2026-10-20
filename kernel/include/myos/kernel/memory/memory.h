@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_MEMORY_MEMORY_H
-#define MYOS_MEMORY_MEMORY_H
+#ifndef MYOS_KERNEL_MEMORY_MEMORY_H
+#define MYOS_KERNEL_MEMORY_MEMORY_H
 
 #include <stddef.h>
 #include <stdint.h>

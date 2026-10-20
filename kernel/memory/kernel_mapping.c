@@ -5,7 +5,7 @@
 
 #include "kernel_mapping.h"
 
-#include "memory.h"
+#include <myos/kernel/memory/memory.h>
 #include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/core/panic.h>
 

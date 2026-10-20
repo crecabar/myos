@@ -17,7 +17,7 @@
 #include "../firmware/acpi.h"
 #include "../firmware/acpi_discovery.h"
 #include "../memory/direct_mapping.h"
-#include "../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -6,7 +6,7 @@
 #include <myos/kernel/arch/x86_64/interrupt_topology.h>
 
 #include "../../firmware/acpi.h"
-#include "../../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

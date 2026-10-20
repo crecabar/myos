@@ -7,7 +7,7 @@
 
 #include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/core/panic.h>
-#include "../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 #include "active_paging_audit.h"
 #include "physical_range_audit.h"
 #include "reclaim_preflight.h"

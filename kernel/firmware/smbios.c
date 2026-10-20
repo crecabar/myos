@@ -11,7 +11,7 @@
 #include "smbios.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -9,7 +9,7 @@
 #include "../boot/initramfs.h"
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
-#include "../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 
 #include <stdbool.h>
 #include <stddef.h>

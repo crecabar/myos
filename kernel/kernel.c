@@ -38,7 +38,7 @@
 #include "memory/direct_mapping.h"
 #include "memory/heap.h"
 #include "memory/kernel_mapping.h"
-#include "memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 #include "process/pid.h"
 #include "scheduler/scheduler.h"
 #include "vfs/mount.h"

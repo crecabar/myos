@@ -13,7 +13,7 @@
 #include <myos/kernel/core/panic.h>
 #include "../../diagnostics/diagnostics.h"
 #include "../../memory/heap.h"
-#include "../../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 #include "../../process/create.h"
 #include "../../process/executable.h"
 #include "../../process/instance.h"

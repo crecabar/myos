@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #include "../drivers/framebuffer.h"
-#include "../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 
 #define BOOT_MEMORY_REGION_MAX 128
 

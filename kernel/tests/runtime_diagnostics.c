@@ -18,7 +18,7 @@
 #include "../memory/boot_paging.h"
 #include "../memory/direct_mapping.h"
 #include "../memory/kernel_mapping.h"
-#include "../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 #include "../process/layout.h"
 #include "../process/memory.h"
 #include "../process/stack.h"

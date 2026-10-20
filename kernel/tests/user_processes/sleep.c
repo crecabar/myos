@@ -14,7 +14,7 @@
 #include "../../arch/x86_64/tests/user_programs.h"
 #include <myos/kernel/core/panic.h>
 #include "../../diagnostics/diagnostics.h"
-#include "../../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 #include "../../process/process.h"
 
 #include <stdbool.h>

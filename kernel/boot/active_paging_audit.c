@@ -6,7 +6,7 @@
 #include "active_paging_audit.h"
 
 #include <myos/kernel/arch/x86_64/paging.h>
-#include "../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

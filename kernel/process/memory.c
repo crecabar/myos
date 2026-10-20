@@ -4,7 +4,7 @@
  */
 
 #include "memory.h"
-#include "../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

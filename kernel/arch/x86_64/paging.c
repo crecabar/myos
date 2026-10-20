@@ -8,7 +8,7 @@
 #include <stdbool.h>
 
 #include <myos/kernel/arch/x86_64/paging.h>
-#include "../../memory/memory.h"
+#include <myos/kernel/memory/memory.h>
 
 #define PAGING_TABLE_ENTRY_COUNT 512
 #define PAGING_PML4_KERNEL_START 256
