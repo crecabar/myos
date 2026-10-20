@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_ARCH_X86_64_PS2_MOUSE_PACKET_H
-#define MYOS_ARCH_X86_64_PS2_MOUSE_PACKET_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_PS2_MOUSE_PACKET_H
+#define MYOS_KERNEL_ARCH_X86_64_PS2_MOUSE_PACKET_H
 
 #include <myos/kernel/input/input.h>
 

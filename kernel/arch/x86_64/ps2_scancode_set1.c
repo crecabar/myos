@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "ps2_scancode_set1.h"
+#include <myos/kernel/arch/x86_64/ps2_scancode_set1.h>
 
 #include <stddef.h>
 

@@ -138,8 +138,8 @@ kernel/tests/process_lifecycle_test.h,kernel/tests/include/myos/kernel/tests/pro
 kernel/tests/process_memory_test.h,kernel/tests/include/myos/kernel/tests/process_memory_test.h,test-entry,1,proposed
 kernel/tests/process_namespace_test.h,kernel/tests/include/myos/kernel/tests/process_namespace_test.h,test-entry,1,proposed
 kernel/tests/process_path_test.h,kernel/tests/include/myos/kernel/tests/process_path_test.h,test-entry,1,proposed
-kernel/tests/ps2_mouse_packet_test.h,kernel/tests/include/myos/kernel/tests/ps2_mouse_packet_test.h,test-entry,1,proposed
-kernel/tests/ps2_scancode_set1_test.h,kernel/tests/include/myos/kernel/tests/ps2_scancode_set1_test.h,test-entry,1,proposed
+kernel/tests/ps2_mouse_packet_test.h,kernel/tests/include/myos/kernel/tests/ps2_mouse_packet_test.h,test-entry,1,verified
+kernel/tests/ps2_scancode_set1_test.h,kernel/tests/include/myos/kernel/tests/ps2_scancode_set1_test.h,test-entry,1,verified
 kernel/tests/pseudo_device_test.h,kernel/tests/include/myos/kernel/tests/pseudo_device_test.h,test-entry,1,proposed
 kernel/tests/runtime_diagnostics.h,kernel/tests/runtime_diagnostics.h,test-review,1,proposed
 kernel/tests/runtime_memory_test.h,kernel/tests/include/myos/kernel/tests/runtime_memory_test.h,test-entry,1,proposed
