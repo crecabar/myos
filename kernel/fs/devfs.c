@@ -11,7 +11,7 @@
 #include "devfs.h"
 
 #include <myos/kernel/core/device/character_device.h>
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../memory/heap.h"
 #include "../vfs/character_device.h"
 

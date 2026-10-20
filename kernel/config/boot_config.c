@@ -10,7 +10,7 @@
 
 #include "boot_config.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 
 #include <stdbool.h>
 #include <stddef.h>

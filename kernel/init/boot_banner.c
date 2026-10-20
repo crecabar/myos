@@ -10,7 +10,7 @@
 
 #include "boot_banner.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../memory/memory.h"
 #include "../version.h"

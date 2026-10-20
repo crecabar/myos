@@ -17,7 +17,7 @@
 #include "../arch/x86_64/timer.h"
 #include <myos/kernel/core/cpu/cpu_local.h>
 #include <myos/kernel/core/execution/kernel_supervisor.h>
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"

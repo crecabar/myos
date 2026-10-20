@@ -13,7 +13,7 @@
 #include <myos/kernel/core/device/character_device.h>
 #include <myos/kernel/core/device/registry.h>
 #include <myos/kernel/core/device/device.h>
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/pseudo.h"
 #include "../vfs/character_device.h"

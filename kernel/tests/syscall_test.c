@@ -5,7 +5,7 @@
 
 #include "syscall_test.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../process/exec.h"
 #include "../syscall/syscall.h"

@@ -13,7 +13,7 @@
 #include "fd_table.h"
 #include "path.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../scheduler/scheduler.h"
 
 #include <stddef.h>

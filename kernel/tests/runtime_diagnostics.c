@@ -12,7 +12,7 @@
 #include "../boot/boot.h"
 #include "../boot/memory_reclaim.h"
 #include "../boot/reclaim_preflight.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
 #include "../memory/boot_paging.h"

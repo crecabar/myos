@@ -10,7 +10,7 @@
 
 #include "vfs_directory_test.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../vfs/vfs.h"
 

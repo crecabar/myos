@@ -11,7 +11,7 @@
 #include "process_file_test.h"
 
 #include "../arch/x86_64/interrupts.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../process/fd_table.h"
 #include "../process/file.h"

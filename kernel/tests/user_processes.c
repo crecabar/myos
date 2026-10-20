@@ -30,7 +30,7 @@
 #include "user_processes/vfs_elf.h"
 #include "user_processes/waitpid.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"
 

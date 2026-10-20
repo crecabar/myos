@@ -10,7 +10,7 @@
 
 #include "initramfs_boot_test.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../runtime/memory.h"
 #include "../vfs/mount.h"

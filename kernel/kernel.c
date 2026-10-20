@@ -23,7 +23,7 @@
 #include "boot/reclaim_preflight.h"
 #include "config/boot_config.h"
 #include "console/console_device.h"
-#include "core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include <myos/kernel/core/device/registry.h>
 #include "diagnostics/diagnostics.h"
 #include "drivers/pseudo.h"

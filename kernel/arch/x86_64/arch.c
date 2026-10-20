@@ -21,7 +21,7 @@
 #include "../../firmware/acpi_discovery.h"
 
 #include "../../diagnostics/diagnostics.h"
-#include "../../core/panic.h"
+#include <myos/kernel/core/panic.h>
 
 #define X86_CR0_TASK_SWITCHED (1ULL << 3)
 

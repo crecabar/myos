@@ -12,7 +12,7 @@
 
 #include "create.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../scheduler/scheduler.h"
 
 #include <stddef.h>

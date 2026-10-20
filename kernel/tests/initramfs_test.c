@@ -10,7 +10,7 @@
 
 #include "initramfs_test.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../fs/initramfs.h"
 #include "../memory/heap.h"

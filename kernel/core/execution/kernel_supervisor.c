@@ -10,7 +10,7 @@
 #include "../../arch/x86_64/paging.h"
 #include <myos/kernel/arch/x86_64/kernel_switch.h>
 #include <myos/kernel/core/cpu/cpu_local.h>
-#include "../panic.h"
+#include <myos/kernel/core/panic.h>
 
 #include <stddef.h>
 #include <stdint.h>

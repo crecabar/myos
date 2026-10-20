@@ -11,7 +11,7 @@
 #include "fixture.h"
 
 #include "../../arch/x86_64/tests/user_programs.h"
-#include "../../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../../scheduler/scheduler.h"
 
 // Public functions implementations

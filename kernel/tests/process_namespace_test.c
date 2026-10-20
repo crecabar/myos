@@ -10,7 +10,7 @@
 
 #include "process_namespace_test.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../process/namespace.h"
 #include "../vfs/mount.h"

@@ -5,7 +5,7 @@
 
 #include "console_input_worker.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../input/input.h"
 
 #include <stddef.h>

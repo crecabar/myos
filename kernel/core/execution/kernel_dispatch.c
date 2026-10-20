@@ -6,7 +6,7 @@
 #include <myos/kernel/core/execution/kernel_dispatch.h>
 
 #include <myos/kernel/core/cpu/cpu_local.h>
-#include "../panic.h"
+#include <myos/kernel/core/panic.h>
 #include <myos/kernel/core/execution/kernel_context.h>
 
 #include <stdatomic.h>

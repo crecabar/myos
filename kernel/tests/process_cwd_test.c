@@ -10,7 +10,7 @@
 
 #include "process_cwd_test.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../process/cwd.h"
 #include "../process/instance.h"

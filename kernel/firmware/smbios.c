@@ -10,7 +10,7 @@
 
 #include "smbios.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../memory/memory.h"
 
 #include <stddef.h>

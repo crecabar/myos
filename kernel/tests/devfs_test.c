@@ -11,7 +11,7 @@
 #include "devfs_test.h"
 
 #include <myos/kernel/core/device/registry.h>
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/pseudo.h"
 #include "../fs/devfs.h"

@@ -11,7 +11,7 @@
 #include <myos/kernel/core/cpu/cpu_local.h>
 #include <myos/kernel/core/execution/kernel_dispatch.h>
 #include <myos/kernel/core/execution/kernel_context.h>
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 
 #include <stdbool.h>

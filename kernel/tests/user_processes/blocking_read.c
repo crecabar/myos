@@ -10,7 +10,7 @@
 
 #include "blocking_read.h"
 
-#include "../../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include <myos/kernel/core/wait_queue.h>
 #include "../../diagnostics/diagnostics.h"
 #include "../../memory/memory.h"

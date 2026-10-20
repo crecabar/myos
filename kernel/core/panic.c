@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 
 #if MYOS_QEMU_TEST_EXIT

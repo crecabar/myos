@@ -7,7 +7,7 @@
  #include "wait_queue_test.h"
 
  #include <myos/kernel/core/wait_queue.h>
- #include "../core/panic.h"
+ #include <myos/kernel/core/panic.h>
  #include "../diagnostics/diagnostics.h"
 
  #include <stdbool.h>

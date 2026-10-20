@@ -6,7 +6,7 @@
 #include "deferred_work_test.h"
 
 #include <myos/kernel/core/deferred_work/deferred_work.h>
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 
 #include <stdbool.h>

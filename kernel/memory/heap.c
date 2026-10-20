@@ -10,7 +10,7 @@
 
 #include "heap.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "memory.h"
 
 #include <stdbool.h>

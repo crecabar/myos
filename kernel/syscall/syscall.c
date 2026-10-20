@@ -7,7 +7,7 @@
 
 #include "../version.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64_loader.h"
 #include "../memory/heap.h"

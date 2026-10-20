@@ -15,7 +15,7 @@
 #include "../console/console.h"
 #include "../console/console_device.h"
 #include "../console/console_input_worker.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include <myos/kernel/core/wait_queue.h>
 #include <myos/kernel/core/cpu/cpu_local.h>
 #include <myos/kernel/core/device/character_device.h>

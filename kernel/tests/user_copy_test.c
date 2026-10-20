@@ -6,7 +6,7 @@
 #include "user_copy_test.h"
 
 #include "../arch/x86_64/paging.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../memory/memory.h"
 #include "../process/memory.h"

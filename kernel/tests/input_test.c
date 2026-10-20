@@ -5,7 +5,7 @@
 
 #include "input_test.h"
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../input/input.h"
 #include "../input/keyboard_text.h"

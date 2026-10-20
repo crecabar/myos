@@ -12,7 +12,7 @@
 
 #include "../interrupts.h"
 #include "../timer.h"
-#include "../../../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../../../diagnostics/diagnostics.h"
 
 #include <stdint.h>

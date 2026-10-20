@@ -6,7 +6,7 @@
 #include "ps2_scancode_set1_test.h"
 
 #include "../arch/x86_64/ps2_scancode_set1.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 
 static void expect_key(

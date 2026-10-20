@@ -7,7 +7,7 @@
 
 #include "memory.h"
 #include "../arch/x86_64/paging.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../drivers/framebuffer.h"
 
 #include <stddef.h>

@@ -6,7 +6,7 @@
 #include "console_render_test.h"
 
 #include "../console/console.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
 

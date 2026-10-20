@@ -8,7 +8,7 @@
 #include "timer.h"
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"
-#include "../../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../../diagnostics/diagnostics.h"
 #include "../../process/exec.h"
 #include "../../process/file.h"

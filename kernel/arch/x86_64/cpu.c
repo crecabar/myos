@@ -10,7 +10,7 @@
 
 #include "cpu.h"
 
-#include "../../core/panic.h"
+#include <myos/kernel/core/panic.h>
 
 #include <stddef.h>
 #include <stdint.h>

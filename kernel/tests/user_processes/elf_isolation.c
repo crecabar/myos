@@ -11,7 +11,7 @@
 #include "elf_isolation.h"
 
 #include "../../arch/x86_64/paging.h"
-#include "../../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../../diagnostics/diagnostics.h"
 #include "../../elf/elf64.h"
 #include "../../memory/heap.h"

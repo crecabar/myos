@@ -12,7 +12,7 @@
 
 #include "../console/console_input_consumer.h"
 #include "../console/line_buffer.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../input/input.h"
 

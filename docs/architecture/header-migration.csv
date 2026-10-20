@@ -51,7 +51,7 @@ kernel/core/device/registry.h,kernel/include/myos/kernel/core/device/registry.h,
 kernel/core/execution/kernel_context.h,kernel/include/myos/kernel/core/execution/kernel_context.h,kernel-shared,6,verified
 kernel/core/execution/kernel_dispatch.h,kernel/include/myos/kernel/core/execution/kernel_dispatch.h,kernel-shared,3,verified
 kernel/core/execution/kernel_supervisor.h,kernel/include/myos/kernel/core/execution/kernel_supervisor.h,kernel-shared,4,verified
-kernel/core/panic.h,kernel/include/myos/kernel/core/panic.h,kernel-shared,118,proposed
+kernel/core/panic.h,kernel/include/myos/kernel/core/panic.h,kernel-shared,118,verified
 kernel/core/wait_queue.h,kernel/include/myos/kernel/core/wait_queue.h,kernel-shared,5,verified
 kernel/diagnostics/diagnostics.h,kernel/include/myos/kernel/diagnostics/diagnostics.h,kernel-shared,89,proposed
 kernel/drivers/framebuffer.h,kernel/include/myos/kernel/drivers/framebuffer.h,kernel-shared,9,proposed

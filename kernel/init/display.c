@@ -4,7 +4,7 @@
  */
 
 #include "display.h"
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
 
