@@ -8,8 +8,8 @@
  * @brief Explicit kernel-image virtual-memory mappings.
  */
 
-#ifndef MYOS_MEMORY_KERNEL_MAPPING_H
-#define MYOS_MEMORY_KERNEL_MAPPING_H
+#ifndef MYOS_KERNEL_MEMORY_KERNEL_MAPPING_H
+#define MYOS_KERNEL_MEMORY_KERNEL_MAPPING_H
 
 #include <myos/kernel/arch/x86_64/paging.h>
 

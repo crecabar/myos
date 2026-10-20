@@ -16,7 +16,7 @@
 #include "../diagnostics/diagnostics.h"
 #include "../firmware/acpi.h"
 #include "../firmware/acpi_discovery.h"
-#include "../memory/direct_mapping.h"
+#include <myos/kernel/memory/direct_mapping.h>
 #include <myos/kernel/memory/memory.h>
 
 #include <stddef.h>

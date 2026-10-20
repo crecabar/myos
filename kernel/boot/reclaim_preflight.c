@@ -7,9 +7,9 @@
 
 #include <myos/kernel/arch/x86_64/arch.h>
 #include <myos/kernel/arch/x86_64/paging.h>
-#include "../memory/boot_paging.h"
-#include "../memory/direct_mapping.h"
-#include "../memory/kernel_mapping.h"
+#include <myos/kernel/memory/boot_paging.h>
+#include <myos/kernel/memory/direct_mapping.h>
+#include <myos/kernel/memory/kernel_mapping.h>
 #include <myos/kernel/memory/memory.h>
 
 #include <stdint.h>

@@ -71,11 +71,11 @@ kernel/init/display.h,kernel/include/myos/kernel/init/display.h,kernel-shared,1,
 kernel/init/userspace.h,kernel/include/myos/kernel/init/userspace.h,kernel-shared,1,proposed
 kernel/input/input.h,kernel/include/myos/kernel/input/input.h,kernel-shared,13,verified
 kernel/input/keyboard_text.h,kernel/include/myos/kernel/input/keyboard_text.h,kernel-shared,2,verified
-kernel/memory/boot_paging.h,kernel/include/myos/kernel/memory/boot_paging.h,kernel-shared,3,proposed
+kernel/memory/boot_paging.h,kernel/include/myos/kernel/memory/boot_paging.h,kernel-shared,3,verified
 kernel/memory/device_mapping.h,kernel/include/myos/kernel/memory/device_mapping.h,kernel-shared,3,proposed
-kernel/memory/direct_mapping.h,kernel/include/myos/kernel/memory/direct_mapping.h,kernel-shared,5,proposed
+kernel/memory/direct_mapping.h,kernel/include/myos/kernel/memory/direct_mapping.h,kernel-shared,5,verified
 kernel/memory/heap.h,kernel/include/myos/kernel/memory/heap.h,kernel-shared,18,proposed
-kernel/memory/kernel_mapping.h,kernel/include/myos/kernel/memory/kernel_mapping.h,kernel-shared,3,proposed
+kernel/memory/kernel_mapping.h,kernel/include/myos/kernel/memory/kernel_mapping.h,kernel-shared,3,verified
 kernel/memory/memory.h,kernel/include/myos/kernel/memory/memory.h,kernel-shared,37,verified
 kernel/process/create.h,kernel/include/myos/kernel/process/create.h,kernel-shared,19,proposed
 kernel/process/cwd.h,kernel/include/myos/kernel/process/cwd.h,kernel-shared,3,proposed

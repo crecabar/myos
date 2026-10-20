@@ -10,7 +10,7 @@
 
 #include "acpi_discovery.h"
 
-#include "../memory/direct_mapping.h"
+#include <myos/kernel/memory/direct_mapping.h>
 #include <myos/kernel/memory/memory.h>
 
 #include <stdbool.h>

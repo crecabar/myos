@@ -8,8 +8,8 @@
  * @brief Inspection of inherited boot-time paging structures.
  */
 
-#ifndef MYOS_MEMORY_BOOT_PAGING_H
-#define MYOS_MEMORY_BOOT_PAGING_H
+#ifndef MYOS_KERNEL_MEMORY_BOOT_PAGING_H
+#define MYOS_KERNEL_MEMORY_BOOT_PAGING_H
 
 #include <stdbool.h>
 #include <stdint.h>
