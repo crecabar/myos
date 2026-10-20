@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_CORE_EXECUTION_KERNEL_CONTEXT_H
-#define MYOS_CORE_EXECUTION_KERNEL_CONTEXT_H
+#ifndef MYOS_KERNEL_CORE_EXECUTION_KERNEL_CONTEXT_H
+#define MYOS_KERNEL_CORE_EXECUTION_KERNEL_CONTEXT_H
 
 #include <myos/kernel/arch/x86_64/kernel_switch.h>
 

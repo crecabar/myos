@@ -32,7 +32,7 @@
 
 #include "../process/process.h"
 #include "../arch/x86_64/interrupts.h"
-#include "../core/execution/kernel_context.h"
+#include <myos/kernel/core/execution/kernel_context.h>
 
 #include <stddef.h>
 #include <stdbool.h>

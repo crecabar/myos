@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "kernel_context.h"
+#include <myos/kernel/core/execution/kernel_context.h>
 
 #include "../panic.h"
 

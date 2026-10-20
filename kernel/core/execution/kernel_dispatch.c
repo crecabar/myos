@@ -7,7 +7,7 @@
 
 #include <myos/kernel/core/cpu/cpu_local.h>
 #include "../panic.h"
-#include "kernel_context.h"
+#include <myos/kernel/core/execution/kernel_context.h>
 
 #include <stdatomic.h>
 #include <stddef.h>

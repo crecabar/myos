@@ -8,7 +8,7 @@
 
 #include "console_device.h"
 
-#include "../core/execution/kernel_context.h"
+#include <myos/kernel/core/execution/kernel_context.h>
 
 #include <stdbool.h>
 #include <stddef.h>
