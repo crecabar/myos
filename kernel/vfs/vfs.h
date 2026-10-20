@@ -28,7 +28,7 @@
 #ifndef MYOS_VFS_VFS_H
 #define MYOS_VFS_VFS_H
 
-#include "../core/wait_queue.h"
+#include <myos/kernel/core/wait_queue.h>
 
 #include <stdbool.h>
 #include <stddef.h>

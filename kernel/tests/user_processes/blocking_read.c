@@ -11,7 +11,7 @@
 #include "blocking_read.h"
 
 #include "../../core/panic.h"
-#include "../../core/wait_queue.h"
+#include <myos/kernel/core/wait_queue.h>
 #include "../../diagnostics/diagnostics.h"
 #include "../../memory/memory.h"
 #include "../../process/create.h"

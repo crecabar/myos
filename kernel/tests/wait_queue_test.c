@@ -6,7 +6,7 @@
 
  #include "wait_queue_test.h"
 
- #include "../core/wait_queue.h"
+ #include <myos/kernel/core/wait_queue.h>
  #include "../core/panic.h"
  #include "../diagnostics/diagnostics.h"
 

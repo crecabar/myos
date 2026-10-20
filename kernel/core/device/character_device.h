@@ -28,7 +28,7 @@
 
 #include "device.h"
 
-#include "../wait_queue.h"
+#include <myos/kernel/core/wait_queue.h>
 
 #include <stdbool.h>
 #include <stddef.h>

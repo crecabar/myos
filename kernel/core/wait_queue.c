@@ -4,7 +4,7 @@
   * Copyright (C) 2026 Cristian Recabarren
   */
 
- #include "wait_queue.h"
+ #include <myos/kernel/core/wait_queue.h>
 
  #include <stddef.h>
 
