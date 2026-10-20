@@ -8,8 +8,8 @@
  * @brief QEMU kernel-test exit signaling.
  */
 
-#ifndef MYOS_ARCH_X86_64_QEMU_TEST_EXIT_H
-#define MYOS_ARCH_X86_64_QEMU_TEST_EXIT_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_QEMU_TEST_EXIT_H
+#define MYOS_KERNEL_ARCH_X86_64_QEMU_TEST_EXIT_H
 
 #if MYOS_QEMU_TEST_EXIT
 

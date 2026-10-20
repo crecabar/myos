@@ -7,7 +7,7 @@
 #include "../diagnostics/diagnostics.h"
 
 #if MYOS_QEMU_TEST_EXIT
-#include "../arch/x86_64/qemu_test_exit.h"
+#include <myos/kernel/arch/x86_64/qemu_test_exit.h>
 #endif
 
 #include <stddef.h>
