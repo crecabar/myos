@@ -7,8 +7,8 @@
  *
  */
 
-#ifndef MYOS_ARCH_X86_64_INTERRUPTS_H
-#define MYOS_ARCH_X86_64_INTERRUPTS_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_INTERRUPTS_H
+#define MYOS_KERNEL_ARCH_X86_64_INTERRUPTS_H
 
 #include <stddef.h>
 #include <stdint.h>

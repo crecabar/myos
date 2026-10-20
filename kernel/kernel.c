@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "arch/x86_64/interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 #include "console/console_input_worker.h"
 #include <myos/kernel/core/execution/kernel_supervisor.h>
 #include <myos/kernel/arch/x86_64/arch.h>

@@ -11,7 +11,7 @@
 #ifndef MYOS_ARCH_X86_64_TIMER_H
 #define MYOS_ARCH_X86_64_TIMER_H
 
-#include "interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 
 #include <stdbool.h>
 #include <stdint.h>

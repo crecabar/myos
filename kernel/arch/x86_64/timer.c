@@ -4,7 +4,7 @@
  */
 
 #include "timer.h"
-#include "interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 #include <myos/kernel/arch/x86_64/lapic.h>
 #include "../../scheduler/scheduler.h"
 

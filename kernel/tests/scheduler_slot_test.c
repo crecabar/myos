@@ -12,7 +12,7 @@
 
 #include <myos/kernel/arch/x86_64/cpu_identity.h>
 #include <myos/kernel/arch/x86_64/gdt.h>
-#include "../arch/x86_64/interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 #include <myos/kernel/arch/x86_64/kernel_switch.h>
 #include "../arch/x86_64/timer.h"
 #include <myos/kernel/core/cpu/cpu_local.h>

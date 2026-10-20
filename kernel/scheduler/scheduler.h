@@ -31,7 +31,7 @@
 #define MYOS_SCHEDULER_SCHEDULER_H
 
 #include "../process/process.h"
-#include "../arch/x86_64/interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 #include <myos/kernel/core/execution/kernel_context.h>
 
 #include <stddef.h>

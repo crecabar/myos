@@ -11,7 +11,7 @@
 #include "console_device_test.h"
 
 #include <myos/kernel/arch/x86_64/cpu_identity.h>
-#include "../arch/x86_64/interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 #include "../console/console.h"
 #include "../console/console_device.h"
 #include "../console/console_input_worker.h"

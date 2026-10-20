@@ -10,7 +10,7 @@
 
 #include "interrupt_wait_test.h"
 
-#include "../interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 #include "../timer.h"
 #include <myos/kernel/core/panic.h>
 #include "../../../diagnostics/diagnostics.h"

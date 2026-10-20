@@ -11,7 +11,7 @@
 #ifndef MYOS_ARCH_X86_64_USERMODE_H
 #define MYOS_ARCH_X86_64_USERMODE_H
 
-#include "interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 
 #include <stdint.h>
 

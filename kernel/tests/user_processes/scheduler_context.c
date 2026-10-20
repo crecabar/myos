@@ -10,7 +10,7 @@
 
 #include "scheduler_context.h"
 
-#include "../../arch/x86_64/interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 #include "../../arch/x86_64/paging.h"
 #include <myos/kernel/core/execution/kernel_context.h>
 #include <myos/kernel/core/execution/kernel_supervisor.h>

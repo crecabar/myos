@@ -4,7 +4,7 @@
  */
 
 #include "idt.h"
-#include "interrupts.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
 #include "timer.h"
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"
