@@ -10,8 +10,8 @@
 
 #include "block_device_test.h"
 
-#include "../core/device/block_device.h"
-#include "../core/device/device.h"
+#include <myos/kernel/core/device/block_device.h>
+#include <myos/kernel/core/device/device.h>
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 

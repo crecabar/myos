@@ -10,8 +10,8 @@
 
 #include "character_device_test.h"
 
-#include "../core/device/character_device.h"
-#include "../core/device/device.h"
+#include <myos/kernel/core/device/character_device.h>
+#include <myos/kernel/core/device/device.h>
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 

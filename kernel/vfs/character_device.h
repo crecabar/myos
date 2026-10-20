@@ -20,7 +20,7 @@
 
 #include "vfs.h"
 
-#include "../core/device/character_device.h"
+#include <myos/kernel/core/device/character_device.h>
 
 #include <stdbool.h>
 

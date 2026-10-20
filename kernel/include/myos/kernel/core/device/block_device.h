@@ -19,10 +19,10 @@
  * publication, and controller-specific behavior remain outside this layer.
  */
 
-#ifndef MYOS_CORE_DEVICE_BLOCK_DEVICE_H
-#define MYOS_CORE_DEVICE_BLOCK_DEVICE_H
+#ifndef MYOS_KERNEL_CORE_DEVICE_BLOCK_DEVICE_H
+#define MYOS_KERNEL_CORE_DEVICE_BLOCK_DEVICE_H
 
-#include "device.h"
+#include <myos/kernel/core/device/device.h>
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -23,11 +23,10 @@
  * outside this bootstrap slice.
  */
 
-#ifndef MYOS_CORE_DEVICE_CHARACTER_DEVICE_H
-#define MYOS_CORE_DEVICE_CHARACTER_DEVICE_H
+#ifndef MYOS_KERNEL_CORE_DEVICE_CHARACTER_DEVICE_H
+#define MYOS_KERNEL_CORE_DEVICE_CHARACTER_DEVICE_H
 
-#include "device.h"
-
+#include <myos/kernel/core/device/device.h>
 #include <myos/kernel/core/wait_queue.h>
 
 #include <stdbool.h>

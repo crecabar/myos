@@ -8,7 +8,7 @@
  * @brief Generic character-device capability implementation.
  */
 
-#include "character_device.h"
+#include <myos/kernel/core/device/character_device.h>
 
 #include <stdbool.h>
 #include <stddef.h>

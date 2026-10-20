@@ -8,7 +8,7 @@
  * @brief Generic kernel bus membership and driver-binding implementation.
  */
 
-#include "bus.h"
+#include <myos/kernel/core/device/bus.h>
 
 #include <stdbool.h>
 #include <stddef.h>

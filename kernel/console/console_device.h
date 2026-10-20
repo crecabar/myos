@@ -37,9 +37,9 @@
 #include "line_buffer.h"
 
 #include <myos/kernel/core/deferred_work/deferred_work.h>
-#include "../core/device/character_device.h"
-#include "../core/device/device.h"
-#include "../core/device/registry.h"
+#include <myos/kernel/core/device/character_device.h>
+#include <myos/kernel/core/device/device.h>
+#include <myos/kernel/core/device/registry.h>
 
 #include <stdint.h>
 

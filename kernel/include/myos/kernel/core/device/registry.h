@@ -21,10 +21,10 @@
  * allowing index compaction or insertion to cause silent skips or duplicates.
  */
 
-#ifndef MYOS_CORE_DEVICE_REGISTRY_H
-#define MYOS_CORE_DEVICE_REGISTRY_H
+#ifndef MYOS_KERNEL_CORE_DEVICE_REGISTRY_H
+#define MYOS_KERNEL_CORE_DEVICE_REGISTRY_H
 
-#include "device.h"
+#include <myos/kernel/core/device/device.h>
 
 #include <stdbool.h>
 #include <stddef.h>

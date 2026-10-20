@@ -8,7 +8,7 @@
  * @brief Generic kernel device publication registry implementation.
  */
 
-#include "registry.h"
+#include <myos/kernel/core/device/registry.h>
 
 #include <stdbool.h>
 #include <stddef.h>

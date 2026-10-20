@@ -18,9 +18,9 @@
 #include "../core/panic.h"
 #include <myos/kernel/core/wait_queue.h>
 #include <myos/kernel/core/cpu/cpu_local.h>
-#include "../core/device/character_device.h"
-#include "../core/device/device.h"
-#include "../core/device/registry.h"
+#include <myos/kernel/core/device/character_device.h>
+#include <myos/kernel/core/device/device.h>
+#include <myos/kernel/core/device/registry.h>
 #include <myos/kernel/core/execution/kernel_dispatch.h>
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"

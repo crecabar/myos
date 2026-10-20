@@ -20,10 +20,10 @@
  * remove() must release all driver-owned state associated with the device.
  */
 
-#ifndef MYOS_CORE_DEVICE_DRIVER_H
-#define MYOS_CORE_DEVICE_DRIVER_H
+#ifndef MYOS_KERNEL_CORE_DEVICE_DRIVER_H
+#define MYOS_KERNEL_CORE_DEVICE_DRIVER_H
 
-#include "device.h"
+#include <myos/kernel/core/device/device.h>
 
 #include <stdbool.h>
 #include <stddef.h>

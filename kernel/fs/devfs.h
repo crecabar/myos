@@ -35,7 +35,7 @@
 #ifndef MYOS_FS_DEVFS_H
 #define MYOS_FS_DEVFS_H
 
-#include "../core/device/registry.h"
+#include <myos/kernel/core/device/registry.h>
 #include "../vfs/vfs.h"
 
 #include <stdbool.h>

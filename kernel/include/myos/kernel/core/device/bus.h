@@ -23,12 +23,12 @@
  * - an already-bound device is never probed by another driver.
  */
 
-#ifndef MYOS_CORE_DEVICE_BUS_H
-#define MYOS_CORE_DEVICE_BUS_H
+#ifndef MYOS_KERNEL_CORE_DEVICE_BUS_H
+#define MYOS_KERNEL_CORE_DEVICE_BUS_H
 
-#include "device.h"
-#include "driver.h"
-#include "registry.h"
+#include <myos/kernel/core/device/device.h>
+#include <myos/kernel/core/device/driver.h>
+#include <myos/kernel/core/device/registry.h>
 
 #include <stdbool.h>
 #include <stddef.h>

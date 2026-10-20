@@ -24,7 +24,7 @@
 #include "config/boot_config.h"
 #include "console/console_device.h"
 #include "core/panic.h"
-#include "core/device/registry.h"
+#include <myos/kernel/core/device/registry.h>
 #include "diagnostics/diagnostics.h"
 #include "drivers/pseudo.h"
 #include "fs/devfs.h"

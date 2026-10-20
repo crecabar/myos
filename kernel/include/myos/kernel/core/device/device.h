@@ -30,8 +30,8 @@
  *   does not require those child objects to have been physically destroyed.
  */
 
-#ifndef MYOS_CORE_DEVICE_DEVICE_H
-#define MYOS_CORE_DEVICE_DEVICE_H
+#ifndef MYOS_KERNEL_CORE_DEVICE_DEVICE_H
+#define MYOS_KERNEL_CORE_DEVICE_DEVICE_H
 
 #include <stdbool.h>
 #include <stddef.h>

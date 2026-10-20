@@ -10,8 +10,8 @@
 
 #include "device_registry_test.h"
 
-#include "../core/device/device.h"
-#include "../core/device/registry.h"
+#include <myos/kernel/core/device/device.h>
+#include <myos/kernel/core/device/registry.h>
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 
