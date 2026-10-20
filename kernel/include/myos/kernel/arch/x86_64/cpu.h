@@ -8,8 +8,8 @@
  * @brief x86-64 CPU identification.
  */
 
-#ifndef MYOS_ARCH_X86_64_CPU_H
-#define MYOS_ARCH_X86_64_CPU_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_CPU_H
+#define MYOS_KERNEL_ARCH_X86_64_CPU_H
 
 #include <stdbool.h>
 

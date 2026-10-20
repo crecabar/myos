@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_ARCH_X86_64_CPU_IDENTITY_H
-#define MYOS_ARCH_X86_64_CPU_IDENTITY_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_CPU_IDENTITY_H
+#define MYOS_KERNEL_ARCH_X86_64_CPU_IDENTITY_H
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -11,7 +11,7 @@
 #ifndef MYOS_INIT_BOOT_BANNER_H
 #define MYOS_INIT_BOOT_BANNER_H
 
-#include "../arch/x86_64/cpu.h"
+#include <myos/kernel/arch/x86_64/cpu.h>
 #include "../firmware/smbios.h"
 
 enum boot_mode {

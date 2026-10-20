@@ -10,7 +10,7 @@
 
 #include "scheduler_slot_test.h"
 
-#include "../arch/x86_64/cpu_identity.h"
+#include <myos/kernel/arch/x86_64/cpu_identity.h>
 #include "../arch/x86_64/gdt.h"
 #include "../arch/x86_64/interrupts.h"
 #include <myos/kernel/arch/x86_64/kernel_switch.h>

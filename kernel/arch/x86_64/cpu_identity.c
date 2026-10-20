@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "cpu_identity.h"
+#include <myos/kernel/arch/x86_64/cpu_identity.h>
 
 #include <myos/kernel/arch/x86_64/lapic.h>
 
