@@ -17,8 +17,8 @@ kernel/arch/x86_64/paging.h,kernel/include/myos/kernel/arch/x86_64/paging.h,kern
 kernel/arch/x86_64/pic.h,kernel/arch/x86_64/pic.h,kernel-private,0,proposed
 kernel/arch/x86_64/ps2_keyboard.h,kernel/arch/x86_64/ps2_keyboard.h,kernel-private,0,proposed
 kernel/arch/x86_64/ps2_mouse.h,kernel/arch/x86_64/ps2_mouse.h,kernel-private,0,proposed
-kernel/arch/x86_64/ps2_mouse_packet.h,kernel/include/myos/kernel/arch/x86_64/ps2_mouse_packet.h,kernel-shared,1,proposed
-kernel/arch/x86_64/ps2_scancode_set1.h,kernel/include/myos/kernel/arch/x86_64/ps2_scancode_set1.h,kernel-shared,1,proposed
+kernel/arch/x86_64/ps2_mouse_packet.h,kernel/include/myos/kernel/arch/x86_64/ps2_mouse_packet.h,kernel-shared,1,verified
+kernel/arch/x86_64/ps2_scancode_set1.h,kernel/include/myos/kernel/arch/x86_64/ps2_scancode_set1.h,kernel-shared,1,verified
 kernel/arch/x86_64/qemu_test_exit.h,kernel/include/myos/kernel/arch/x86_64/qemu_test_exit.h,kernel-shared,2,proposed
 kernel/arch/x86_64/rtc.h,kernel/include/myos/kernel/arch/x86_64/rtc.h,kernel-shared,1,proposed
 kernel/arch/x86_64/serial.h,kernel/include/myos/kernel/arch/x86_64/serial.h,kernel-shared,2,proposed
@@ -138,8 +138,8 @@ kernel/tests/process_lifecycle_test.h,kernel/tests/include/myos/kernel/tests/pro
 kernel/tests/process_memory_test.h,kernel/tests/include/myos/kernel/tests/process_memory_test.h,test-entry,1,proposed
 kernel/tests/process_namespace_test.h,kernel/tests/include/myos/kernel/tests/process_namespace_test.h,test-entry,1,proposed
 kernel/tests/process_path_test.h,kernel/tests/include/myos/kernel/tests/process_path_test.h,test-entry,1,proposed
-kernel/tests/ps2_mouse_packet_test.h,kernel/tests/include/myos/kernel/tests/ps2_mouse_packet_test.h,test-entry,1,verified
-kernel/tests/ps2_scancode_set1_test.h,kernel/tests/include/myos/kernel/tests/ps2_scancode_set1_test.h,test-entry,1,verified
+kernel/tests/ps2_mouse_packet_test.h,kernel/tests/include/myos/kernel/tests/ps2_mouse_packet_test.h,test-entry,1,proposed
+kernel/tests/ps2_scancode_set1_test.h,kernel/tests/include/myos/kernel/tests/ps2_scancode_set1_test.h,test-entry,1,proposed
 kernel/tests/pseudo_device_test.h,kernel/tests/include/myos/kernel/tests/pseudo_device_test.h,test-entry,1,proposed
 kernel/tests/runtime_diagnostics.h,kernel/tests/runtime_diagnostics.h,test-review,1,proposed
 kernel/tests/runtime_memory_test.h,kernel/tests/include/myos/kernel/tests/runtime_memory_test.h,test-entry,1,proposed
