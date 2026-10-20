@@ -7,8 +7,8 @@
 
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
-#include "../input/input.h"
-#include "../input/keyboard_text.h"
+#include <myos/kernel/input/input.h>
+#include <myos/kernel/input/keyboard_text.h>
 
 #include <stddef.h>
 

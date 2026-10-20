@@ -8,7 +8,7 @@
 
 #include "line_buffer.h"
 
-#include "../input/input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -24,7 +24,7 @@
 #include <myos/kernel/core/execution/kernel_dispatch.h>
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
-#include "../input/input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stddef.h>
 #include <stdint.h>

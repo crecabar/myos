@@ -32,7 +32,7 @@
 #include "init/boot_banner.h"
 #include "init/display.h"
 #include "init/userspace.h"
-#include "input/input.h"
+#include <myos/kernel/input/input.h>
 #include "memory/boot_paging.h"
 #include "memory/device_mapping.h"
 #include "memory/direct_mapping.h"

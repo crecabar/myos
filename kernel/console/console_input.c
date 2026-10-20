@@ -5,7 +5,7 @@
 
 #include "console_input.h"
 
-#include "../input/keyboard_text.h"
+#include <myos/kernel/input/keyboard_text.h>
 
 #include <stddef.h>
 

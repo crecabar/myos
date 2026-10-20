@@ -6,7 +6,7 @@
 #ifndef MYOS_ARCH_X86_64_PS2_MOUSE_PACKET_H
 #define MYOS_ARCH_X86_64_PS2_MOUSE_PACKET_H
 
-#include "../../input/input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stdbool.h>
 #include <stdint.h>

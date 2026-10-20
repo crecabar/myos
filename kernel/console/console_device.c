@@ -10,7 +10,7 @@
 
 #include "console_device.h"
 
-#include "../input/input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stddef.h>
 #include <stdint.h>

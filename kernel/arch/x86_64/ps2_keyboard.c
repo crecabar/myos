@@ -9,7 +9,7 @@
 #include "lapic.h"
 #include "ps2_scancode_set1.h"
 
-#include "../../input/input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -3,10 +3,10 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_INPUT_KEYBOARD_TEXT_H
-#define MYOS_INPUT_KEYBOARD_TEXT_H
+#ifndef MYOS_KERNEL_INPUT_KEYBOARD_TEXT_H
+#define MYOS_KERNEL_INPUT_KEYBOARD_TEXT_H
 
-#include "input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stdbool.h>
 

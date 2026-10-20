@@ -8,7 +8,7 @@
 
 #include "line_buffer.h"
 
-#include "../input/input.h"
+#include <myos/kernel/input/input.h>
 
 enum console_input_result {
     CONSOLE_INPUT_ACCEPTED,

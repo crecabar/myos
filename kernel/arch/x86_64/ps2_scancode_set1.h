@@ -6,7 +6,7 @@
 #ifndef MYOS_ARCH_X86_64_PS2_SCANCODE_SET1_H
 #define MYOS_ARCH_X86_64_PS2_SCANCODE_SET1_H
 
-#include "../../input/input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stdbool.h>
 #include <stdint.h>

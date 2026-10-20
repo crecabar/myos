@@ -14,7 +14,7 @@
 #include "../console/line_buffer.h"
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
-#include "../input/input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stdbool.h>
 #include <stddef.h>
