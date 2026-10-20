@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "kernel_dispatch.h"
+#include <myos/kernel/core/execution/kernel_dispatch.h>
 
 #include "../cpu/cpu_local.h"
 #include "../panic.h"

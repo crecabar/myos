@@ -9,7 +9,7 @@
 #include "../arch/x86_64/interrupts.h"
 #include "../arch/x86_64/kernel_switch.h"
 #include "../core/cpu/cpu_local.h"
-#include "../core/execution/kernel_dispatch.h"
+#include <myos/kernel/core/execution/kernel_dispatch.h>
 #include "../core/execution/kernel_context.h"
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"

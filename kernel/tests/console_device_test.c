@@ -21,7 +21,7 @@
 #include "../core/device/character_device.h"
 #include "../core/device/device.h"
 #include "../core/device/registry.h"
-#include "../core/execution/kernel_dispatch.h"
+#include <myos/kernel/core/execution/kernel_dispatch.h>
 #include "../diagnostics/diagnostics.h"
 #include "../drivers/framebuffer.h"
 #include "../input/input.h"
