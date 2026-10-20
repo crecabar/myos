@@ -25,7 +25,7 @@ kernel/arch/x86_64/serial.h,kernel/include/myos/kernel/arch/x86_64/serial.h,kern
 kernel/arch/x86_64/stack.h,kernel/include/myos/kernel/arch/x86_64/stack.h,kernel-shared,1,verified
 kernel/arch/x86_64/tests/interrupt_wait_test.h,kernel/tests/include/myos/kernel/tests/arch/x86_64/interrupt_wait_test.h,test-internal,1,proposed
 kernel/arch/x86_64/tests/user_programs.h,kernel/tests/include/myos/kernel/tests/arch/x86_64/user_programs.h,test-internal,5,proposed
-kernel/arch/x86_64/timer.h,kernel/include/myos/kernel/arch/x86_64/timer.h,kernel-shared,3,proposed
+kernel/arch/x86_64/timer.h,kernel/include/myos/kernel/arch/x86_64/timer.h,kernel-shared,3,verified
 kernel/arch/x86_64/usermode.h,kernel/include/myos/kernel/arch/x86_64/usermode.h,kernel-shared,1,proposed
 kernel/boot/active_paging_audit.h,kernel/include/myos/kernel/boot/active_paging_audit.h,kernel-shared,1,proposed
 kernel/boot/boot.h,kernel/include/myos/kernel/boot/boot.h,kernel-shared,4,proposed

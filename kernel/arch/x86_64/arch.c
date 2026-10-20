@@ -16,7 +16,7 @@
 #include "pic.h"
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"
-#include "timer.h"
+#include <myos/kernel/arch/x86_64/timer.h>
 #include "../../firmware/acpi.h"
 #include "../../firmware/acpi_discovery.h"
 

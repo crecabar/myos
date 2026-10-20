@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "timer.h"
+#include <myos/kernel/arch/x86_64/timer.h>
 #include <myos/kernel/arch/x86_64/interrupts.h>
 #include <myos/kernel/arch/x86_64/lapic.h>
 #include "../../scheduler/scheduler.h"

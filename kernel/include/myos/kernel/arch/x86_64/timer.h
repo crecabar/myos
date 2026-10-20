@@ -8,8 +8,8 @@
  * @brief x86 PIT timer support.
  */
 
-#ifndef MYOS_ARCH_X86_64_TIMER_H
-#define MYOS_ARCH_X86_64_TIMER_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_TIMER_H
+#define MYOS_KERNEL_ARCH_X86_64_TIMER_H
 
 #include <myos/kernel/arch/x86_64/interrupts.h>
 
