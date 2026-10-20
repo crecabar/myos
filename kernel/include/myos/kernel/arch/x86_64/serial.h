@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_ARCH_X86_64_SERIAL_H
-#define MYOS_ARCH_X86_64_SERIAL_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_SERIAL_H
+#define MYOS_KERNEL_ARCH_X86_64_SERIAL_H
 
 void serial_init(void);
 void serial_write_char(char character);

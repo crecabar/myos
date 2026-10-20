@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include "io.h"
-#include "serial.h"
+#include <myos/kernel/arch/x86_64/serial.h>
 
 #define COM1_PORT 0x3F8
 

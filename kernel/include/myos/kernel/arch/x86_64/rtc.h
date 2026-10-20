@@ -11,8 +11,8 @@
  * MyOS initialization.
  */
 
-#ifndef MYOS_ARCH_X86_64_RTC_H
-#define MYOS_ARCH_X86_64_RTC_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_RTC_H
+#define MYOS_KERNEL_ARCH_X86_64_RTC_H
 
 #include <stdbool.h>
 #include <stdint.h>

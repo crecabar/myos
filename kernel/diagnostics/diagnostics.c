@@ -6,7 +6,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 
-#include "../arch/x86_64/serial.h"
+#include <myos/kernel/arch/x86_64/serial.h>
 #include "../console/console.h"
 #include "../format/format.h"
 #include "diagnostics.h"
