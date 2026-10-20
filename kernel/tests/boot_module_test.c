@@ -6,7 +6,7 @@
 #include "boot_module_test.h"
 
 #include <myos/kernel/arch/x86_64/paging.h>
-#include "../boot/initramfs.h"
+#include <myos/kernel/boot/initramfs.h>
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include <myos/kernel/memory/memory.h>

@@ -3,12 +3,13 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_BOOT_INITRAMFS_H
-#define MYOS_BOOT_INITRAMFS_H
-
-#include "boot.h"
+#ifndef MYOS_KERNEL_BOOT_INITRAMFS_H
+#define MYOS_KERNEL_BOOT_INITRAMFS_H
 
 #include <stdbool.h>
+
+struct boot_info;
+struct boot_module;
 
 /**
  * Finds the boot module designated as the initramfs.

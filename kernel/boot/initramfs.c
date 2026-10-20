@@ -3,7 +3,9 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "initramfs.h"
+#include <myos/kernel/boot/initramfs.h>
+
+#include "boot.h"
 
 #include <stdbool.h>
 #include <stddef.h>

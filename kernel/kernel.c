@@ -17,7 +17,7 @@
 #include <myos/kernel/arch/x86_64/stack.h>
 #include "boot/active_paging_audit.h"
 #include "boot/boot.h"
-#include "boot/initramfs.h"
+#include <myos/kernel/boot/initramfs.h>
 #include "boot/memory_reclaim.h"
 #include "boot/physical_range_audit.h"
 #include "boot/reclaim_preflight.h"

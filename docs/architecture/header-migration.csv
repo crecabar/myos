@@ -29,7 +29,7 @@ kernel/arch/x86_64/timer.h,kernel/include/myos/kernel/arch/x86_64/timer.h,kernel
 kernel/arch/x86_64/usermode.h,kernel/include/myos/kernel/arch/x86_64/usermode.h,kernel-shared,1,verified
 kernel/boot/active_paging_audit.h,kernel/include/myos/kernel/boot/active_paging_audit.h,kernel-shared,1,proposed
 kernel/boot/boot.h,kernel/include/myos/kernel/boot/boot.h,kernel-shared,4,proposed
-kernel/boot/initramfs.h,kernel/include/myos/kernel/boot/initramfs.h,kernel-shared,2,proposed
+kernel/boot/initramfs.h,kernel/include/myos/kernel/boot/initramfs.h,kernel-shared,2,verified
 kernel/boot/memory_reclaim.h,kernel/include/myos/kernel/boot/memory_reclaim.h,kernel-shared,2,proposed
 kernel/boot/physical_range_audit.h,kernel/include/myos/kernel/boot/physical_range_audit.h,kernel-shared,1,proposed
 kernel/boot/reclaim_preflight.h,kernel/include/myos/kernel/boot/reclaim_preflight.h,kernel-shared,2,proposed
