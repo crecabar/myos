@@ -64,6 +64,39 @@ run-qemu-tests: $(TEST_ISO_IMAGE)
 	echo "[test] QEMU exited unexpectedly with status $$status"; \
 	exit 1
 
+run-qemu-usb-tests: $(TEST_USB_IMAGE)
+	@set +e; \
+	$(QEMU_SERIAL_RUNNER) $(QEMU) \
+		-machine q35 \
+		-cpu qemu64 \
+		-m $(QEMU_TEST_MEMORY) \
+		-smp 1 \
+		-drive if=pflash,format=raw,readonly=on,file=$(QEMU_FIRMWARE) \
+		-device qemu-xhci,id=xhci \
+			-drive if=none,format=raw,readonly=on,file=$(TEST_USB_IMAGE),id=myos-usb \
+			-device usb-storage,bus=xhci.0,drive=myos-usb,bootindex=1 \
+		-vga none \
+		-device VGA,edid=on,$(QEMU_DISPLAY_RESOLUTION) \
+		-display none \
+		-monitor none \
+		-no-reboot \
+		-serial stdio \
+		-device isa-debug-exit,iobase=$(QEMU_TEST_EXIT_PORT),iosize=0x04; \
+	status=$$?; \
+	success_status=$$(( ($(QEMU_TEST_EXIT_SUCCESS_VALUE) << 1) | 1 )); \
+	failure_status=$$(( ($(QEMU_TEST_EXIT_FAILURE_VALUE) << 1) | 1 )); \
+	echo; \
+	if [ "$$status" -eq "$$success_status" ]; then \
+		echo "[test] QEMU kernel tests passed"; \
+		exit 0; \
+	fi; \
+	if [ "$$status" -eq "$$failure_status" ]; then \
+		echo "[test] QEMU kernel tests failed"; \
+		exit 1; \
+	fi; \
+	echo "[test] QEMU exited unexpectedly with status $$status"; \
+	exit 1
+
 run-usb: $(USB_IMAGE)
 	$(QEMU_SERIAL_RUNNER) $(QEMU) \
 		-machine q35 \

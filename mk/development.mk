@@ -2,7 +2,7 @@
 # Development configurations
 # -----------------------------------------------------------------------------
 
-.PHONY: run-tests test-qemu debug-tests run-diagnostics debug-diagnostics
+.PHONY: run-tests test-qemu test-qemu-usb debug-tests run-diagnostics debug-diagnostics
 
 run-tests:
 	$(MAKE) \
@@ -17,6 +17,13 @@ test-qemu:
 		MYOS_RUNTIME_DIAGNOSTICS=0 \
 		MYOS_QEMU_TEST_EXIT=1 \
 		run-qemu-tests
+
+test-qemu-usb:
+	$(MAKE) \
+		MYOS_KERNEL_TESTS=1 \
+		MYOS_RUNTIME_DIAGNOSTICS=0 \
+		MYOS_QEMU_TEST_EXIT=1 \
+		run-qemu-usb-tests
 
 debug-tests:
 	$(MAKE) \
