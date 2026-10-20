@@ -8,8 +8,8 @@
  * @brief Kernel-owned virtual mappings for framebuffer and MMIO devices.
  */
 
-#ifndef MYOS_MEMORY_DEVICE_MAPPING_H
-#define MYOS_MEMORY_DEVICE_MAPPING_H
+#ifndef MYOS_KERNEL_MEMORY_DEVICE_MAPPING_H
+#define MYOS_KERNEL_MEMORY_DEVICE_MAPPING_H
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -34,7 +34,7 @@
 #include "init/userspace.h"
 #include <myos/kernel/input/input.h>
 #include <myos/kernel/memory/boot_paging.h>
-#include "memory/device_mapping.h"
+#include <myos/kernel/memory/device_mapping.h>
 #include <myos/kernel/memory/direct_mapping.h>
 #include "memory/heap.h"
 #include <myos/kernel/memory/kernel_mapping.h>

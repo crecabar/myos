@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "device_mapping.h"
+#include <myos/kernel/memory/device_mapping.h>
 
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/arch/x86_64/paging.h>

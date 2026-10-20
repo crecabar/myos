@@ -72,7 +72,7 @@ kernel/init/userspace.h,kernel/include/myos/kernel/init/userspace.h,kernel-share
 kernel/input/input.h,kernel/include/myos/kernel/input/input.h,kernel-shared,13,verified
 kernel/input/keyboard_text.h,kernel/include/myos/kernel/input/keyboard_text.h,kernel-shared,2,verified
 kernel/memory/boot_paging.h,kernel/include/myos/kernel/memory/boot_paging.h,kernel-shared,3,verified
-kernel/memory/device_mapping.h,kernel/include/myos/kernel/memory/device_mapping.h,kernel-shared,3,proposed
+kernel/memory/device_mapping.h,kernel/include/myos/kernel/memory/device_mapping.h,kernel-shared,3,verified
 kernel/memory/direct_mapping.h,kernel/include/myos/kernel/memory/direct_mapping.h,kernel-shared,5,verified
 kernel/memory/heap.h,kernel/include/myos/kernel/memory/heap.h,kernel-shared,18,proposed
 kernel/memory/kernel_mapping.h,kernel/include/myos/kernel/memory/kernel_mapping.h,kernel-shared,3,verified
