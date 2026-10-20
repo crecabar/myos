@@ -16,7 +16,7 @@
 #ifndef MYOS_PROCESS_MEMORY_H
 #define MYOS_PROCESS_MEMORY_H
 
-#include "../arch/x86_64/paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#include "paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 #include "../../memory/memory.h"
 
 #define PAGING_TABLE_ENTRY_COUNT 512

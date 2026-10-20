@@ -13,7 +13,7 @@ kernel/arch/x86_64/irq_supervisor.h,kernel/include/myos/kernel/arch/x86_64/irq_s
 kernel/arch/x86_64/kernel_stack.h,kernel/include/myos/kernel/arch/x86_64/kernel_stack.h,kernel-shared,1,verified
 kernel/arch/x86_64/kernel_switch.h,kernel/include/myos/kernel/arch/x86_64/kernel_switch.h,kernel-shared,6,verified
 kernel/arch/x86_64/lapic.h,kernel/include/myos/kernel/arch/x86_64/lapic.h,kernel-shared,2,verified
-kernel/arch/x86_64/paging.h,kernel/include/myos/kernel/arch/x86_64/paging.h,kernel-shared,28,proposed
+kernel/arch/x86_64/paging.h,kernel/include/myos/kernel/arch/x86_64/paging.h,kernel-shared,28,verified
 kernel/arch/x86_64/pic.h,kernel/arch/x86_64/pic.h,kernel-private,0,proposed
 kernel/arch/x86_64/ps2_keyboard.h,kernel/arch/x86_64/ps2_keyboard.h,kernel-private,0,proposed
 kernel/arch/x86_64/ps2_mouse.h,kernel/arch/x86_64/ps2_mouse.h,kernel-private,0,proposed

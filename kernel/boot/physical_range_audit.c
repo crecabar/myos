@@ -5,7 +5,7 @@
 
 #include "physical_range_audit.h"
 
-#include "../arch/x86_64/paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 #include "../memory/memory.h"
 
 #include <stddef.h>

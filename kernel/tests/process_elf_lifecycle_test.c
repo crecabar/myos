@@ -11,7 +11,7 @@
 #include "process_elf_lifecycle_test.h"
 
 #include <myos/kernel/arch/x86_64/interrupts.h>
-#include "../arch/x86_64/paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 #include "../elf/elf64.h"

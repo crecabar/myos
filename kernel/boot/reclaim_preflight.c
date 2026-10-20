@@ -6,7 +6,7 @@
 #include "reclaim_preflight.h"
 
 #include <myos/kernel/arch/x86_64/arch.h>
-#include "../arch/x86_64/paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 #include "../memory/boot_paging.h"
 #include "../memory/direct_mapping.h"
 #include "../memory/kernel_mapping.h"

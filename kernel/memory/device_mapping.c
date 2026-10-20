@@ -6,7 +6,7 @@
 #include "device_mapping.h"
 
 #include "memory.h"
-#include "../arch/x86_64/paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/core/panic.h>
 #include "../drivers/framebuffer.h"
 

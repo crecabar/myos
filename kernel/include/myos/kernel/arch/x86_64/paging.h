@@ -11,8 +11,8 @@
  * tables, manage address spaces, map virtual pages, and control CR3/TLB state.
  */
 
-#ifndef MYOS_ARCH_X86_64_PAGING_H
-#define MYOS_ARCH_X86_64_PAGING_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_PAGING_H
+#define MYOS_KERNEL_ARCH_X86_64_PAGING_H
 
 #include <stdbool.h>
 #include <stdint.h>

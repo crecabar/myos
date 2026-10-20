@@ -5,7 +5,7 @@
 
 #include "scheduler.h"
 
-#include "../arch/x86_64/paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/arch/x86_64/usermode.h>
 #include <myos/kernel/arch/x86_64/gdt.h>
 #include <myos/kernel/arch/x86_64/interrupts.h>

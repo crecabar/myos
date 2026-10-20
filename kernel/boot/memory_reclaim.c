@@ -5,7 +5,7 @@
 
 #include "memory_reclaim.h"
 
-#include "../arch/x86_64/paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/core/panic.h>
 #include "../memory/memory.h"
 #include "active_paging_audit.h"

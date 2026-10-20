@@ -11,7 +11,7 @@
 #include <myos/kernel/core/execution/kernel_supervisor.h>
 #include <myos/kernel/arch/x86_64/arch.h>
 #include <myos/kernel/arch/x86_64/cpu.h>
-#include "arch/x86_64/paging.h"
+#include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/arch/x86_64/rtc.h>
 #include <myos/kernel/arch/x86_64/serial.h>
 #include <myos/kernel/arch/x86_64/stack.h>
