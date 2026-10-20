@@ -6,7 +6,7 @@
 #include "ps2_mouse.h"
 
 #include "i8042.h"
-#include "lapic.h"
+#include <myos/kernel/arch/x86_64/lapic.h>
 #include <myos/kernel/arch/x86_64/ps2_mouse_packet.h>
 
 #include <myos/kernel/input/input.h>

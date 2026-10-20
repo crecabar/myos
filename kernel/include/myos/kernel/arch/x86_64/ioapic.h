@@ -8,8 +8,8 @@
  * @brief x86 I/O APIC interrupt routing interface.
  */
 
-#ifndef MYOS_ARCH_X86_64_IOAPIC_H
-#define MYOS_ARCH_X86_64_IOAPIC_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_IOAPIC_H
+#define MYOS_KERNEL_ARCH_X86_64_IOAPIC_H
 
 #include <stdbool.h>
 #include <stdint.h>

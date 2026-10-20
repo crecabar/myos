@@ -8,8 +8,8 @@
  * @brief x86 Local APIC interface.
  */
 
-#ifndef MYOS_ARCH_X86_64_LAPIC_H
-#define MYOS_ARCH_X86_64_LAPIC_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_LAPIC_H
+#define MYOS_KERNEL_ARCH_X86_64_LAPIC_H
 
 #include <stdbool.h>
 #include <stdint.h>

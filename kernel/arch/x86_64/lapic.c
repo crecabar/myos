@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "lapic.h"
+#include <myos/kernel/arch/x86_64/lapic.h>
 
 #include "../../memory/device_mapping.h"
 

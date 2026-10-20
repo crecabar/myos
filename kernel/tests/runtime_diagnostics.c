@@ -6,8 +6,8 @@
 #include "runtime_diagnostics.h"
 
 #include "../arch/x86_64/gdt.h"
-#include "../arch/x86_64/ioapic.h"
-#include "../arch/x86_64/lapic.h"
+#include <myos/kernel/arch/x86_64/ioapic.h>
+#include <myos/kernel/arch/x86_64/lapic.h>
 #include "../arch/x86_64/paging.h"
 #include "../boot/boot.h"
 #include "../boot/memory_reclaim.h"

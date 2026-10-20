@@ -5,7 +5,7 @@
 
 #include "cpu_identity.h"
 
-#include "lapic.h"
+#include <myos/kernel/arch/x86_64/lapic.h>
 
 #include <stddef.h>
 

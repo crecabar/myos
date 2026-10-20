@@ -5,14 +5,14 @@ kernel/arch/x86_64/cpu_identity.h,kernel/include/myos/kernel/arch/x86_64/cpu_ide
 kernel/arch/x86_64/gdt.h,kernel/include/myos/kernel/arch/x86_64/gdt.h,kernel-shared,3,proposed
 kernel/arch/x86_64/i8042.h,kernel/arch/x86_64/i8042.h,kernel-private,0,proposed
 kernel/arch/x86_64/idt.h,kernel/arch/x86_64/idt.h,kernel-private,0,proposed
-kernel/arch/x86_64/interrupt_topology.h,kernel/include/myos/kernel/arch/x86_64/interrupt_topology.h,kernel-shared,1,proposed
+kernel/arch/x86_64/interrupt_topology.h,kernel/include/myos/kernel/arch/x86_64/interrupt_topology.h,kernel-shared,1,verified
 kernel/arch/x86_64/interrupts.h,kernel/include/myos/kernel/arch/x86_64/interrupts.h,kernel-shared,13,proposed
 kernel/arch/x86_64/io.h,kernel/arch/x86_64/io.h,kernel-private,0,proposed
-kernel/arch/x86_64/ioapic.h,kernel/include/myos/kernel/arch/x86_64/ioapic.h,kernel-shared,1,proposed
+kernel/arch/x86_64/ioapic.h,kernel/include/myos/kernel/arch/x86_64/ioapic.h,kernel-shared,1,verified
 kernel/arch/x86_64/irq_supervisor.h,kernel/include/myos/kernel/arch/x86_64/irq_supervisor.h,kernel-shared,2,proposed
 kernel/arch/x86_64/kernel_stack.h,kernel/include/myos/kernel/arch/x86_64/kernel_stack.h,kernel-shared,1,proposed
 kernel/arch/x86_64/kernel_switch.h,kernel/include/myos/kernel/arch/x86_64/kernel_switch.h,kernel-shared,6,verified
-kernel/arch/x86_64/lapic.h,kernel/include/myos/kernel/arch/x86_64/lapic.h,kernel-shared,2,proposed
+kernel/arch/x86_64/lapic.h,kernel/include/myos/kernel/arch/x86_64/lapic.h,kernel-shared,2,verified
 kernel/arch/x86_64/paging.h,kernel/include/myos/kernel/arch/x86_64/paging.h,kernel-shared,28,proposed
 kernel/arch/x86_64/pic.h,kernel/arch/x86_64/pic.h,kernel-private,0,proposed
 kernel/arch/x86_64/ps2_keyboard.h,kernel/arch/x86_64/ps2_keyboard.h,kernel-private,0,proposed

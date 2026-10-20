@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "ioapic.h"
+#include <myos/kernel/arch/x86_64/ioapic.h>
 
 #include "../../memory/device_mapping.h"
 

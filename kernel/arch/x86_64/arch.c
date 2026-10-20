@@ -9,10 +9,10 @@
 #include "arch.h"
 #include "gdt.h"
 #include "idt.h"
-#include "interrupt_topology.h"
+#include <myos/kernel/arch/x86_64/interrupt_topology.h>
 #include "i8042.h"
-#include "ioapic.h"
-#include "lapic.h"
+#include <myos/kernel/arch/x86_64/ioapic.h>
+#include <myos/kernel/arch/x86_64/lapic.h>
 #include "pic.h"
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"

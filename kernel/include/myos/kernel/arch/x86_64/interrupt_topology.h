@@ -8,8 +8,8 @@
  * @brief x86 interrupt-controller topology discovered from the platform.
  */
 
-#ifndef MYOS_ARCH_X86_64_INTERRUPT_TOPOLOGY_H
-#define MYOS_ARCH_X86_64_INTERRUPT_TOPOLOGY_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_INTERRUPT_TOPOLOGY_H
+#define MYOS_KERNEL_ARCH_X86_64_INTERRUPT_TOPOLOGY_H
 
 #include <stdbool.h>
 #include <stdint.h>

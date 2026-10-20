@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "interrupt_topology.h"
+#include <myos/kernel/arch/x86_64/interrupt_topology.h>
 
 #include "../../firmware/acpi.h"
 #include "../../memory/memory.h"
