@@ -41,7 +41,7 @@ kernel/console/console_input_consumer.h,kernel/include/myos/kernel/console/conso
 kernel/console/console_input_worker.h,kernel/include/myos/kernel/console/console_input_worker.h,kernel-shared,2,proposed
 kernel/console/line_buffer.h,kernel/include/myos/kernel/console/line_buffer.h,kernel-shared,3,proposed
 kernel/core/cpu/cpu_local.h,kernel/include/myos/kernel/core/cpu/cpu_local.h,kernel-shared,6,proposed
-kernel/core/deferred_work/deferred_work.h,kernel/include/myos/kernel/core/deferred_work/deferred_work.h,kernel-shared,2,proposed
+kernel/core/deferred_work/deferred_work.h,kernel/include/myos/kernel/core/deferred_work/deferred_work.h,kernel-shared,2,verified
 kernel/core/device/block_device.h,kernel/include/myos/kernel/core/device/block_device.h,kernel-shared,1,proposed
 kernel/core/device/bus.h,kernel/include/myos/kernel/core/device/bus.h,kernel-shared,1,proposed
 kernel/core/device/character_device.h,kernel/include/myos/kernel/core/device/character_device.h,kernel-shared,8,proposed
@@ -49,8 +49,8 @@ kernel/core/device/device.h,kernel/include/myos/kernel/core/device/device.h,kern
 kernel/core/device/driver.h,kernel/include/myos/kernel/core/device/driver.h,kernel-shared,1,proposed
 kernel/core/device/registry.h,kernel/include/myos/kernel/core/device/registry.h,kernel-shared,10,proposed
 kernel/core/execution/kernel_context.h,kernel/include/myos/kernel/core/execution/kernel_context.h,kernel-shared,6,proposed
-kernel/core/execution/kernel_dispatch.h,kernel/include/myos/kernel/core/execution/kernel_dispatch.h,kernel-shared,3,proposed
-kernel/core/execution/kernel_supervisor.h,kernel/include/myos/kernel/core/execution/kernel_supervisor.h,kernel-shared,4,proposed
+kernel/core/execution/kernel_dispatch.h,kernel/include/myos/kernel/core/execution/kernel_dispatch.h,kernel-shared,3,verified
+kernel/core/execution/kernel_supervisor.h,kernel/include/myos/kernel/core/execution/kernel_supervisor.h,kernel-shared,4,verified
 kernel/core/panic.h,kernel/include/myos/kernel/core/panic.h,kernel-shared,118,proposed
 kernel/core/wait_queue.h,kernel/include/myos/kernel/core/wait_queue.h,kernel-shared,5,proposed
 kernel/diagnostics/diagnostics.h,kernel/include/myos/kernel/diagnostics/diagnostics.h,kernel-shared,89,proposed

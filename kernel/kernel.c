@@ -8,7 +8,7 @@
 
 #include "arch/x86_64/interrupts.h"
 #include "console/console_input_worker.h"
-#include "core/execution/kernel_supervisor.h"
+#include <myos/kernel/core/execution/kernel_supervisor.h>
 #include "arch/x86_64/arch.h"
 #include "arch/x86_64/cpu.h"
 #include "arch/x86_64/paging.h"

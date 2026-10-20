@@ -16,7 +16,7 @@
 #include "../arch/x86_64/kernel_switch.h"
 #include "../arch/x86_64/timer.h"
 #include "../core/cpu/cpu_local.h"
-#include "../core/execution/kernel_supervisor.h"
+#include <myos/kernel/core/execution/kernel_supervisor.h>
 #include "../core/panic.h"
 #include "../diagnostics/diagnostics.h"
 #include "../process/process.h"

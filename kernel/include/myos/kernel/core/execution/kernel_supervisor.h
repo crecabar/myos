@@ -3,14 +3,13 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_CORE_EXECUTION_KERNEL_SUPERVISOR_H
-#define MYOS_CORE_EXECUTION_KERNEL_SUPERVISOR_H
-
-#include "../../arch/x86_64/kernel_switch.h"
+#ifndef MYOS_KERNEL_CORE_EXECUTION_KERNEL_SUPERVISOR_H
+#define MYOS_KERNEL_CORE_EXECUTION_KERNEL_SUPERVISOR_H
 
 #include <stdbool.h>
 
 struct cpu_local;
+struct kernel_switch_context;
 
 typedef bool (*kernel_supervisor_dispatch_fn)(
     struct cpu_local *cpu

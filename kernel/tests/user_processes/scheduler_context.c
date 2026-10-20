@@ -13,7 +13,7 @@
 #include "../../arch/x86_64/interrupts.h"
 #include "../../arch/x86_64/paging.h"
 #include "../../core/execution/kernel_context.h"
-#include "../../core/execution/kernel_supervisor.h"
+#include <myos/kernel/core/execution/kernel_supervisor.h>
 #include "../../core/panic.h"
 #include "../../diagnostics/diagnostics.h"
 #include "../../elf/elf64.h"
