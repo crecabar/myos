@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_ARCH_X86_64_IRQ_SUPERVISOR_H
-#define MYOS_ARCH_X86_64_IRQ_SUPERVISOR_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_IRQ_SUPERVISOR_H
+#define MYOS_KERNEL_ARCH_X86_64_IRQ_SUPERVISOR_H
 
 #include <stdint.h>
 

@@ -6,7 +6,7 @@
 #include "kernel_switch_test.h"
 
 #include "../arch/x86_64/interrupts.h"
-#include "../arch/x86_64/irq_supervisor.h"
+#include <myos/kernel/arch/x86_64/irq_supervisor.h>
 #include <myos/kernel/arch/x86_64/kernel_switch.h>
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"

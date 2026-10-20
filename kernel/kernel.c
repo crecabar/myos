@@ -14,7 +14,7 @@
 #include "arch/x86_64/paging.h"
 #include <myos/kernel/arch/x86_64/rtc.h>
 #include <myos/kernel/arch/x86_64/serial.h>
-#include "arch/x86_64/stack.h"
+#include <myos/kernel/arch/x86_64/stack.h>
 #include "boot/active_paging_audit.h"
 #include "boot/boot.h"
 #include "boot/initramfs.h"

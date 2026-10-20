@@ -6,7 +6,7 @@
 #include "kernel_stack_test.h"
 
 #include "../arch/x86_64/interrupts.h"
-#include "../arch/x86_64/kernel_stack.h"
+#include <myos/kernel/arch/x86_64/kernel_stack.h>
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 

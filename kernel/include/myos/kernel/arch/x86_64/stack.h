@@ -8,8 +8,8 @@
  * @brief x86-64 stack transition helpers.
  */
 
-#ifndef MYOS_ARCH_X86_64_STACK_H
-#define MYOS_ARCH_X86_64_STACK_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_STACK_H
+#define MYOS_KERNEL_ARCH_X86_64_STACK_H
 
 #include <stdint.h>
 

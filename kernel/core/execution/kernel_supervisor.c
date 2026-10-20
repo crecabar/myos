@@ -6,7 +6,7 @@
 #include <myos/kernel/core/execution/kernel_supervisor.h>
 
 #include <myos/kernel/arch/x86_64/cpu_identity.h>
-#include "../../arch/x86_64/irq_supervisor.h"
+#include <myos/kernel/arch/x86_64/irq_supervisor.h>
 #include "../../arch/x86_64/paging.h"
 #include <myos/kernel/arch/x86_64/kernel_switch.h>
 #include <myos/kernel/core/cpu/cpu_local.h>

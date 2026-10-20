@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_ARCH_X86_64_KERNEL_STACK_H
-#define MYOS_ARCH_X86_64_KERNEL_STACK_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_KERNEL_STACK_H
+#define MYOS_KERNEL_ARCH_X86_64_KERNEL_STACK_H
 
 typedef void (*kernel_stack_entry_fn)(void *argument);
 
