@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "gdt.h"
+#include <myos/kernel/arch/x86_64/gdt.h>
 #include "../../diagnostics/diagnostics.h"
 
 #include <stddef.h>

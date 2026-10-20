@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include <myos/kernel/arch/x86_64/arch.h>
-#include "gdt.h"
+#include <myos/kernel/arch/x86_64/gdt.h>
 #include "idt.h"
 #include <myos/kernel/arch/x86_64/interrupt_topology.h>
 #include "i8042.h"

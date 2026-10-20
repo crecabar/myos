@@ -5,7 +5,7 @@
 
 #include "runtime_diagnostics.h"
 
-#include "../arch/x86_64/gdt.h"
+#include <myos/kernel/arch/x86_64/gdt.h>
 #include <myos/kernel/arch/x86_64/ioapic.h>
 #include <myos/kernel/arch/x86_64/lapic.h>
 #include "../arch/x86_64/paging.h"

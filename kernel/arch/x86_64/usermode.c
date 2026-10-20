@@ -5,7 +5,7 @@
 
 #include "usermode.h"
 
-#include "gdt.h"
+#include <myos/kernel/arch/x86_64/gdt.h>
 
 extern _Noreturn void usermode_enter_asm(
     uint64_t instruction_pointer,

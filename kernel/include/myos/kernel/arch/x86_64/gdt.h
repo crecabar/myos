@@ -8,8 +8,8 @@
  * @brief x86-64 global descriptor table and task state initialization.
  */
 
-#ifndef MYOS_ARCH_X86_64_GDT_H
-#define MYOS_ARCH_X86_64_GDT_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_GDT_H
+#define MYOS_KERNEL_ARCH_X86_64_GDT_H
 
 #include <stdbool.h>
 #include <stdint.h>
