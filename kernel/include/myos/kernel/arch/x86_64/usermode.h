@@ -8,8 +8,8 @@
  * @brief x86-64 transition from kernel mode to user mode.
  */
 
-#ifndef MYOS_ARCH_X86_64_USERMODE_H
-#define MYOS_ARCH_X86_64_USERMODE_H
+#ifndef MYOS_KERNEL_ARCH_X86_64_USERMODE_H
+#define MYOS_KERNEL_ARCH_X86_64_USERMODE_H
 
 #include <myos/kernel/arch/x86_64/interrupts.h>
 

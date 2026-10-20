@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "usermode.h"
+#include <myos/kernel/arch/x86_64/usermode.h>
 
 #include <myos/kernel/arch/x86_64/gdt.h>
 
