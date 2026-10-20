@@ -40,7 +40,7 @@ kernel/console/console_input.h,kernel/include/myos/kernel/console/console_input.
 kernel/console/console_input_consumer.h,kernel/include/myos/kernel/console/console_input_consumer.h,kernel-shared,1,proposed
 kernel/console/console_input_worker.h,kernel/include/myos/kernel/console/console_input_worker.h,kernel-shared,2,proposed
 kernel/console/line_buffer.h,kernel/include/myos/kernel/console/line_buffer.h,kernel-shared,3,proposed
-kernel/core/cpu/cpu_local.h,kernel/include/myos/kernel/core/cpu/cpu_local.h,kernel-shared,6,proposed
+kernel/core/cpu/cpu_local.h,kernel/include/myos/kernel/core/cpu/cpu_local.h,kernel-shared,6,verified
 kernel/core/deferred_work/deferred_work.h,kernel/include/myos/kernel/core/deferred_work/deferred_work.h,kernel-shared,2,verified
 kernel/core/device/block_device.h,kernel/include/myos/kernel/core/device/block_device.h,kernel-shared,1,proposed
 kernel/core/device/bus.h,kernel/include/myos/kernel/core/device/bus.h,kernel-shared,1,proposed

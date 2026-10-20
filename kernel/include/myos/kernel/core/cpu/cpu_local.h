@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_CORE_CPU_CPU_LOCAL_H
-#define MYOS_CORE_CPU_CPU_LOCAL_H
+#ifndef MYOS_KERNEL_CORE_CPU_CPU_LOCAL_H
+#define MYOS_KERNEL_CORE_CPU_CPU_LOCAL_H
 
 #include <stdbool.h>
 #include <stdint.h>
