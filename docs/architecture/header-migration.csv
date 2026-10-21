@@ -99,7 +99,7 @@ kernel/process/wait.h,kernel/include/myos/kernel/process/wait.h,kernel-shared,3,
 kernel/runtime/memory.h,kernel/include/myos/kernel/runtime/memory.h,kernel-shared,5,verified
 kernel/scheduler/scheduler.h,kernel/include/myos/kernel/scheduler/scheduler.h,kernel-shared,27,verified
 kernel/syscall/syscall.h,kernel/include/myos/kernel/syscall/syscall.h,kernel-shared,3,proposed
-kernel/syscall/test_numbers.h,kernel/include/myos/kernel/syscall/test_numbers.h,kernel-shared,2,proposed
+kernel/syscall/test_numbers.h,tests/include/myos/test/syscall/test_numbers.h,test-internal,6,verified
 kernel/tests/acpi_test.h,kernel/tests/include/myos/kernel/tests/acpi_test.h,test-entry,1,proposed
 kernel/tests/block_device_test.h,kernel/tests/include/myos/kernel/tests/block_device_test.h,test-entry,1,proposed
 kernel/tests/boot_config_test.h,kernel/tests/include/myos/kernel/tests/boot_config_test.h,test-entry,1,proposed

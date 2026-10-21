@@ -11,8 +11,8 @@
  * of the published MyOS userspace ABI.
  */
 
-#ifndef MYOS_SYSCALL_TEST_NUMBERS_H
-#define MYOS_SYSCALL_TEST_NUMBERS_H
+#ifndef MYOS_TEST_SYSCALL_TEST_NUMBERS_H
+#define MYOS_TEST_SYSCALL_TEST_NUMBERS_H
 
 #define SYSCALL_TEST_SLEEP         0x100
 #define SYSCALL_TEST_BLOCK         0x101

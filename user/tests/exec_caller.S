@@ -8,7 +8,7 @@
  * @file exec_caller.S
  * @brief Ring-3 exec image-replacement regression caller.
  */
- #include "../../kernel/syscall/test_numbers.h"
+#include <myos/test/syscall/test_numbers.h>
 
 .section .text
 .global _start

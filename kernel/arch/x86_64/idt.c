@@ -18,6 +18,7 @@
 #include <myos/kernel/scheduler/scheduler.h>
 #include "../../syscall/syscall.h"
 #if MYOS_KERNEL_TESTS
+#include <myos/test/syscall/test_numbers.h>
 #include "../../tests/user_processes/exec.h"
 #include "../../tests/user_processes/scheduler_context.h"
 #endif

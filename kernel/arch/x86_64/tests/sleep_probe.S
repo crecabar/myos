@@ -8,7 +8,7 @@
  * @brief Raw Ring-3 sleep/resume regression program.
  */
 
-#include "../../../syscall/test_numbers.h"
+#include <myos/test/syscall/test_numbers.h>
 
 .section .rodata
 .balign 16

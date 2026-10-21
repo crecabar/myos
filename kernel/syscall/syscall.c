@@ -5,6 +5,10 @@
 
 #include "syscall.h"
 
+#if MYOS_KERNEL_TESTS
+#include <myos/test/syscall/test_numbers.h>
+#endif
+
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/elf/elf64_loader.h>

@@ -15,10 +15,6 @@
 
 #include <stdint.h>
 
-#if MYOS_KERNEL_TESTS
-#include "test_numbers.h"
-#endif
-
 struct process_exec_candidate;
 
 /**
