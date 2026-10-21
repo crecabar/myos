@@ -96,7 +96,7 @@ kernel/process/process.h,kernel/include/myos/kernel/process/process.h,kernel-sha
 kernel/process/stack.h,kernel/include/myos/kernel/process/stack.h,kernel-shared,1,proposed
 kernel/process/user_copy.h,kernel/include/myos/kernel/process/user_copy.h,kernel-shared,2,proposed
 kernel/process/wait.h,kernel/include/myos/kernel/process/wait.h,kernel-shared,3,proposed
-kernel/runtime/memory.h,kernel/include/myos/kernel/runtime/memory.h,kernel-shared,5,proposed
+kernel/runtime/memory.h,kernel/include/myos/kernel/runtime/memory.h,kernel-shared,5,verified
 kernel/scheduler/scheduler.h,kernel/include/myos/kernel/scheduler/scheduler.h,kernel-shared,27,proposed
 kernel/syscall/syscall.h,kernel/include/myos/kernel/syscall/syscall.h,kernel-shared,3,proposed
 kernel/syscall/test_numbers.h,kernel/include/myos/kernel/syscall/test_numbers.h,kernel-shared,2,proposed

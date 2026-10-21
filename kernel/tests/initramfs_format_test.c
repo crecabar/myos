@@ -13,7 +13,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/fs/initramfs_format.h>
-#include "../runtime/memory.h"
+#include <myos/kernel/runtime/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

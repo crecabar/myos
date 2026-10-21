@@ -14,7 +14,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/fs/initramfs.h>
 #include <myos/kernel/memory/heap.h>
-#include "../runtime/memory.h"
+#include <myos/kernel/runtime/memory.h>
 #include "../vfs/path.h"
 #include "../vfs/vfs.h"
 

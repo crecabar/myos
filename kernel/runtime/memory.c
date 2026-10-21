@@ -8,7 +8,7 @@
  * @brief Freestanding compiler memory primitives.
  */
 
-#include "memory.h"
+#include <myos/kernel/runtime/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

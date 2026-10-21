@@ -8,8 +8,8 @@
  * @brief Freestanding compiler memory primitives.
  */
 
-#ifndef MYOS_RUNTIME_MEMORY_H
-#define MYOS_RUNTIME_MEMORY_H
+#ifndef MYOS_KERNEL_RUNTIME_MEMORY_H
+#define MYOS_KERNEL_RUNTIME_MEMORY_H
 
 #include <stddef.h>
 
