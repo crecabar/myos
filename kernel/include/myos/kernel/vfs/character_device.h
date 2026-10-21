@@ -15,14 +15,14 @@
  * descriptors, or syscalls.
  */
 
-#ifndef MYOS_VFS_CHARACTER_DEVICE_H
-#define MYOS_VFS_CHARACTER_DEVICE_H
+#ifndef MYOS_KERNEL_VFS_CHARACTER_DEVICE_H
+#define MYOS_KERNEL_VFS_CHARACTER_DEVICE_H
 
 #include <myos/kernel/vfs/vfs.h>
 
-#include <myos/kernel/core/device/character_device.h>
-
 #include <stdbool.h>
+
+struct character_device;
 
 /**
  * Caller-owned VFS representation of one character device.

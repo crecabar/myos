@@ -13,7 +13,7 @@
 #include <myos/kernel/core/device/character_device.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/heap.h>
-#include "../vfs/character_device.h"
+#include <myos/kernel/vfs/character_device.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>

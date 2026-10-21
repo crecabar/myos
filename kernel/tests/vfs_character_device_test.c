@@ -16,7 +16,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/drivers/pseudo.h>
-#include "../vfs/character_device.h"
+#include <myos/kernel/vfs/character_device.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
