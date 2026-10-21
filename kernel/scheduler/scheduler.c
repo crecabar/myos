@@ -14,6 +14,7 @@
 #include <myos/kernel/core/execution/kernel_supervisor.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/process/memory.h>
 #include "../process/lifecycle.h"
 
 #include <stddef.h>

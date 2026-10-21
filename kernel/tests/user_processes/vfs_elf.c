@@ -18,7 +18,7 @@
 #include "../../process/executable.h"
 #include "../../process/instance.h"
 #include "../../process/namespace.h"
-#include "../../process/process.h"
+#include <myos/kernel/process/process.h>
 #include "../../scheduler/scheduler.h"
 #include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>

@@ -29,7 +29,7 @@
 #include "../process/namespace.h"
 #include <myos/kernel/process/memory.h>
 #include "../process/pid.h"
-#include "../process/process.h"
+#include <myos/kernel/process/process.h>
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
 #include <myos/kernel/vfs/mount.h>

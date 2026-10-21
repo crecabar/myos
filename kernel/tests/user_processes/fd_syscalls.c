@@ -24,7 +24,7 @@
 #include <myos/kernel/memory/memory.h>
 #include "../../process/create.h"
 #include "../../process/namespace.h"
-#include "../../process/process.h"
+#include <myos/kernel/process/process.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>

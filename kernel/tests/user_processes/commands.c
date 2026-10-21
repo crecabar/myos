@@ -17,7 +17,7 @@
 #include "../../process/fd_table.h"
 #include "../../process/instance.h"
 #include "../../process/path.h"
-#include "../../process/process.h"
+#include <myos/kernel/process/process.h>
 #include "../../scheduler/scheduler.h"
 #include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>

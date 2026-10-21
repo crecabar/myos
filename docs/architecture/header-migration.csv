@@ -92,7 +92,7 @@ kernel/process/memory.h,kernel/include/myos/kernel/process/memory.h,kernel-share
 kernel/process/namespace.h,kernel/include/myos/kernel/process/namespace.h,kernel-shared,8,proposed
 kernel/process/path.h,kernel/include/myos/kernel/process/path.h,kernel-shared,3,proposed
 kernel/process/pid.h,kernel/include/myos/kernel/process/pid.h,kernel-shared,2,proposed
-kernel/process/process.h,kernel/include/myos/kernel/process/process.h,kernel-shared,22,proposed
+kernel/process/process.h,kernel/include/myos/kernel/process/process.h,kernel-shared,22,verified
 kernel/process/stack.h,kernel/include/myos/kernel/process/stack.h,kernel-shared,1,verified
 kernel/process/user_copy.h,kernel/include/myos/kernel/process/user_copy.h,kernel-shared,2,proposed
 kernel/process/wait.h,kernel/include/myos/kernel/process/wait.h,kernel-shared,3,proposed

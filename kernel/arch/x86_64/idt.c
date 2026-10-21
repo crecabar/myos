@@ -13,7 +13,7 @@
 #include "../../process/exec.h"
 #include "../../process/file.h"
 #include "../../process/fork.h"
-#include "../../process/process.h"
+#include <myos/kernel/process/process.h>
 #include "../../process/wait.h"
 #include "../../scheduler/scheduler.h"
 #include "../../syscall/syscall.h"

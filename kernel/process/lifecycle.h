@@ -11,7 +11,7 @@
 #ifndef MYOS_PROCESS_LIFECYCLE_H
 #define MYOS_PROCESS_LIFECYCLE_H
 
-#include "process.h"
+#include <myos/kernel/process/process.h>
 
 /**
  * Notifies the process lifecycle layer that a terminated process has been

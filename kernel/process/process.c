@@ -4,7 +4,9 @@
  */
 
 #include <myos/kernel/process/image.h>
-#include "process.h"
+#include <myos/kernel/process/layout.h>
+#include <myos/kernel/process/memory.h>
+#include <myos/kernel/process/process.h>
 
 #include <stddef.h>
 

@@ -31,7 +31,7 @@
 #include "user_processes/waitpid.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../process/process.h"
+#include <myos/kernel/process/process.h>
 #include "../scheduler/scheduler.h"
 
 #include <stdbool.h>

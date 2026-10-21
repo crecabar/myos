@@ -22,7 +22,7 @@
 
 #include "fd_table.h"
 #include <myos/kernel/process/image.h>
-#include "process.h"
+#include <myos/kernel/process/process.h>
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/vfs/vfs.h>
 

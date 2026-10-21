@@ -23,11 +23,8 @@
  * recycle lifecycle metadata.
  */
 
-#ifndef MYOS_PROCESS_PROCESS_H
-#define MYOS_PROCESS_PROCESS_H
-
-#include <myos/kernel/process/layout.h>
-#include <myos/kernel/process/memory.h>
+#ifndef MYOS_KERNEL_PROCESS_PROCESS_H
+#define MYOS_KERNEL_PROCESS_PROCESS_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -35,6 +32,8 @@
 
 struct process_image;
 struct process_instance;
+struct process_layout;
+struct process_memory;
 
 /**
  * Represents the execution state of a process.
