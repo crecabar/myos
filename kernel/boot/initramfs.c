@@ -5,7 +5,7 @@
 
 #include <myos/kernel/boot/initramfs.h>
 
-#include "boot.h"
+#include <myos/kernel/boot/boot.h>
 
 #include <stdbool.h>
 #include <stddef.h>

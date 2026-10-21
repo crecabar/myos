@@ -5,7 +5,7 @@
 
 #include "boot_info_test.h"
 
-#include "../boot/boot.h"
+#include <myos/kernel/boot/boot.h>
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
 

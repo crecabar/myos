@@ -11,7 +11,7 @@
 #include <myos/kernel/memory/direct_mapping.h>
 #include <myos/kernel/memory/kernel_mapping.h>
 #include <myos/kernel/memory/memory.h>
-#include "boot.h"
+#include <myos/kernel/boot/boot.h>
 
 #include <stdint.h>
 

@@ -11,7 +11,7 @@
 #include <myos/kernel/boot/reclaim_preflight.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/memory.h>
-#include "boot.h"
+#include <myos/kernel/boot/boot.h>
 
 #include <stddef.h>
 #include <stdint.h>

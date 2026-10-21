@@ -9,7 +9,7 @@
 #include <myos/kernel/arch/x86_64/ioapic.h>
 #include <myos/kernel/arch/x86_64/lapic.h>
 #include <myos/kernel/arch/x86_64/paging.h>
-#include "../boot/boot.h"
+#include <myos/kernel/boot/boot.h>
 #include <myos/kernel/boot/memory_reclaim.h>
 #include <myos/kernel/boot/reclaim_preflight.h>
 #include <myos/kernel/core/panic.h>

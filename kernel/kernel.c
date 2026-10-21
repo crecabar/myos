@@ -16,7 +16,7 @@
 #include <myos/kernel/arch/x86_64/serial.h>
 #include <myos/kernel/arch/x86_64/stack.h>
 #include <myos/kernel/boot/active_paging_audit.h>
-#include "boot/boot.h"
+#include <myos/kernel/boot/boot.h>
 #include <myos/kernel/boot/initramfs.h>
 #include <myos/kernel/boot/memory_reclaim.h>
 #include <myos/kernel/boot/physical_range_audit.h>

@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_BOOT_BOOT_H
-#define MYOS_BOOT_BOOT_H
+#ifndef MYOS_KERNEL_BOOT_BOOT_H
+#define MYOS_KERNEL_BOOT_BOOT_H
 
 #include <stdbool.h>
 #include <stddef.h>

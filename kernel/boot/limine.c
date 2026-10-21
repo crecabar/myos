@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "boot.h"
+#include <myos/kernel/boot/boot.h>
 #include <myos/kernel/core/panic.h>
 
 #include <stdbool.h>
