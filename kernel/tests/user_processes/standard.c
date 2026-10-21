@@ -14,7 +14,7 @@
 
 #include "../../arch/x86_64/tests/user_programs.h"
 #include <myos/kernel/core/panic.h>
-#include "../../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../../elf/elf64.h"
 #include "../../process/create.h"
 #include "../../scheduler/scheduler.h"

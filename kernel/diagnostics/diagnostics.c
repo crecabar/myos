@@ -9,7 +9,7 @@
 #include <myos/kernel/arch/x86_64/serial.h>
 #include "../console/console.h"
 #include <myos/kernel/format/format.h>
-#include "diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 static struct console *diagnostics_console = NULL;
 static bool diagnostics_console_mirror_enabled = true;

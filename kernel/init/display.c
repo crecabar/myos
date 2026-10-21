@@ -5,7 +5,7 @@
 
 #include "display.h"
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/drivers/framebuffer.h>
 
 #include <stddef.h>

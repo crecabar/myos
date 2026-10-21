@@ -12,7 +12,7 @@
 #include <myos/kernel/core/execution/kernel_dispatch.h>
 #include <myos/kernel/core/execution/kernel_context.h>
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stdbool.h>
 #include <stddef.h>

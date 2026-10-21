@@ -4,7 +4,7 @@
  */
 
 #include <myos/kernel/arch/x86_64/gdt.h>
-#include "../../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stddef.h>
 #include <stdint.h>

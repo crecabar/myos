@@ -53,7 +53,7 @@ kernel/core/execution/kernel_dispatch.h,kernel/include/myos/kernel/core/executio
 kernel/core/execution/kernel_supervisor.h,kernel/include/myos/kernel/core/execution/kernel_supervisor.h,kernel-shared,4,verified
 kernel/core/panic.h,kernel/include/myos/kernel/core/panic.h,kernel-shared,118,verified
 kernel/core/wait_queue.h,kernel/include/myos/kernel/core/wait_queue.h,kernel-shared,5,verified
-kernel/diagnostics/diagnostics.h,kernel/include/myos/kernel/diagnostics/diagnostics.h,kernel-shared,89,proposed
+kernel/diagnostics/diagnostics.h,kernel/include/myos/kernel/diagnostics/diagnostics.h,kernel-shared,89,verified
 kernel/drivers/framebuffer.h,kernel/include/myos/kernel/drivers/framebuffer.h,kernel-shared,9,verified
 kernel/drivers/pseudo.h,kernel/include/myos/kernel/drivers/pseudo.h,kernel-shared,4,proposed
 kernel/elf/elf64.h,kernel/include/myos/kernel/elf/elf64.h,kernel-shared,19,proposed

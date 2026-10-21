@@ -18,7 +18,7 @@
 #include <myos/kernel/core/cpu/cpu_local.h>
 #include <myos/kernel/core/execution/kernel_supervisor.h>
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../process/process.h"
 #include "../scheduler/scheduler.h"
 

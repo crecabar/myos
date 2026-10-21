@@ -12,7 +12,7 @@
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/core/wait_queue.h>
-#include "../../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/memory.h>
 #include "../../process/create.h"
 #include "../../process/executable.h"

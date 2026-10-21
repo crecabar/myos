@@ -7,7 +7,7 @@
 
 #include <myos/kernel/arch/x86_64/ps2_mouse_packet.h>
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 // PRIVATE HELPERS AND FUNCTIONS DECLARATIONS
 static void expect_no_event(

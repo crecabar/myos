@@ -7,7 +7,7 @@
 
 #include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/memory.h>
 #include "../process/memory.h"
 #include "../process/user_copy.h"

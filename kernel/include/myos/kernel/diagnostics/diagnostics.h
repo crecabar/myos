@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_DIAGNOSTICS_DIAGNOSTICS_H
-#define MYOS_DIAGNOSTICS_DIAGNOSTICS_H
+#ifndef MYOS_KERNEL_DIAGNOSTICS_DIAGNOSTICS_H
+#define MYOS_KERNEL_DIAGNOSTICS_DIAGNOSTICS_H
 
 #include <stdarg.h>
 #include <stdbool.h>

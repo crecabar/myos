@@ -22,7 +22,7 @@
 #include <myos/kernel/core/device/device.h>
 #include <myos/kernel/core/device/registry.h>
 #include <myos/kernel/core/execution/kernel_dispatch.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/drivers/framebuffer.h>
 #include <myos/kernel/input/input.h>
 

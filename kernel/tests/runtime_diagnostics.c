@@ -13,7 +13,7 @@
 #include <myos/kernel/boot/memory_reclaim.h>
 #include <myos/kernel/boot/reclaim_preflight.h>
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/drivers/framebuffer.h>
 #include <myos/kernel/memory/boot_paging.h>
 #include <myos/kernel/memory/direct_mapping.h>

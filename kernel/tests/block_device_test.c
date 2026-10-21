@@ -13,7 +13,7 @@
 #include <myos/kernel/core/device/block_device.h>
 #include <myos/kernel/core/device/device.h>
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stddef.h>
 #include <stdint.h>

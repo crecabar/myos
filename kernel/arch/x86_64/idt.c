@@ -9,7 +9,7 @@
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"
 #include <myos/kernel/core/panic.h>
-#include "../../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../../process/exec.h"
 #include "../../process/file.h"
 #include "../../process/fork.h"

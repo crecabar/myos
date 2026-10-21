@@ -13,7 +13,7 @@
 #include <myos/kernel/arch/x86_64/interrupt_topology.h>
 #include <myos/kernel/arch/x86_64/lapic.h>
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../firmware/acpi.h"
 #include "../firmware/acpi_discovery.h"
 #include <myos/kernel/memory/direct_mapping.h>

@@ -9,7 +9,7 @@
 #include <myos/kernel/arch/x86_64/irq_supervisor.h>
 #include <myos/kernel/arch/x86_64/kernel_switch.h>
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stddef.h>
 #include <stdint.h>

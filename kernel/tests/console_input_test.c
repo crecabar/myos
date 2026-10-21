@@ -13,7 +13,7 @@
 #include "../console/console_input.h"
 #include "../console/line_buffer.h"
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/input/input.h>
 
 #include <stddef.h>

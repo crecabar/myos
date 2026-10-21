@@ -13,7 +13,7 @@
 #include <myos/kernel/arch/x86_64/interrupts.h>
 #include <myos/kernel/arch/x86_64/timer.h>
 #include <myos/kernel/core/panic.h>
-#include "../../../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stdint.h>
 

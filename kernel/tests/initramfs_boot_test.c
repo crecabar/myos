@@ -11,7 +11,7 @@
 #include "initramfs_boot_test.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../runtime/memory.h"
 #include "../vfs/mount.h"
 #include "../vfs/path.h"

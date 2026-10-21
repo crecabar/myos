@@ -11,7 +11,7 @@
 #include "kernel_heap_test.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/heap.h>
 #include <myos/kernel/memory/memory.h>
 

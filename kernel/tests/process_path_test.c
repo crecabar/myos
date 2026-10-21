@@ -11,7 +11,7 @@
 #include "process_path_test.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../process/cwd.h"
 #include "../process/namespace.h"
 #include "../process/path.h"

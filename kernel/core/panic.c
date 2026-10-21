@@ -4,7 +4,7 @@
  */
 
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #if MYOS_QEMU_TEST_EXIT
 #include <myos/kernel/arch/x86_64/qemu_test_exit.h>

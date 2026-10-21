@@ -11,7 +11,7 @@
 #include "vfs_mount_test.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../vfs/mount.h"
 #include "../vfs/vfs.h"
 

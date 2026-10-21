@@ -6,7 +6,7 @@
 #include "process_fd_table_test.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../process/fd_table.h"
 #include "../vfs/vfs.h"
 

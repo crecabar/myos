@@ -11,7 +11,7 @@
 #include "commands.h"
 
 #include <myos/kernel/core/panic.h>
-#include "../../diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "../../process/create.h"
 #include "../../process/executable.h"
 #include "../../process/fd_table.h"

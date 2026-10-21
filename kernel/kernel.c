@@ -25,7 +25,7 @@
 #include "console/console_device.h"
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/core/device/registry.h>
-#include "diagnostics/diagnostics.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
 #include "drivers/pseudo.h"
 #include "fs/devfs.h"
 #include "fs/initramfs.h"
