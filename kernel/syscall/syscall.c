@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "syscall.h"
+#include <myos/kernel/syscall/syscall.h>
 
 #if MYOS_KERNEL_TESTS
 #include <myos/test/syscall/test_numbers.h>

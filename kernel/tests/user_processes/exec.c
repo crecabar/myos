@@ -20,7 +20,7 @@
 #include <myos/kernel/process/create.h>
 #include <myos/kernel/process/exec.h>
 #include <myos/kernel/scheduler/scheduler.h>
-#include "../../syscall/syscall.h"
+#include <myos/kernel/syscall/syscall.h>
 
 #include <stddef.h>
 #include <stdint.h>

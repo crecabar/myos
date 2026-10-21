@@ -8,8 +8,8 @@
  * @brief MyOS kernel system call dispatch interface.
  */
 
-#ifndef MYOS_SYSCALL_SYSCALL_H
-#define MYOS_SYSCALL_SYSCALL_H
+#ifndef MYOS_KERNEL_SYSCALL_SYSCALL_H
+#define MYOS_KERNEL_SYSCALL_SYSCALL_H
 
 #include <myos/abi/syscall.h>
 
