@@ -17,8 +17,8 @@
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"
 #include <myos/kernel/arch/x86_64/timer.h>
-#include "../../firmware/acpi.h"
-#include "../../firmware/acpi_discovery.h"
+#include <myos/kernel/firmware/acpi.h>
+#include <myos/kernel/firmware/acpi_discovery.h>
 
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/core/panic.h>

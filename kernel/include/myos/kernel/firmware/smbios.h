@@ -8,8 +8,8 @@
  * @brief SMBIOS platform identification.
  */
 
-#ifndef MYOS_FIRMWARE_SMBIOS_H
-#define MYOS_FIRMWARE_SMBIOS_H
+#ifndef MYOS_KERNEL_FIRMWARE_SMBIOS_H
+#define MYOS_KERNEL_FIRMWARE_SMBIOS_H
 
 #include <stdbool.h>
 

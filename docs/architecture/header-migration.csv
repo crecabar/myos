@@ -58,9 +58,9 @@ kernel/drivers/framebuffer.h,kernel/include/myos/kernel/drivers/framebuffer.h,ke
 kernel/drivers/pseudo.h,kernel/include/myos/kernel/drivers/pseudo.h,kernel-shared,4,proposed
 kernel/elf/elf64.h,kernel/include/myos/kernel/elf/elf64.h,kernel-shared,19,proposed
 kernel/elf/elf64_loader.h,kernel/include/myos/kernel/elf/elf64_loader.h,kernel-shared,3,proposed
-kernel/firmware/acpi.h,kernel/include/myos/kernel/firmware/acpi.h,kernel-shared,3,proposed
-kernel/firmware/acpi_discovery.h,kernel/include/myos/kernel/firmware/acpi_discovery.h,kernel-shared,2,proposed
-kernel/firmware/smbios.h,kernel/include/myos/kernel/firmware/smbios.h,kernel-shared,1,proposed
+kernel/firmware/acpi.h,kernel/include/myos/kernel/firmware/acpi.h,kernel-shared,3,verified
+kernel/firmware/acpi_discovery.h,kernel/include/myos/kernel/firmware/acpi_discovery.h,kernel-shared,2,verified
+kernel/firmware/smbios.h,kernel/include/myos/kernel/firmware/smbios.h,kernel-shared,1,verified
 kernel/font/font8x8.h,kernel/include/myos/kernel/font/font8x8.h,kernel-shared,1,verified
 kernel/format/format.h,kernel/include/myos/kernel/format/format.h,kernel-shared,2,verified
 kernel/fs/devfs.h,kernel/include/myos/kernel/fs/devfs.h,kernel-shared,2,proposed

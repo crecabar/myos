@@ -8,10 +8,10 @@
  * @brief Discovery of ACPI tables published by platform firmware.
  */
 
-#ifndef MYOS_FIRMWARE_ACPI_DISCOVERY_H
-#define MYOS_FIRMWARE_ACPI_DISCOVERY_H
+#ifndef MYOS_KERNEL_FIRMWARE_ACPI_DISCOVERY_H
+#define MYOS_KERNEL_FIRMWARE_ACPI_DISCOVERY_H
 
-#include "acpi.h"
+#include <myos/kernel/firmware/acpi.h>
 
 #include <stdbool.h>
 #include <stddef.h>

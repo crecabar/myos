@@ -8,8 +8,8 @@
  * @brief ACPI table discovery and validation primitives.
  */
 
-#ifndef MYOS_FIRMWARE_ACPI_H
-#define MYOS_FIRMWARE_ACPI_H
+#ifndef MYOS_KERNEL_FIRMWARE_ACPI_H
+#define MYOS_KERNEL_FIRMWARE_ACPI_H
 
 #include <stdbool.h>
 #include <stddef.h>

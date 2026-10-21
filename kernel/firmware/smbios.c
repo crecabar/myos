@@ -8,7 +8,7 @@
  * @brief SMBIOS platform identification.
  */
 
-#include "smbios.h"
+#include <myos/kernel/firmware/smbios.h>
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/memory.h>

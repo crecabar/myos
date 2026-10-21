@@ -14,8 +14,8 @@
 #include <myos/kernel/arch/x86_64/lapic.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../firmware/acpi.h"
-#include "../firmware/acpi_discovery.h"
+#include <myos/kernel/firmware/acpi.h>
+#include <myos/kernel/firmware/acpi_discovery.h>
 #include <myos/kernel/memory/direct_mapping.h>
 #include <myos/kernel/memory/memory.h>
 
