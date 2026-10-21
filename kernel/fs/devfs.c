@@ -8,12 +8,13 @@
  * @brief Dynamic device-filesystem implementation.
  */
 
-#include "devfs.h"
+#include <myos/kernel/fs/devfs.h>
 
 #include <myos/kernel/core/device/character_device.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/heap.h>
 #include "../vfs/character_device.h"
+#include "../vfs/vfs.h"
 
 #include <stddef.h>
 

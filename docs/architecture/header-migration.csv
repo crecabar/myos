@@ -63,9 +63,9 @@ kernel/firmware/acpi_discovery.h,kernel/include/myos/kernel/firmware/acpi_discov
 kernel/firmware/smbios.h,kernel/include/myos/kernel/firmware/smbios.h,kernel-shared,1,verified
 kernel/font/font8x8.h,kernel/include/myos/kernel/font/font8x8.h,kernel-shared,1,verified
 kernel/format/format.h,kernel/include/myos/kernel/format/format.h,kernel-shared,2,verified
-kernel/fs/devfs.h,kernel/include/myos/kernel/fs/devfs.h,kernel-shared,2,proposed
-kernel/fs/initramfs.h,kernel/include/myos/kernel/fs/initramfs.h,kernel-shared,2,proposed
-kernel/fs/initramfs_format.h,kernel/include/myos/kernel/fs/initramfs_format.h,kernel-shared,1,proposed
+kernel/fs/devfs.h,kernel/include/myos/kernel/fs/devfs.h,kernel-shared,2,verified
+kernel/fs/initramfs.h,kernel/include/myos/kernel/fs/initramfs.h,kernel-shared,2,verified
+kernel/fs/initramfs_format.h,kernel/include/myos/kernel/fs/initramfs_format.h,kernel-shared,1,verified
 kernel/init/boot_banner.h,kernel/include/myos/kernel/init/boot_banner.h,kernel-shared,1,proposed
 kernel/init/display.h,kernel/include/myos/kernel/init/display.h,kernel-shared,1,proposed
 kernel/init/userspace.h,kernel/include/myos/kernel/init/userspace.h,kernel-shared,1,proposed

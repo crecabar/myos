@@ -27,8 +27,8 @@
 #include <myos/kernel/core/device/registry.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/drivers/pseudo.h>
-#include "fs/devfs.h"
-#include "fs/initramfs.h"
+#include <myos/kernel/fs/devfs.h>
+#include <myos/kernel/fs/initramfs.h>
 #include "init/boot_banner.h"
 #include "init/display.h"
 #include "init/userspace.h"

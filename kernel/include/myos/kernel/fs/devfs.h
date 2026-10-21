@@ -32,15 +32,15 @@
  * contract exists.
  */
 
-#ifndef MYOS_FS_DEVFS_H
-#define MYOS_FS_DEVFS_H
+#ifndef MYOS_KERNEL_FS_DEVFS_H
+#define MYOS_KERNEL_FS_DEVFS_H
 
 #include <myos/kernel/core/device/registry.h>
-#include "../vfs/vfs.h"
 
 #include <stdbool.h>
 
 struct devfs;
+struct vfs_node;
 
 enum devfs_mount_result {
     DEVFS_MOUNT_RESULT_MOUNTED,

@@ -15,8 +15,8 @@
  * being consumed.
  */
 
-#ifndef MYOS_FS_INITRAMFS_FORMAT_H
-#define MYOS_FS_INITRAMFS_FORMAT_H
+#ifndef MYOS_KERNEL_FS_INITRAMFS_FORMAT_H
+#define MYOS_KERNEL_FS_INITRAMFS_FORMAT_H
 
 #include <stdbool.h>
 #include <stddef.h>

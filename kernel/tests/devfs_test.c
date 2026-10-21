@@ -14,7 +14,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/drivers/pseudo.h>
-#include "../fs/devfs.h"
+#include <myos/kernel/fs/devfs.h>
 #include "../vfs/vfs.h"
 
 #include <stdbool.h>

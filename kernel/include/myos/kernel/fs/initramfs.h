@@ -13,15 +13,14 @@
  * immutable archive.
  */
 
-#ifndef MYOS_FS_INITRAMFS_H
-#define MYOS_FS_INITRAMFS_H
-
-#include "../vfs/vfs.h"
+#ifndef MYOS_KERNEL_FS_INITRAMFS_H
+#define MYOS_KERNEL_FS_INITRAMFS_H
 
 #include <stdbool.h>
 #include <stddef.h>
 
 struct initramfs;
+struct vfs_node;
 
 enum initramfs_mount_result {
     INITRAMFS_MOUNT_RESULT_MOUNTED,
