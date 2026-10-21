@@ -14,7 +14,7 @@
 #include <myos/kernel/boot/reclaim_preflight.h>
 #include <myos/kernel/core/panic.h>
 #include "../diagnostics/diagnostics.h"
-#include "../drivers/framebuffer.h"
+#include <myos/kernel/drivers/framebuffer.h>
 #include <myos/kernel/memory/boot_paging.h>
 #include <myos/kernel/memory/direct_mapping.h>
 #include <myos/kernel/memory/kernel_mapping.h>

@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_DRIVERS_FRAMEBUFFER_H
-#define MYOS_DRIVERS_FRAMEBUFFER_H
+#ifndef MYOS_KERNEL_DRIVERS_FRAMEBUFFER_H
+#define MYOS_KERNEL_DRIVERS_FRAMEBUFFER_H
 
 #include <stdint.h>
 

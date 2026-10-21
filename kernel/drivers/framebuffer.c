@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "framebuffer.h"
+#include <myos/kernel/drivers/framebuffer.h>
 
 #define FRAMEBUFFER_BYTES_PER_PIXEL ((uint64_t) sizeof(uint32_t))
 
