@@ -21,7 +21,7 @@
 #include <myos/kernel/memory/memory.h>
 #include "../process/layout.h"
 #include <myos/kernel/process/memory.h>
-#include "../process/stack.h"
+#include <myos/kernel/process/stack.h>
 
 #include <stddef.h>
 #include <stdint.h>

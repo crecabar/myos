@@ -3,7 +3,9 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "stack.h"
+#include <myos/kernel/process/stack.h>
+
+#include <myos/kernel/process/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -8,14 +8,14 @@
  * @brief User stack layout and lifecycle management.
  */
 
-#ifndef MYOS_PROCESS_STACK_H
-#define MYOS_PROCESS_STACK_H
-
-#include <myos/kernel/process/memory.h>
+#ifndef MYOS_KERNEL_PROCESS_STACK_H
+#define MYOS_KERNEL_PROCESS_STACK_H
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+struct process_memory;
 
 /**
  * Represents a user-mode stack layout inside process memory.

@@ -16,7 +16,7 @@
 
 #include <myos/kernel/elf/elf64_loader.h>
 #include <myos/kernel/process/memory.h>
-#include "stack.h"
+#include <myos/kernel/process/stack.h>
 
 #include <stdbool.h>
 #include <stddef.h>
