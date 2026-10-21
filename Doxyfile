@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# MyOS API reference — run from the repository root: doxygen Doxyfile
+# Keep this configuration intentionally small; unspecified options use
+# the defaults of the installed Doxygen release (tested against 1.18.0).
+
+# Project
+DOXYFILE_ENCODING       = UTF-8
+PROJECT_NAME            = "MyOS - The Nobody Asked For Project"
+PROJECT_NUMBER          = 0.3.0
+PROJECT_BRIEF           = "Educational UNIX-like operating system"
+OUTPUT_LANGUAGE         = English
+
+# Generated output is disposable and must remain outside version control.
+OUTPUT_DIRECTORY        = build/doc
+GENERATE_HTML           = YES
+HTML_OUTPUT             = html
+GENERATE_TREEVIEW       = YES
+SEARCHENGINE            = YES
+HTML_COLORSTYLE         = AUTO_LIGHT
+GENERATE_LATEX          = NO
+GENERATE_XML            = NO
+GENERATE_MAN            = NO
+GENERATE_RTF            = NO
+TIMESTAMP               = NO
+
+# Input: source, canonical headers, and project architecture documentation.
+# Tests and vendored code are intentionally not part of the production API.
+INPUT                   = README.md \
+                          include \
+                          kernel \
+                          user \
+                          docs
+RECURSIVE               = YES
+FILE_PATTERNS           = *.c *.h *.md
+EXCLUDE                 = kernel/tests \
+                          user/tests \
+                          tests
+EXCLUDE_PATTERNS        = */tests/*
+EXCLUDE_SYMLINKS        = YES
+USE_MDFILE_AS_MAINPAGE  = README.md
+MARKDOWN_SUPPORT        = YES
+MARKDOWN_STRICT         = YES
+
+# Display portable, repository-relative paths and canonical include names.
+FULL_PATH_NAMES         = YES
+STRIP_FROM_PATH         = .
+STRIP_FROM_INC_PATH     = include kernel/include
+SHOW_HEADERFILE         = YES
+SHOW_INCLUDE_FILES      = YES
+OPTIMIZE_OUTPUT_FOR_C   = YES
+
+# Bootstrap API reference: expose currently undocumented symbols, but avoid
+# file-local static implementation details. Documentation errors still warn.
+EXTRACT_ALL             = YES
+EXTRACT_STATIC          = NO
+EXTRACT_PRIVATE         = NO
+SOURCE_BROWSER          = YES
+VERBATIM_HEADERS        = YES
+
+# Resolve includes according to their owning source roots. These settings
+# affect documentation only: they do NOT modify compiler include paths.
+ENABLE_PREPROCESSING    = YES
+MACRO_EXPANSION         = NO
+SEARCH_INCLUDES         = YES
+INCLUDE_PATH            = include \
+                          kernel/include \
+                          vendor/limine-protocol
+
+# Make documentation problems visible without failing generation for legacy
+# comments. stderr can be captured to a log by the calling command.
+QUIET                   = YES
+WARNINGS                = YES
+WARN_IF_DOC_ERROR       = YES
+WARN_IF_INCOMPLETE_DOC  = YES
+WARN_AS_ERROR           = NO
+WARN_FORMAT             = "$file:$line: $text"
+WARN_LOGFILE            =
+
+# Dependency graphs are useful for an educational kernel; generating every
+# call/caller graph is prohibitively noisy and costly on this codebase.
+HAVE_DOT                = YES
+INCLUDE_GRAPH           = YES
+INCLUDED_BY_GRAPH       = NO
+DIRECTORY_GRAPH         = YES
+CALL_GRAPH              = NO
+CALLER_GRAPH            = NO
+DOT_IMAGE_FORMAT        = svg
+INTERACTIVE_SVG         = YES
+DOT_GRAPH_MAX_NODES     = 100
+MAX_DOT_GRAPH_DEPTH     = 3
+DOT_NUM_THREADS         = 0
