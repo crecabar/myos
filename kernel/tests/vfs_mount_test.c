@@ -12,7 +12,7 @@
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../vfs/mount.h"
+#include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>

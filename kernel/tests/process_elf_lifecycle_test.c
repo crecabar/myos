@@ -32,7 +32,7 @@
 #include "../process/process.h"
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
-#include "../vfs/mount.h"
+#include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>

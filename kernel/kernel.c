@@ -41,7 +41,7 @@
 #include <myos/kernel/memory/memory.h>
 #include "process/pid.h"
 #include "scheduler/scheduler.h"
-#include "vfs/mount.h"
+#include <myos/kernel/vfs/mount.h>
 #include "vfs/root.h"
 
 #if MYOS_RUNTIME_DIAGNOSTICS

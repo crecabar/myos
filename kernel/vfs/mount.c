@@ -8,7 +8,8 @@
  * @brief Generic VFS mount topology implementation.
  */
 
-#include "mount.h"
+#include <myos/kernel/vfs/mount.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 

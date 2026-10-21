@@ -13,7 +13,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include "../process/namespace.h"
-#include "../vfs/mount.h"
+#include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>

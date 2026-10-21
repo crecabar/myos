@@ -11,7 +11,7 @@
 #ifndef MYOS_TESTS_PROCESS_EXECUTABLE_TEST_H
 #define MYOS_TESTS_PROCESS_EXECUTABLE_TEST_H
 
-#include "../vfs/mount.h"
+#include <myos/kernel/vfs/mount.h>
 
 void process_executable_test_run(
     const struct vfs_mount_table *mounts

@@ -23,15 +23,15 @@
  * is an ordinary child inside another mounted filesystem.
  */
 
-#ifndef MYOS_VFS_MOUNT_H
-#define MYOS_VFS_MOUNT_H
-
-#include <myos/kernel/vfs/vfs.h>
+#ifndef MYOS_KERNEL_VFS_MOUNT_H
+#define MYOS_KERNEL_VFS_MOUNT_H
 
 #include <stdbool.h>
 #include <stddef.h>
 
 #define VFS_MOUNT_TABLE_CAPACITY 16U
+
+struct vfs_node;
 
 enum vfs_mount_result {
     VFS_MOUNT_RESULT_SUCCESS,

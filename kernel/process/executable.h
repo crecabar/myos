@@ -12,7 +12,7 @@
 #define MYOS_PROCESS_EXECUTABLE_H
 
 #include <myos/kernel/elf/elf64.h>
-#include "../vfs/mount.h"
+#include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include "instance.h"

@@ -25,7 +25,7 @@
 #ifndef MYOS_VFS_PATH_H
 #define MYOS_VFS_PATH_H
 
-#include "mount.h"
+#include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
