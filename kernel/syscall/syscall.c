@@ -18,7 +18,7 @@
 #include "../process/user_copy.h"
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
-#include "../vfs/path.h"
+#include <myos/kernel/vfs/path.h>
 
 #include <stddef.h>
 #include <stdint.h>

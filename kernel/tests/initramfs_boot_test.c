@@ -14,7 +14,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/runtime/memory.h>
 #include <myos/kernel/vfs/mount.h>
-#include "../vfs/path.h"
+#include <myos/kernel/vfs/path.h>
 #include "../vfs/root.h"
 #include <myos/kernel/vfs/vfs.h>
 

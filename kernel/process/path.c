@@ -13,7 +13,8 @@
 #include "cwd.h"
 #include "namespace.h"
 
-#include "../vfs/path.h"
+#include <myos/kernel/vfs/mount.h>
+#include <myos/kernel/vfs/path.h>
 
 #include <stddef.h>
 

@@ -8,7 +8,10 @@
  * @brief Generic VFS pathname resolution implementation.
  */
 
-#include "path.h"
+#include <myos/kernel/vfs/path.h>
+
+#include <myos/kernel/vfs/mount.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

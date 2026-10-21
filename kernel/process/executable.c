@@ -13,7 +13,7 @@
 #include "cwd.h"
 #include "namespace.h"
 
-#include "../vfs/path.h"
+#include <myos/kernel/vfs/path.h>
 #include <myos/kernel/core/panic.h>
 
 #include <stddef.h>

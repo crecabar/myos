@@ -10,7 +10,8 @@
 
 #include <myos/kernel/fs/initramfs_format.h>
 
-#include "../vfs/path.h"
+#include <myos/kernel/vfs/path.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

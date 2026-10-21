@@ -22,15 +22,15 @@
  * caller must eventually release that reference with vfs_node_release().
  */
 
-#ifndef MYOS_VFS_PATH_H
-#define MYOS_VFS_PATH_H
-
-#include <myos/kernel/vfs/mount.h>
-#include <myos/kernel/vfs/vfs.h>
+#ifndef MYOS_KERNEL_VFS_PATH_H
+#define MYOS_KERNEL_VFS_PATH_H
 
 #include <stddef.h>
 
 #define VFS_PATH_MAX 4096U
+
+struct vfs_mount_table;
+struct vfs_node;
 
 enum vfs_path_result {
     VFS_PATH_RESULT_FOUND,
