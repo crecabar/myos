@@ -30,7 +30,7 @@
 #include <myos/kernel/process/memory.h>
 #include <myos/kernel/process/pid.h>
 #include <myos/kernel/process/process.h>
-#include "../process/wait.h"
+#include <myos/kernel/process/wait.h>
 #include "../scheduler/scheduler.h"
 #include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/vfs.h>

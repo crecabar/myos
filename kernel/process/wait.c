@@ -8,7 +8,7 @@
  * @brief Parent/child termination observation and process reaping.
  */
 
-#include "wait.h"
+#include <myos/kernel/process/wait.h>
 
 #include <myos/kernel/process/create.h>
 

@@ -14,7 +14,7 @@
 #include <myos/kernel/process/fd_table.h>
 #include <myos/kernel/process/file.h>
 #include <myos/kernel/process/namespace.h>
-#include "wait.h"
+#include <myos/kernel/process/wait.h>
 
 #include <myos/kernel/core/panic.h>
 

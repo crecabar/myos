@@ -8,8 +8,8 @@
  * @brief Parent/child termination observation and process reaping.
  */
 
-#ifndef MYOS_PROCESS_WAIT_H
-#define MYOS_PROCESS_WAIT_H
+#ifndef MYOS_KERNEL_PROCESS_WAIT_H
+#define MYOS_KERNEL_PROCESS_WAIT_H
 
 #include <myos/kernel/process/instance.h>
 
