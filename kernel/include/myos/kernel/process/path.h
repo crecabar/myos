@@ -8,8 +8,8 @@
  * @brief Process-relative pathname resolution and current-directory changes.
  */
 
-#ifndef MYOS_PROCESS_PATH_H
-#define MYOS_PROCESS_PATH_H
+#ifndef MYOS_KERNEL_PROCESS_PATH_H
+#define MYOS_KERNEL_PROCESS_PATH_H
 
 #include <myos/kernel/process/instance.h>
 

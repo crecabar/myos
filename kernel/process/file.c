@@ -11,7 +11,7 @@
 #include <myos/kernel/process/file.h>
 
 #include <myos/kernel/process/fd_table.h>
-#include "path.h"
+#include <myos/kernel/process/path.h>
 
 #include <myos/kernel/core/panic.h>
 #include "../scheduler/scheduler.h"

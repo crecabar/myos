@@ -8,7 +8,7 @@
  * @brief Process-relative pathname resolution implementation.
  */
 
-#include "path.h"
+#include <myos/kernel/process/path.h>
 
 #include <myos/kernel/process/cwd.h>
 #include <myos/kernel/process/namespace.h>

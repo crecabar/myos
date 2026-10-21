@@ -14,7 +14,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/process/cwd.h>
 #include <myos/kernel/process/namespace.h>
-#include "../process/path.h"
+#include <myos/kernel/process/path.h>
 #include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/path.h>
 #include <myos/kernel/vfs/vfs.h>
