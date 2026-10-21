@@ -10,15 +10,15 @@
 
 #include "process_file_test.h"
 
-#include "../arch/x86_64/interrupts.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../process/fd_table.h"
-#include "../process/file.h"
-#include "../process/lifecycle.h"
-#include "../process/namespace.h"
-#include "../scheduler/scheduler.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/process/fd_table.h>
+#include <myos/kernel/process/file.h>
+#include <myos/kernel/process/lifecycle.h>
+#include <myos/kernel/process/namespace.h>
+#include <myos/kernel/scheduler/scheduler.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

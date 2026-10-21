@@ -10,17 +10,20 @@
 
 #include "scheduler_slot_test.h"
 
-#include "../arch/x86_64/cpu_identity.h"
-#include "../arch/x86_64/gdt.h"
-#include "../arch/x86_64/interrupts.h"
-#include "../arch/x86_64/kernel_switch.h"
-#include "../arch/x86_64/timer.h"
-#include "../core/cpu/cpu_local.h"
-#include "../core/execution/kernel_supervisor.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../process/process.h"
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/arch/x86_64/cpu_identity.h>
+#include <myos/kernel/arch/x86_64/gdt.h>
+#include <myos/kernel/arch/x86_64/interrupts.h>
+#include <myos/kernel/arch/x86_64/kernel_switch.h>
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/arch/x86_64/timer.h>
+#include <myos/kernel/core/cpu/cpu_local.h>
+#include <myos/kernel/core/execution/kernel_supervisor.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/process/layout.h>
+#include <myos/kernel/process/memory.h>
+#include <myos/kernel/process/process.h>
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 #include <stdint.h>

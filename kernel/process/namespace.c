@@ -8,7 +8,7 @@
  * @brief Per-process VFS namespace-root ownership implementation.
  */
 
-#include "namespace.h"
+#include <myos/kernel/process/namespace.h>
 
 #include <stddef.h>
 

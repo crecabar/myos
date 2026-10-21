@@ -10,21 +10,21 @@
 
 #include "console_device_test.h"
 
-#include "../arch/x86_64/cpu_identity.h"
-#include "../arch/x86_64/interrupts.h"
-#include "../console/console.h"
-#include "../console/console_device.h"
-#include "../console/console_input_worker.h"
-#include "../core/panic.h"
-#include "../core/wait_queue.h"
-#include "../core/cpu/cpu_local.h"
-#include "../core/device/character_device.h"
-#include "../core/device/device.h"
-#include "../core/device/registry.h"
-#include "../core/execution/kernel_dispatch.h"
-#include "../diagnostics/diagnostics.h"
-#include "../drivers/framebuffer.h"
-#include "../input/input.h"
+#include <myos/kernel/arch/x86_64/cpu_identity.h>
+#include <myos/kernel/arch/x86_64/interrupts.h>
+#include <myos/kernel/console/console.h>
+#include <myos/kernel/console/console_device.h>
+#include <myos/kernel/console/console_input_worker.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/core/wait_queue.h>
+#include <myos/kernel/core/cpu/cpu_local.h>
+#include <myos/kernel/core/device/character_device.h>
+#include <myos/kernel/core/device/device.h>
+#include <myos/kernel/core/device/registry.h>
+#include <myos/kernel/core/execution/kernel_dispatch.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/drivers/framebuffer.h>
+#include <myos/kernel/input/input.h>
 
 #include <stddef.h>
 #include <stdint.h>

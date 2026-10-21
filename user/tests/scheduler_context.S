@@ -16,7 +16,7 @@
  * must preserve GPRs, RSP, RFLAGS, control flow and private memory.
  */
 
-#include "../../kernel/syscall/test_numbers.h"
+#include <myos/test/syscall/test_numbers.h>
 
 .section .text
 .global _start

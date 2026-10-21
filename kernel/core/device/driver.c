@@ -8,7 +8,7 @@
  * @brief Generic kernel driver initialization.
  */
 
-#include "driver.h"
+#include <myos/kernel/core/device/driver.h>
 
 #include <stdbool.h>
 #include <stddef.h>

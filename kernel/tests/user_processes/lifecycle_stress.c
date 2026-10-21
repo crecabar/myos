@@ -12,10 +12,10 @@
 #include "fixture.h"
 
 #include "../../arch/x86_64/tests/user_programs.h"
-#include "../../core/panic.h"
-#include "../../diagnostics/diagnostics.h"
-#include "../../memory/memory.h"
-#include "../../process/process.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/memory/memory.h>
+#include <myos/kernel/process/process.h>
 
 #include <stddef.h>
 #include <stdint.h>

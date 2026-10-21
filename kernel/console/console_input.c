@@ -3,9 +3,9 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "console_input.h"
+#include <myos/kernel/console/console_input.h>
 
-#include "../input/keyboard_text.h"
+#include <myos/kernel/input/keyboard_text.h>
 
 #include <stddef.h>
 

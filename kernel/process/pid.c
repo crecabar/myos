@@ -8,7 +8,7 @@
  * @brief Minimal process identifier allocation implementation.
  */
 
-#include "pid.h"
+#include <myos/kernel/process/pid.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -3,10 +3,11 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "user_copy.h"
+#include <myos/kernel/process/user_copy.h>
 
-#include "../arch/x86_64/paging.h"
-#include "../memory/memory.h"
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/memory/memory.h>
+#include <myos/kernel/process/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

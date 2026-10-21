@@ -8,9 +8,9 @@
  * @brief Kernel boot configuration command-line parser.
  */
 
-#include "boot_config.h"
+#include <myos/kernel/config/boot_config.h>
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 
 #include <stdbool.h>
 #include <stddef.h>

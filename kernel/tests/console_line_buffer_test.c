@@ -5,9 +5,9 @@
 
 #include "console_line_buffer_test.h"
 
-#include "../console/line_buffer.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/console/line_buffer.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stddef.h>
 #include <stdint.h>

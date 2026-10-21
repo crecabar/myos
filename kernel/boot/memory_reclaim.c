@@ -3,14 +3,15 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "memory_reclaim.h"
+#include <myos/kernel/boot/memory_reclaim.h>
 
-#include "../arch/x86_64/paging.h"
-#include "../core/panic.h"
-#include "../memory/memory.h"
-#include "active_paging_audit.h"
-#include "physical_range_audit.h"
-#include "reclaim_preflight.h"
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/boot/active_paging_audit.h>
+#include <myos/kernel/boot/physical_range_audit.h>
+#include <myos/kernel/boot/reclaim_preflight.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/memory/memory.h>
+#include <myos/kernel/boot/boot.h>
 
 #include <stddef.h>
 #include <stdint.h>

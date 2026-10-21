@@ -3,7 +3,9 @@
 # -----------------------------------------------------------------------------
 
 USER_TEST_BUILD_DIR := $(BUILD_DIR)/user-tests
-TEST_SYSCALL_NUMBERS_HEADER := kernel/syscall/test_numbers.h
+TEST_INCLUDE_DIR := tests/include
+TEST_SYSCALL_NUMBERS_HEADER := \
+	$(TEST_INCLUDE_DIR)/myos/test/syscall/test_numbers.h
 
 ELF_ENTRY_SOURCE        := user/tests/elf_entry.S
 ELF_ENTRY_LINKER_SCRIPT := user/tests/elf_entry.ld
@@ -166,6 +168,7 @@ $(SCHEDULER_CONTEXT_OBJECT): \
 	$(TEST_SYSCALL_NUMBERS_HEADER) \
 	| $(USER_TEST_BUILD_DIR)
 	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-I$(TEST_INCLUDE_DIR) \
 		-c $< \
 		-o $@
 
@@ -182,6 +185,7 @@ $(EXEC_CALLER_OBJECT): \
 	$(TEST_SYSCALL_NUMBERS_HEADER) \
 	| $(USER_TEST_BUILD_DIR)
 	$(CLANG) $(ELF_ENTRY_CFLAGS) \
+		-I$(TEST_INCLUDE_DIR) \
 		-c $< \
 		-o $@
 

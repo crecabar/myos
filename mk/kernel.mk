@@ -8,6 +8,9 @@ LIMINE_PROTOCOL_DIR          := vendor/limine-protocol
 LIMINE_HEADER                := $(LIMINE_PROTOCOL_DIR)/limine.h
 LIMINE_PROTOCOL_FETCH_SCRIPT := scripts/fetch-limine-protocol.sh
 
+KERNEL_INCLUDE_DIR := kernel/include
+KERNEL_TEST_INCLUDE_DIR := tests/include
+
 CFLAGS := \
 	--target=$(TARGET) \
 	-ffreestanding \
@@ -20,6 +23,7 @@ CFLAGS := \
 	-g \
 	-I$(LIMINE_PROTOCOL_DIR) \
 	-I$(MYOS_INCLUDE_DIR) \
+	-I$(KERNEL_INCLUDE_DIR) \
 	-DMYOS_RUNTIME_DIAGNOSTICS=$(MYOS_RUNTIME_DIAGNOSTICS) \
 	-DMYOS_KERNEL_TESTS=$(MYOS_KERNEL_TESTS) \
 	-DMYOS_QEMU_TEST_EXIT=$(MYOS_QEMU_TEST_EXIT) \
@@ -126,6 +130,17 @@ KERNEL_OBJS := \
 KERNEL_DEPS := \
 	$(KERNEL_C_OBJS:.o=.d) \
 	$(KERNEL_ASM_OBJS:.o=.d)
+
+ifeq ($(MYOS_KERNEL_TESTS),1)
+KERNEL_TEST_SYSCALL_CONSUMER_OBJS := \
+	$(KERNEL_OBJ_DIR)/c/kernel/arch/x86_64/idt.o \
+	$(KERNEL_OBJ_DIR)/c/kernel/syscall/syscall.o \
+	$(KERNEL_OBJ_DIR)/asm/kernel/arch/x86_64/tests/block_probe.o \
+	$(KERNEL_OBJ_DIR)/asm/kernel/arch/x86_64/tests/sleep_probe.o
+
+$(KERNEL_TEST_SYSCALL_CONSUMER_OBJS): CFLAGS += \
+	-I$(KERNEL_TEST_INCLUDE_DIR)
+endif
 
 LINKER_SCRIPT := kernel/linker.ld
 

@@ -8,12 +8,12 @@
  * @brief Owned process-instance lifecycle implementation.
  */
 
- #include "instance.h"
+#include <myos/kernel/process/instance.h>
 
- #include "cwd.h"
- #include "namespace.h"
+#include <myos/kernel/process/cwd.h>
+#include <myos/kernel/process/namespace.h>
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 
 #include <stddef.h>
 

@@ -5,11 +5,11 @@
 
 #include "cpu_local_test.h"
 
-#include "../arch/x86_64/cpu_identity.h"
-#include "../core/cpu/cpu_local.h"
-#include "../core/execution/kernel_context.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/arch/x86_64/cpu_identity.h>
+#include <myos/kernel/core/cpu/cpu_local.h>
+#include <myos/kernel/core/execution/kernel_context.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stddef.h>
 #include <stdint.h>

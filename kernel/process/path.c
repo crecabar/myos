@@ -8,12 +8,13 @@
  * @brief Process-relative pathname resolution implementation.
  */
 
-#include "path.h"
+#include <myos/kernel/process/path.h>
 
-#include "cwd.h"
-#include "namespace.h"
+#include <myos/kernel/process/cwd.h>
+#include <myos/kernel/process/namespace.h>
 
-#include "../vfs/path.h"
+#include <myos/kernel/vfs/mount.h>
+#include <myos/kernel/vfs/path.h>
 
 #include <stddef.h>
 

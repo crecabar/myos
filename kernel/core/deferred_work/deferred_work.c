@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "deferred_work.h"
+#include <myos/kernel/core/deferred_work/deferred_work.h>
 
 #include <stddef.h>
 

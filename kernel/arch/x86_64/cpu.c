@@ -8,9 +8,9 @@
  * @brief x86-64 CPU identification through CPUID.
  */
 
-#include "cpu.h"
+#include <myos/kernel/arch/x86_64/cpu.h>
 
-#include "../../core/panic.h"
+#include <myos/kernel/core/panic.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -10,10 +10,10 @@
 
 #include "vfs_mount_test.h"
 
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../vfs/mount.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/vfs/mount.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 #include <stdint.h>

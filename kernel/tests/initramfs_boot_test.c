@@ -10,13 +10,13 @@
 
 #include "initramfs_boot_test.h"
 
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../runtime/memory.h"
-#include "../vfs/mount.h"
-#include "../vfs/path.h"
-#include "../vfs/root.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/runtime/memory.h>
+#include <myos/kernel/vfs/mount.h>
+#include <myos/kernel/vfs/path.h>
+#include <myos/kernel/vfs/root.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 #include <stdint.h>

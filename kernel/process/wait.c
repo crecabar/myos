@@ -8,12 +8,12 @@
  * @brief Parent/child termination observation and process reaping.
  */
 
-#include "wait.h"
+#include <myos/kernel/process/wait.h>
 
-#include "create.h"
+#include <myos/kernel/process/create.h>
 
-#include "../core/panic.h"
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 

@@ -8,13 +8,13 @@
  * @brief Per-process descriptor-level file operations implementation.
  */
 
-#include "file.h"
+#include <myos/kernel/process/file.h>
 
-#include "fd_table.h"
-#include "path.h"
+#include <myos/kernel/process/fd_table.h>
+#include <myos/kernel/process/path.h>
 
-#include "../core/panic.h"
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 

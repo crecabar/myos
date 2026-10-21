@@ -10,14 +10,14 @@
 
 #include "process_path_test.h"
 
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../process/cwd.h"
-#include "../process/namespace.h"
-#include "../process/path.h"
-#include "../vfs/mount.h"
-#include "../vfs/path.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/process/cwd.h>
+#include <myos/kernel/process/namespace.h>
+#include <myos/kernel/process/path.h>
+#include <myos/kernel/vfs/mount.h>
+#include <myos/kernel/vfs/path.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 #include <stdint.h>

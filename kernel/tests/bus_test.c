@@ -10,12 +10,12 @@
 
 #include "bus_test.h"
 
-#include "../core/device/bus.h"
-#include "../core/device/device.h"
-#include "../core/device/driver.h"
-#include "../core/device/registry.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/core/device/bus.h>
+#include <myos/kernel/core/device/device.h>
+#include <myos/kernel/core/device/driver.h>
+#include <myos/kernel/core/device/registry.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stdbool.h>
 #include <stddef.h>

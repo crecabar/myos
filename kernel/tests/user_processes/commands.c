@@ -10,17 +10,17 @@
 
 #include "commands.h"
 
-#include "../../core/panic.h"
-#include "../../diagnostics/diagnostics.h"
-#include "../../process/create.h"
-#include "../../process/executable.h"
-#include "../../process/fd_table.h"
-#include "../../process/instance.h"
-#include "../../process/path.h"
-#include "../../process/process.h"
-#include "../../scheduler/scheduler.h"
-#include "../../vfs/root.h"
-#include "../../vfs/vfs.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/process/create.h>
+#include <myos/kernel/process/executable.h>
+#include <myos/kernel/process/fd_table.h>
+#include <myos/kernel/process/instance.h>
+#include <myos/kernel/process/path.h>
+#include <myos/kernel/process/process.h>
+#include <myos/kernel/scheduler/scheduler.h>
+#include <myos/kernel/vfs/root.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 #include <stdint.h>

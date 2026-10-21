@@ -8,10 +8,10 @@
  * @brief Transactional executable-image replacement preparation.
  */
 
-#include "exec.h"
+#include <myos/kernel/process/exec.h>
 
-#include "../arch/x86_64/paging.h"
-#include "../core/panic.h"
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/core/panic.h>
 
 #include <stddef.h>
 

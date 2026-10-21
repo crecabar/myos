@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Cristian Recabarren
+ */
+
+/**
+ * @file usermode.h
+ * @brief x86-64 transition from kernel mode to user mode.
+ */
+
+#ifndef MYOS_KERNEL_ARCH_X86_64_USERMODE_H
+#define MYOS_KERNEL_ARCH_X86_64_USERMODE_H
+
+#include <myos/kernel/arch/x86_64/interrupts.h>
+
+#include <stdint.h>
+
+/**
+ * Enters x86-64 user mode at the requested instruction and stack pointers.
+ *
+ * The caller must activate an address space containing valid user-accessible
+ * mappings for both RIP and RSP before calling this function.
+ *
+ * This function performs a privilege transition from ring 0 to ring 3 using
+ * IRETQ and does not return.
+ *
+ * @param instruction_pointer Initial user-mode RIP.
+ * @param stack_pointer Initial user-mode RSP.
+ */
+_Noreturn void usermode_enter(
+    uint64_t instruction_pointer,
+    uint64_t stack_pointer
+);
+
+/**
+ * Enters user mode using a complete, prepared interrupt frame.
+ *
+ * The caller must activate the process address space before entry.
+ * The frame must contain valid user-mode selectors, RIP, RSP,
+ * RFLAGS, and the general-purpose register values to restore.
+ *
+ * The frame may be a temporary object on the current kernel stack:
+ * this function consumes it during the non-returning transition
+ * to user mode.
+ *
+ * @param context Prepared user-mode interrupt frame.
+ */
+_Noreturn void usermode_resume(
+    const struct interrupt_context *context
+);
+
+#endif

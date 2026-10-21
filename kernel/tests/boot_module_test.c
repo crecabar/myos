@@ -5,11 +5,11 @@
 
 #include "boot_module_test.h"
 
-#include "../arch/x86_64/paging.h"
-#include "../boot/initramfs.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../memory/memory.h"
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/boot/initramfs.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/memory/memory.h>
 
 #include <stdbool.h>
 #include <stddef.h>

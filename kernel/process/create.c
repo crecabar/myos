@@ -8,17 +8,17 @@
  * @brief Dynamic userspace process creation implementation.
  */
 
-#include "create.h"
+#include <myos/kernel/process/create.h>
 
-#include "cwd.h"
-#include "fd_table.h"
-#include "file.h"
-#include "namespace.h"
-#include "pid.h"
+#include <myos/kernel/process/cwd.h>
+#include <myos/kernel/process/fd_table.h>
+#include <myos/kernel/process/file.h>
+#include <myos/kernel/process/namespace.h>
+#include <myos/kernel/process/pid.h>
 
-#include "../core/panic.h"
-#include "../memory/heap.h"
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/memory/heap.h>
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 

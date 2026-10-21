@@ -5,23 +5,23 @@
 
 #include "runtime_diagnostics.h"
 
-#include "../arch/x86_64/gdt.h"
-#include "../arch/x86_64/ioapic.h"
-#include "../arch/x86_64/lapic.h"
-#include "../arch/x86_64/paging.h"
-#include "../boot/boot.h"
-#include "../boot/memory_reclaim.h"
-#include "../boot/reclaim_preflight.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../drivers/framebuffer.h"
-#include "../memory/boot_paging.h"
-#include "../memory/direct_mapping.h"
-#include "../memory/kernel_mapping.h"
-#include "../memory/memory.h"
-#include "../process/layout.h"
-#include "../process/memory.h"
-#include "../process/stack.h"
+#include <myos/kernel/arch/x86_64/gdt.h>
+#include <myos/kernel/arch/x86_64/ioapic.h>
+#include <myos/kernel/arch/x86_64/lapic.h>
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/boot/boot.h>
+#include <myos/kernel/boot/memory_reclaim.h>
+#include <myos/kernel/boot/reclaim_preflight.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/drivers/framebuffer.h>
+#include <myos/kernel/memory/boot_paging.h>
+#include <myos/kernel/memory/direct_mapping.h>
+#include <myos/kernel/memory/kernel_mapping.h>
+#include <myos/kernel/memory/memory.h>
+#include <myos/kernel/process/layout.h>
+#include <myos/kernel/process/memory.h>
+#include <myos/kernel/process/stack.h>
 
 #include <stddef.h>
 #include <stdint.h>

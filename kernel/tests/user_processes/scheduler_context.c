@@ -10,16 +10,16 @@
 
 #include "scheduler_context.h"
 
-#include "../../arch/x86_64/interrupts.h"
-#include "../../arch/x86_64/paging.h"
-#include "../../core/execution/kernel_context.h"
-#include "../../core/execution/kernel_supervisor.h"
-#include "../../core/panic.h"
-#include "../../diagnostics/diagnostics.h"
-#include "../../elf/elf64.h"
-#include "../../memory/memory.h"
-#include "../../process/create.h"
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/core/execution/kernel_context.h>
+#include <myos/kernel/core/execution/kernel_supervisor.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/elf/elf64.h>
+#include <myos/kernel/memory/memory.h>
+#include <myos/kernel/process/create.h>
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 #include <stdint.h>

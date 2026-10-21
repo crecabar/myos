@@ -8,13 +8,13 @@
  * @brief VFS-backed executable image acquisition implementation.
  */
 
-#include "executable.h"
+#include <myos/kernel/process/executable.h>
 
-#include "cwd.h"
-#include "namespace.h"
+#include <myos/kernel/process/cwd.h>
+#include <myos/kernel/process/namespace.h>
 
-#include "../vfs/path.h"
-#include "../core/panic.h"
+#include <myos/kernel/vfs/path.h>
+#include <myos/kernel/core/panic.h>
 
 #include <stddef.h>
 #include <stdint.h>

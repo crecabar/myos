@@ -10,14 +10,14 @@
 
 #include "vfs_character_device_test.h"
 
-#include "../core/device/character_device.h"
-#include "../core/device/registry.h"
-#include "../core/device/device.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../drivers/pseudo.h"
-#include "../vfs/character_device.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/core/device/character_device.h>
+#include <myos/kernel/core/device/registry.h>
+#include <myos/kernel/core/device/device.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/drivers/pseudo.h>
+#include <myos/kernel/vfs/character_device.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

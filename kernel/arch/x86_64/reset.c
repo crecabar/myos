@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "arch.h"
+#include <myos/kernel/arch/x86_64/arch.h>
 
 #include "i8042.h"
 

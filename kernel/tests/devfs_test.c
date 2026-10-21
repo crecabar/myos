@@ -10,12 +10,12 @@
 
 #include "devfs_test.h"
 
-#include "../core/device/registry.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../drivers/pseudo.h"
-#include "../fs/devfs.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/core/device/registry.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/drivers/pseudo.h>
+#include <myos/kernel/fs/devfs.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

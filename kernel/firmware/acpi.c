@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "acpi.h"
+#include <myos/kernel/firmware/acpi.h>
 
 #include <stddef.h>
 #include <stdint.h>

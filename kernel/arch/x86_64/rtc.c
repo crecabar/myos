@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "rtc.h"
+#include <myos/kernel/arch/x86_64/rtc.h>
 
 #include <stddef.h>
 #include <stdint.h>

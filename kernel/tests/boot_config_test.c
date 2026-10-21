@@ -10,9 +10,9 @@
 
 #include "boot_config_test.h"
 
-#include "../config/boot_config.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
+#include <myos/kernel/config/boot_config.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
 
 #include <stddef.h>
 

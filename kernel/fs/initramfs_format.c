@@ -8,9 +8,10 @@
  * @brief Bounded parser for the initramfs CPIO newc format.
  */
 
-#include "initramfs_format.h"
+#include <myos/kernel/fs/initramfs_format.h>
 
-#include "../vfs/path.h"
+#include <myos/kernel/vfs/path.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

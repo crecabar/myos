@@ -8,7 +8,7 @@
  * @brief Generic read-only block-device capability implementation.
  */
 
-#include "block_device.h"
+#include <myos/kernel/core/device/block_device.h>
 
 #include <stdbool.h>
 #include <stddef.h>

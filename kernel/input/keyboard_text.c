@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "keyboard_text.h"
+#include <myos/kernel/input/keyboard_text.h>
 
 #include <stddef.h>
 #include <stdint.h>

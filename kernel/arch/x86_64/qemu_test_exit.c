@@ -8,7 +8,7 @@
  * @brief QEMU isa-debug-exit signaling for automated kernel tests.
  */
 
-#include "qemu_test_exit.h"
+#include <myos/kernel/arch/x86_64/qemu_test_exit.h>
 
 #include <stdint.h>
 

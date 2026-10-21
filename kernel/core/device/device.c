@@ -8,7 +8,7 @@
  * @brief Generic kernel device identity, topology, and lifetime implementation.
  */
 
-#include "device.h"
+#include <myos/kernel/core/device/device.h>
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -3,10 +3,10 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "cpu_local.h"
+#include <myos/kernel/core/cpu/cpu_local.h>
 
-#include "../../arch/x86_64/cpu_identity.h"
-#include "../execution/kernel_context.h"
+#include <myos/kernel/arch/x86_64/cpu_identity.h>
+#include <myos/kernel/core/execution/kernel_context.h>
 
 #include <stddef.h>
 

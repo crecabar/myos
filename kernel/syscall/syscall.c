@@ -3,23 +3,26 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "syscall.h"
+#include <myos/kernel/syscall/syscall.h>
 
-#include "../version.h"
+#if MYOS_KERNEL_TESTS
+#include <myos/test/syscall/test_numbers.h>
+#endif
 
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../elf/elf64_loader.h"
-#include "../memory/heap.h"
-#include "../memory/memory.h"
-#include "../process/exec.h"
-#include "../process/executable.h"
-#include "../process/file.h"
-#include "../process/path.h"
-#include "../process/user_copy.h"
-#include "../process/wait.h"
-#include "../scheduler/scheduler.h"
-#include "../vfs/path.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/elf/elf64_loader.h>
+#include <myos/kernel/memory/heap.h>
+#include <myos/kernel/memory/memory.h>
+#include <myos/kernel/version.h>
+#include <myos/kernel/process/exec.h>
+#include <myos/kernel/process/executable.h>
+#include <myos/kernel/process/file.h>
+#include <myos/kernel/process/path.h>
+#include <myos/kernel/process/user_copy.h>
+#include <myos/kernel/process/wait.h>
+#include <myos/kernel/scheduler/scheduler.h>
+#include <myos/kernel/vfs/path.h>
 
 #include <stddef.h>
 #include <stdint.h>

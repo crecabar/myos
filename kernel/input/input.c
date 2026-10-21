@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "input.h"
+#include <myos/kernel/input/input.h>
 
 #include <stddef.h>
 #include <stdint.h>

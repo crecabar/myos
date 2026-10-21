@@ -8,13 +8,13 @@
  * @brief Copy-based process fork lifecycle implementation.
  */
 
-#include "fork.h"
+#include <myos/kernel/process/fork.h>
 
-#include "pid.h"
+#include <myos/kernel/process/pid.h>
 
-#include "../core/panic.h"
-#include "../memory/heap.h"
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/memory/heap.h>
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 

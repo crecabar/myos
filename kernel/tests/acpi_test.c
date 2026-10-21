@@ -10,14 +10,14 @@
 
 #include "acpi_test.h"
 
-#include "../arch/x86_64/interrupt_topology.h"
-#include "../arch/x86_64/lapic.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../firmware/acpi.h"
-#include "../firmware/acpi_discovery.h"
-#include "../memory/direct_mapping.h"
-#include "../memory/memory.h"
+#include <myos/kernel/arch/x86_64/interrupt_topology.h>
+#include <myos/kernel/arch/x86_64/lapic.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/firmware/acpi.h>
+#include <myos/kernel/firmware/acpi_discovery.h>
+#include <myos/kernel/memory/direct_mapping.h>
+#include <myos/kernel/memory/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

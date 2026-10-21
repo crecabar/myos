@@ -7,10 +7,10 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-#include "../drivers/framebuffer.h"
-#include "../font/font8x8.h"
-#include "../format/format.h"
-#include "console.h"
+#include <myos/kernel/drivers/framebuffer.h>
+#include <myos/kernel/font/font8x8.h>
+#include <myos/kernel/format/format.h>
+#include <myos/kernel/console/console.h>
 
 #define FONT_WIDTH 8
 #define FONT_HEIGHT 8

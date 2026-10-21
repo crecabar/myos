@@ -10,9 +10,9 @@
 
 #include "vfs_file_io_test.h"
 
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

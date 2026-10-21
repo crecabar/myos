@@ -10,11 +10,11 @@
 
 #include "console_input_test.h"
 
-#include "../console/console_input.h"
-#include "../console/line_buffer.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../input/input.h"
+#include <myos/kernel/console/console_input.h>
+#include <myos/kernel/console/line_buffer.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/input/input.h>
 
 #include <stddef.h>
 #include <stdint.h>

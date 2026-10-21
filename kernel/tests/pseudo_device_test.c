@@ -10,12 +10,12 @@
 
 #include "pseudo_device_test.h"
 
-#include "../core/device/character_device.h"
-#include "../core/device/device.h"
-#include "../core/device/registry.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../drivers/pseudo.h"
+#include <myos/kernel/core/device/character_device.h>
+#include <myos/kernel/core/device/device.h>
+#include <myos/kernel/core/device/registry.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/drivers/pseudo.h>
 
 #include <stddef.h>
 #include <stdint.h>

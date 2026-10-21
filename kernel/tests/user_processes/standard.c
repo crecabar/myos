@@ -13,14 +13,14 @@
 #include "fixture.h"
 
 #include "../../arch/x86_64/tests/user_programs.h"
-#include "../../core/panic.h"
-#include "../../diagnostics/diagnostics.h"
-#include "../../elf/elf64.h"
-#include "../../process/create.h"
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/elf/elf64.h>
+#include <myos/kernel/process/create.h>
+#include <myos/kernel/scheduler/scheduler.h>
 
 #if MYOS_QEMU_TEST_EXIT
-#include "../../arch/x86_64/qemu_test_exit.h"
+#include <myos/kernel/arch/x86_64/qemu_test_exit.h>
 #endif
 
 #include <stdbool.h>

@@ -10,13 +10,13 @@
 
 #include "process_executable_test.h"
 
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../elf/elf64.h"
-#include "../process/executable.h"
-#include "../process/namespace.h"
-#include "../vfs/root.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/elf/elf64.h>
+#include <myos/kernel/process/executable.h>
+#include <myos/kernel/process/namespace.h>
+#include <myos/kernel/vfs/root.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 #include <stdint.h>

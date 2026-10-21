@@ -8,13 +8,14 @@
  * @brief Read-only initramfs VFS tree implementation.
  */
 
-#include "initramfs.h"
+#include <myos/kernel/fs/initramfs.h>
 
-#include "initramfs_format.h"
+#include <myos/kernel/fs/initramfs_format.h>
 
-#include "../core/panic.h"
-#include "../memory/heap.h"
-#include "../runtime/memory.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/memory/heap.h>
+#include <myos/kernel/runtime/memory.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

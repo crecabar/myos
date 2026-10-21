@@ -10,9 +10,9 @@
 
 #include "elf64_test.h"
 
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../elf/elf64.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/elf/elf64.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -6,22 +6,22 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "arch.h"
-#include "gdt.h"
+#include <myos/kernel/arch/x86_64/arch.h>
+#include <myos/kernel/arch/x86_64/gdt.h>
 #include "idt.h"
-#include "interrupt_topology.h"
+#include <myos/kernel/arch/x86_64/interrupt_topology.h>
 #include "i8042.h"
-#include "ioapic.h"
-#include "lapic.h"
+#include <myos/kernel/arch/x86_64/ioapic.h>
+#include <myos/kernel/arch/x86_64/lapic.h>
 #include "pic.h"
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"
-#include "timer.h"
-#include "../../firmware/acpi.h"
-#include "../../firmware/acpi_discovery.h"
+#include <myos/kernel/arch/x86_64/timer.h>
+#include <myos/kernel/firmware/acpi.h>
+#include <myos/kernel/firmware/acpi_discovery.h>
 
-#include "../../diagnostics/diagnostics.h"
-#include "../../core/panic.h"
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/core/panic.h>
 
 #define X86_CR0_TASK_SWITCHED (1ULL << 3)
 

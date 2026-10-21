@@ -4,20 +4,21 @@
  */
 
 #include "idt.h"
-#include "interrupts.h"
-#include "timer.h"
+#include <myos/kernel/arch/x86_64/interrupts.h>
+#include <myos/kernel/arch/x86_64/timer.h>
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"
-#include "../../core/panic.h"
-#include "../../diagnostics/diagnostics.h"
-#include "../../process/exec.h"
-#include "../../process/file.h"
-#include "../../process/fork.h"
-#include "../../process/process.h"
-#include "../../process/wait.h"
-#include "../../scheduler/scheduler.h"
-#include "../../syscall/syscall.h"
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/process/exec.h>
+#include <myos/kernel/process/file.h>
+#include <myos/kernel/process/fork.h>
+#include <myos/kernel/process/process.h>
+#include <myos/kernel/process/wait.h>
+#include <myos/kernel/scheduler/scheduler.h>
+#include <myos/kernel/syscall/syscall.h>
 #if MYOS_KERNEL_TESTS
+#include <myos/test/syscall/test_numbers.h>
 #include "../../tests/user_processes/exec.h"
 #include "../../tests/user_processes/scheduler_context.h"
 #endif

@@ -8,7 +8,7 @@
  * @brief Raw Ring-3 explicit BLOCKED/resume regression program.
  */
 
-#include "../../../syscall/test_numbers.h"
+#include <myos/test/syscall/test_numbers.h>
 
 .section .rodata
 .balign 16

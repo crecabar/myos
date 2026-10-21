@@ -8,10 +8,10 @@
  * @brief Discovery of ACPI tables published by platform firmware.
  */
 
-#include "acpi_discovery.h"
+#include <myos/kernel/firmware/acpi_discovery.h>
 
-#include "../memory/direct_mapping.h"
-#include "../memory/memory.h"
+#include <myos/kernel/memory/direct_mapping.h>
+#include <myos/kernel/memory/memory.h>
 
 #include <stdbool.h>
 #include <stddef.h>

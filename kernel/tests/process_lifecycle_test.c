@@ -10,13 +10,13 @@
 
 #include "process_lifecycle_test.h"
 
-#include "../arch/x86_64/paging.h"
-#include "../core/panic.h"
-#include "../diagnostics/diagnostics.h"
-#include "../memory/memory.h"
-#include "../process/layout.h"
-#include "../process/memory.h"
-#include "../process/process.h"
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/memory/memory.h>
+#include <myos/kernel/process/layout.h>
+#include <myos/kernel/process/memory.h>
+#include <myos/kernel/process/process.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -3,9 +3,9 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 
 #include <stdbool.h>
 #include <stddef.h>

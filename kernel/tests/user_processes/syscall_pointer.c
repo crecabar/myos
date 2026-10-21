@@ -10,12 +10,12 @@
 
 #include "syscall_pointer.h"
 
-#include "../../arch/x86_64/paging.h"
-#include "../../core/panic.h"
-#include "../../diagnostics/diagnostics.h"
-#include "../../elf/elf64.h"
-#include "../../memory/memory.h"
-#include "../../process/create.h"
+#include <myos/kernel/arch/x86_64/paging.h>
+#include <myos/kernel/core/panic.h>
+#include <myos/kernel/diagnostics/diagnostics.h>
+#include <myos/kernel/elf/elf64.h>
+#include <myos/kernel/memory/memory.h>
+#include <myos/kernel/process/create.h>
 
 #include <stddef.h>
 #include <stdint.h>

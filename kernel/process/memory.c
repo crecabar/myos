@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "memory.h"
-#include "../memory/memory.h"
+#include <myos/kernel/process/memory.h>
+#include <myos/kernel/memory/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

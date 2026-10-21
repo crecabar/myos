@@ -8,15 +8,15 @@
  * @brief Process lifecycle notifications after scheduler detachment.
  */
 
-#include "lifecycle.h"
+#include <myos/kernel/process/lifecycle.h>
 
-#include "cwd.h"
-#include "fd_table.h"
-#include "file.h"
-#include "namespace.h"
-#include "wait.h"
+#include <myos/kernel/process/cwd.h>
+#include <myos/kernel/process/fd_table.h>
+#include <myos/kernel/process/file.h>
+#include <myos/kernel/process/namespace.h>
+#include <myos/kernel/process/wait.h>
 
-#include "../core/panic.h"
+#include <myos/kernel/core/panic.h>
 
 #include <stddef.h>
 

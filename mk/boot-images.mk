@@ -209,6 +209,24 @@ $(USB_IMAGE): \
 	@echo "Bootable USB image created:"
 	@echo "  $(USB_IMAGE)"
 
+TEST_USB_IMAGE := $(BUILD_DIR)/myos-usb-test.img
+
+$(TEST_USB_IMAGE): \
+    $(USB_IMAGE) \
+    $(TEST_INITRAMFS_IMAGE) \
+    limine-test.conf | check-usb-tools
+	cp $(USB_IMAGE) $@
+
+	$(MTOOLS_COPY) -o \
+		-i $@@@$(USB_PART_OFFSET) \
+		$(TEST_INITRAMFS_IMAGE) \
+		::/boot/initramfs.cpio
+
+	$(MTOOLS_COPY) -o \
+		-i $@@@$(USB_PART_OFFSET) \
+		limine-test.conf \
+		::/limine.conf
+
 .PHONY: usb-image-tests usb-image-diagnostics
 
 usb-image-tests:

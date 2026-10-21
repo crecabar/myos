@@ -8,7 +8,9 @@
  * @brief System VFS root publication implementation.
  */
 
-#include "root.h"
+#include <myos/kernel/vfs/root.h>
+
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 
