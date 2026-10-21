@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_VERSION_H
-#define MYOS_VERSION_H
+#ifndef MYOS_KERNEL_VERSION_H
+#define MYOS_KERNEL_VERSION_H
 
 #define MYOS_NAME           "MyOS"
 #define MYOS_VERSION        "0.3.0"

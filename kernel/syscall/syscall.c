@@ -5,13 +5,12 @@
 
 #include "syscall.h"
 
-#include "../version.h"
-
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/elf/elf64_loader.h>
 #include <myos/kernel/memory/heap.h>
 #include <myos/kernel/memory/memory.h>
+#include <myos/kernel/version.h>
 #include "../process/exec.h"
 #include "../process/executable.h"
 #include "../process/file.h"

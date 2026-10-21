@@ -13,7 +13,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/memory.h>
-#include "../version.h"
+#include <myos/kernel/version.h>
 
 #include <stdint.h>
 

@@ -179,7 +179,7 @@ kernel/tests/vfs_node_test.h,kernel/tests/include/myos/kernel/tests/vfs_node_tes
 kernel/tests/vfs_parent_test.h,kernel/tests/include/myos/kernel/tests/vfs_parent_test.h,test-entry,1,proposed
 kernel/tests/vfs_path_test.h,kernel/tests/include/myos/kernel/tests/vfs_path_test.h,test-entry,1,proposed
 kernel/tests/wait_queue_test.h,kernel/tests/include/myos/kernel/tests/wait_queue_test.h,test-entry,1,proposed
-kernel/version.h,kernel/include/myos/kernel/version.h,kernel-shared,2,proposed
+kernel/version.h,kernel/include/myos/kernel/version.h,kernel-shared,2,verified
 kernel/vfs/character_device.h,kernel/include/myos/kernel/vfs/character_device.h,kernel-shared,2,proposed
 kernel/vfs/mount.h,kernel/include/myos/kernel/vfs/mount.h,kernel-shared,10,proposed
 kernel/vfs/path.h,kernel/include/myos/kernel/vfs/path.h,kernel-shared,8,proposed
