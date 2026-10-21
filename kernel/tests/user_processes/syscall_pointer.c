@@ -13,7 +13,7 @@
 #include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../../elf/elf64.h"
+#include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/memory/memory.h>
 #include "../../process/create.h"
 

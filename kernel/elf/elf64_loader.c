@@ -8,7 +8,7 @@
  * @brief ELF64 load-segment validation and process loading.
  */
 
-#include "elf64_loader.h"
+#include <myos/kernel/elf/elf64_loader.h>
 
 #include <myos/kernel/memory/heap.h>
 #include "../process/memory.h"

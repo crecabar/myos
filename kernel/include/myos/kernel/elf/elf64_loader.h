@@ -8,10 +8,10 @@
  * @brief ELF64 load-segment validation and process loading.
  */
 
-#ifndef MYOS_ELF_ELF64_LOADER_H
-#define MYOS_ELF_ELF64_LOADER_H
+#ifndef MYOS_KERNEL_ELF_ELF64_LOADER_H
+#define MYOS_KERNEL_ELF_ELF64_LOADER_H
 
-#include "elf64.h"
+#include <myos/kernel/elf/elf64.h>
 
 #include <stdbool.h>
 #include <stddef.h>

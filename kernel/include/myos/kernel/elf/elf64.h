@@ -11,8 +11,8 @@
  * representation consumed by later executable-loading stages.
  */
 
-#ifndef MYOS_ELF_ELF64_H
-#define MYOS_ELF_ELF64_H
+#ifndef MYOS_KERNEL_ELF_ELF64_H
+#define MYOS_KERNEL_ELF_ELF64_H
 
 #include <stdbool.h>
 #include <stddef.h>

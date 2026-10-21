@@ -11,7 +11,7 @@
 #ifndef MYOS_PROCESS_EXEC_H
 #define MYOS_PROCESS_EXEC_H
 
-#include "../elf/elf64.h"
+#include <myos/kernel/elf/elf64.h>
 #include "image.h"
 #include "process.h"
 

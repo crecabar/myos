@@ -15,7 +15,7 @@
 #ifndef MYOS_PROCESS_CREATE_H
 #define MYOS_PROCESS_CREATE_H
 
-#include "../elf/elf64.h"
+#include <myos/kernel/elf/elf64.h>
 #include "instance.h"
 
 #include <stddef.h>

@@ -14,7 +14,7 @@
 #ifndef MYOS_PROCESS_LAYOUT_H
 #define MYOS_PROCESS_LAYOUT_H
 
-#include "../elf/elf64_loader.h"
+#include <myos/kernel/elf/elf64_loader.h>
 #include "memory.h"
 #include "stack.h"
 

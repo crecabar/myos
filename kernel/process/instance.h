@@ -23,7 +23,7 @@
 #include "fd_table.h"
 #include "image.h"
 #include "process.h"
-#include "../elf/elf64.h"
+#include <myos/kernel/elf/elf64.h>
 #include "../vfs/vfs.h"
 
 #include <stdbool.h>

@@ -19,7 +19,7 @@
 #ifndef MYOS_PROCESS_IMAGE_H
 #define MYOS_PROCESS_IMAGE_H
 
-#include "../elf/elf64.h"
+#include <myos/kernel/elf/elf64.h>
 #include "layout.h"
 #include "memory.h"
 

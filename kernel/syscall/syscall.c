@@ -9,7 +9,7 @@
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../elf/elf64_loader.h"
+#include <myos/kernel/elf/elf64_loader.h>
 #include <myos/kernel/memory/heap.h>
 #include <myos/kernel/memory/memory.h>
 #include "../process/exec.h"

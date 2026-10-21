@@ -8,7 +8,7 @@
  * @brief Pure ELF64 executable parsing and validation.
  */
 
-#include "elf64.h"
+#include <myos/kernel/elf/elf64.h>
 
 #include <stddef.h>
 #include <stdint.h>
