@@ -16,8 +16,8 @@
  * of an existing process.
  */
 
-#ifndef MYOS_PROCESS_IMAGE_H
-#define MYOS_PROCESS_IMAGE_H
+#ifndef MYOS_KERNEL_PROCESS_IMAGE_H
+#define MYOS_KERNEL_PROCESS_IMAGE_H
 
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/process/layout.h>

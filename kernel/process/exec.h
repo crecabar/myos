@@ -12,7 +12,7 @@
 #define MYOS_PROCESS_EXEC_H
 
 #include <myos/kernel/elf/elf64.h>
-#include "image.h"
+#include <myos/kernel/process/image.h>
 #include "process.h"
 
 #include <stdbool.h>

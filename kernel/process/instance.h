@@ -21,7 +21,7 @@
 #define MYOS_PROCESS_INSTANCE_H
 
 #include "fd_table.h"
-#include "image.h"
+#include <myos/kernel/process/image.h>
 #include "process.h"
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/vfs/vfs.h>

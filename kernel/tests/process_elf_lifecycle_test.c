@@ -22,7 +22,7 @@
 #include "../process/exec.h"
 #include "../process/fd_table.h"
 #include "../process/fork.h"
-#include "../process/image.h"
+#include <myos/kernel/process/image.h>
 #include "../process/instance.h"
 #include <myos/kernel/process/layout.h>
 #include "../process/lifecycle.h"

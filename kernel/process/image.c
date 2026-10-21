@@ -8,7 +8,7 @@
  * @brief Owned executable image lifecycle implementation.
  */
 
-#include "image.h"
+#include <myos/kernel/process/image.h>
 
 #include <myos/kernel/core/panic.h>
 

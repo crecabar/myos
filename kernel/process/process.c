@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "image.h"
+#include <myos/kernel/process/image.h>
 #include "process.h"
 
 #include <stddef.h>
