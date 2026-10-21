@@ -11,8 +11,8 @@
  * reference to a live VFS directory node.
  */
 
-#ifndef MYOS_PROCESS_CWD_H
-#define MYOS_PROCESS_CWD_H
+#ifndef MYOS_KERNEL_PROCESS_CWD_H
+#define MYOS_KERNEL_PROCESS_CWD_H
 
 #include <myos/kernel/process/instance.h>
 

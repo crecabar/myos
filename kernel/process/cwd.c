@@ -8,7 +8,7 @@
  * @brief Per-process current working directory ownership implementation.
  */
 
-#include "cwd.h"
+#include <myos/kernel/process/cwd.h>
 
 #include <stddef.h>
 

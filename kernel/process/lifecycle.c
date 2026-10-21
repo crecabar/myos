@@ -10,7 +10,7 @@
 
 #include "lifecycle.h"
 
-#include "cwd.h"
+#include <myos/kernel/process/cwd.h>
 #include <myos/kernel/process/fd_table.h>
 #include <myos/kernel/process/file.h>
 #include "namespace.h"

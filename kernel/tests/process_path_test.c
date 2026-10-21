@@ -12,7 +12,7 @@
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../process/cwd.h"
+#include <myos/kernel/process/cwd.h>
 #include "../process/namespace.h"
 #include "../process/path.h"
 #include <myos/kernel/vfs/mount.h>

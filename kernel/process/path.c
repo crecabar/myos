@@ -10,7 +10,7 @@
 
 #include "path.h"
 
-#include "cwd.h"
+#include <myos/kernel/process/cwd.h>
 #include "namespace.h"
 
 #include <myos/kernel/vfs/mount.h>

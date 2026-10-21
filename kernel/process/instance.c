@@ -10,7 +10,7 @@
 
 #include <myos/kernel/process/instance.h>
 
- #include "cwd.h"
+#include <myos/kernel/process/cwd.h>
  #include "namespace.h"
 
 #include <myos/kernel/core/panic.h>

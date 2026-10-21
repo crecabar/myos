@@ -18,7 +18,7 @@
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/memory/heap.h>
 #include "../process/create.h"
-#include "../process/cwd.h"
+#include <myos/kernel/process/cwd.h>
 #include <myos/kernel/process/exec.h>
 #include <myos/kernel/process/fd_table.h>
 #include "../process/fork.h"
