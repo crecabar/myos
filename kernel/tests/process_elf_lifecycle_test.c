@@ -25,7 +25,7 @@
 #include <myos/kernel/process/image.h>
 #include <myos/kernel/process/instance.h>
 #include <myos/kernel/process/layout.h>
-#include "../process/lifecycle.h"
+#include <myos/kernel/process/lifecycle.h>
 #include <myos/kernel/process/namespace.h>
 #include <myos/kernel/process/memory.h>
 #include <myos/kernel/process/pid.h>

@@ -8,8 +8,8 @@
  * @brief Process lifecycle notifications after scheduler detachment.
  */
 
-#ifndef MYOS_PROCESS_LIFECYCLE_H
-#define MYOS_PROCESS_LIFECYCLE_H
+#ifndef MYOS_KERNEL_PROCESS_LIFECYCLE_H
+#define MYOS_KERNEL_PROCESS_LIFECYCLE_H
 
 #include <myos/kernel/process/process.h>
 

@@ -8,7 +8,7 @@
  * @brief Process lifecycle notifications after scheduler detachment.
  */
 
-#include "lifecycle.h"
+#include <myos/kernel/process/lifecycle.h>
 
 #include <myos/kernel/process/cwd.h>
 #include <myos/kernel/process/fd_table.h>

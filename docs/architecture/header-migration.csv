@@ -87,7 +87,7 @@ kernel/process/fork.h,kernel/include/myos/kernel/process/fork.h,kernel-shared,2,
 kernel/process/image.h,kernel/include/myos/kernel/process/image.h,kernel-shared,1,verified
 kernel/process/instance.h,kernel/include/myos/kernel/process/instance.h,kernel-shared,9,verified
 kernel/process/layout.h,kernel/include/myos/kernel/process/layout.h,kernel-shared,5,verified
-kernel/process/lifecycle.h,kernel/include/myos/kernel/process/lifecycle.h,kernel-shared,3,proposed
+kernel/process/lifecycle.h,kernel/include/myos/kernel/process/lifecycle.h,kernel-shared,3,verified
 kernel/process/memory.h,kernel/include/myos/kernel/process/memory.h,kernel-shared,8,verified
 kernel/process/namespace.h,kernel/include/myos/kernel/process/namespace.h,kernel-shared,8,verified
 kernel/process/path.h,kernel/include/myos/kernel/process/path.h,kernel-shared,3,verified
