@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 #include <myos/kernel/arch/x86_64/serial.h>
-#include "../console/console.h"
+#include <myos/kernel/console/console.h>
 #include <myos/kernel/format/format.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 

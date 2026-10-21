@@ -3,10 +3,10 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_CONSOLE_CONSOLE_INPUT_WORKER_H
-#define MYOS_CONSOLE_CONSOLE_INPUT_WORKER_H
+#ifndef MYOS_KERNEL_CONSOLE_CONSOLE_INPUT_WORKER_H
+#define MYOS_KERNEL_CONSOLE_CONSOLE_INPUT_WORKER_H
 
-#include "console_device.h"
+#include <myos/kernel/console/console_device.h>
 
 #include <myos/kernel/core/execution/kernel_context.h>
 

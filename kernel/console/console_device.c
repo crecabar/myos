@@ -8,7 +8,7 @@
  * @brief System console character-device implementation.
  */
 
-#include "console_device.h"
+#include <myos/kernel/console/console_device.h>
 
 #include <myos/kernel/input/input.h>
 

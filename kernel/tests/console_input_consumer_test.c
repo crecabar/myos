@@ -10,8 +10,8 @@
 
 #include "console_input_consumer_test.h"
 
-#include "../console/console_input_consumer.h"
-#include "../console/line_buffer.h"
+#include <myos/kernel/console/console_input_consumer.h>
+#include <myos/kernel/console/line_buffer.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/input/input.h>

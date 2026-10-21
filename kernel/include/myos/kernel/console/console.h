@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_CONSOLE_CONSOLE_H
-#define MYOS_CONSOLE_CONSOLE_H
+#ifndef MYOS_KERNEL_CONSOLE_CONSOLE_H
+#define MYOS_KERNEL_CONSOLE_CONSOLE_H
 
 #include <stdarg.h>
 #include <stdbool.h>

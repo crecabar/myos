@@ -3,10 +3,10 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_CONSOLE_CONSOLE_INPUT_CONSUMER_H
-#define MYOS_CONSOLE_CONSOLE_INPUT_CONSUMER_H
+#ifndef MYOS_KERNEL_CONSOLE_CONSOLE_INPUT_CONSUMER_H
+#define MYOS_KERNEL_CONSOLE_CONSOLE_INPUT_CONSUMER_H
 
-#include "line_buffer.h"
+#include <myos/kernel/console/line_buffer.h>
 
 #include <myos/kernel/input/input.h>
 

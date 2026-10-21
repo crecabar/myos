@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "line_buffer.h"
+#include <myos/kernel/console/line_buffer.h>
 
 #include <stddef.h>
 

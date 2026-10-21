@@ -28,13 +28,13 @@
  * VFS publication is separate: device existence is not a pathname.
  */
 
-#ifndef MYOS_CONSOLE_CONSOLE_DEVICE_H
-#define MYOS_CONSOLE_CONSOLE_DEVICE_H
+#ifndef MYOS_KERNEL_CONSOLE_CONSOLE_DEVICE_H
+#define MYOS_KERNEL_CONSOLE_CONSOLE_DEVICE_H
 
-#include "console.h"
+#include <myos/kernel/console/console.h>
 
-#include "console_input_consumer.h"
-#include "line_buffer.h"
+#include <myos/kernel/console/console_input_consumer.h>
+#include <myos/kernel/console/line_buffer.h>
 
 #include <myos/kernel/core/deferred_work/deferred_work.h>
 #include <myos/kernel/core/device/character_device.h>

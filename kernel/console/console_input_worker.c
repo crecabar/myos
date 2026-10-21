@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "console_input_worker.h"
+#include <myos/kernel/console/console_input_worker.h>
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/input/input.h>

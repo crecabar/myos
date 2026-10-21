@@ -12,9 +12,9 @@
 
 #include <myos/kernel/arch/x86_64/cpu_identity.h>
 #include <myos/kernel/arch/x86_64/interrupts.h>
-#include "../console/console.h"
-#include "../console/console_device.h"
-#include "../console/console_input_worker.h"
+#include <myos/kernel/console/console.h>
+#include <myos/kernel/console/console_device.h>
+#include <myos/kernel/console/console_input_worker.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/core/wait_queue.h>
 #include <myos/kernel/core/cpu/cpu_local.h>

@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_CONSOLE_LINE_BUFFER_H
-#define MYOS_CONSOLE_LINE_BUFFER_H
+#ifndef MYOS_KERNEL_CONSOLE_LINE_BUFFER_H
+#define MYOS_KERNEL_CONSOLE_LINE_BUFFER_H
 
 #include <stdbool.h>
 #include <stddef.h>

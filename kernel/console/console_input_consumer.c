@@ -3,9 +3,9 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "console_input_consumer.h"
+#include <myos/kernel/console/console_input_consumer.h>
 
-#include "console_input.h"
+#include <myos/kernel/console/console_input.h>
 
 #include <stddef.h>
 

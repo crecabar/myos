@@ -6,7 +6,7 @@
 #ifndef MYOS_INIT_DISPLAY_H
 #define MYOS_INIT_DISPLAY_H
 
-#include "../console/console.h"
+#include <myos/kernel/console/console.h>
 #include <myos/kernel/drivers/framebuffer.h>
 
 struct kernel_display {

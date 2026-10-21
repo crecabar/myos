@@ -5,7 +5,7 @@
 
 #include "console_render_test.h"
 
-#include "../console/console.h"
+#include <myos/kernel/console/console.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/drivers/framebuffer.h>

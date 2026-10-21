@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include <myos/kernel/arch/x86_64/interrupts.h>
-#include "console/console_input_worker.h"
+#include <myos/kernel/console/console_input_worker.h>
 #include <myos/kernel/core/execution/kernel_supervisor.h>
 #include <myos/kernel/arch/x86_64/arch.h>
 #include <myos/kernel/arch/x86_64/cpu.h>
@@ -22,7 +22,7 @@
 #include <myos/kernel/boot/physical_range_audit.h>
 #include <myos/kernel/boot/reclaim_preflight.h>
 #include <myos/kernel/config/boot_config.h>
-#include "console/console_device.h"
+#include <myos/kernel/console/console_device.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/core/device/registry.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
