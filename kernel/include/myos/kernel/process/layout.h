@@ -11,16 +11,17 @@
  * executable user code and a protected user stack.
  */
 
-#ifndef MYOS_PROCESS_LAYOUT_H
-#define MYOS_PROCESS_LAYOUT_H
+#ifndef MYOS_KERNEL_PROCESS_LAYOUT_H
+#define MYOS_KERNEL_PROCESS_LAYOUT_H
 
 #include <myos/kernel/elf/elf64_loader.h>
-#include <myos/kernel/process/memory.h>
 #include <myos/kernel/process/stack.h>
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+struct process_memory;
 
 /**
  * Default virtual address where process code begins.

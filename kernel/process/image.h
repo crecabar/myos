@@ -20,7 +20,7 @@
 #define MYOS_PROCESS_IMAGE_H
 
 #include <myos/kernel/elf/elf64.h>
-#include "layout.h"
+#include <myos/kernel/process/layout.h>
 #include <myos/kernel/process/memory.h>
 
 #include <stdbool.h>

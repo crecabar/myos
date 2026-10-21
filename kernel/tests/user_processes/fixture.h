@@ -11,7 +11,7 @@
 #ifndef MYOS_TESTS_USER_PROCESSES_FIXTURE_H
 #define MYOS_TESTS_USER_PROCESSES_FIXTURE_H
 
-#include "../../process/layout.h"
+#include <myos/kernel/process/layout.h>
 #include <myos/kernel/process/memory.h>
 #include "../../process/process.h"
 

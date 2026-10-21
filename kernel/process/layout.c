@@ -3,10 +3,11 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "layout.h"
+#include <myos/kernel/process/layout.h>
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/heap.h>
+#include <myos/kernel/process/memory.h>
 
 #include <stddef.h>
 

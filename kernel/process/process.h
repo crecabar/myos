@@ -26,7 +26,7 @@
 #ifndef MYOS_PROCESS_PROCESS_H
 #define MYOS_PROCESS_PROCESS_H
 
-#include "layout.h"
+#include <myos/kernel/process/layout.h>
 #include <myos/kernel/process/memory.h>
 
 #include <stdbool.h>

@@ -24,7 +24,7 @@
 #include "../process/fork.h"
 #include "../process/image.h"
 #include "../process/instance.h"
-#include "../process/layout.h"
+#include <myos/kernel/process/layout.h>
 #include "../process/lifecycle.h"
 #include "../process/namespace.h"
 #include <myos/kernel/process/memory.h>

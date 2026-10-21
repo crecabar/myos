@@ -19,7 +19,7 @@
 #include <myos/kernel/memory/direct_mapping.h>
 #include <myos/kernel/memory/kernel_mapping.h>
 #include <myos/kernel/memory/memory.h>
-#include "../process/layout.h"
+#include <myos/kernel/process/layout.h>
 #include <myos/kernel/process/memory.h>
 #include <myos/kernel/process/stack.h>
 

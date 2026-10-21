@@ -14,7 +14,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/memory.h>
-#include "../process/layout.h"
+#include <myos/kernel/process/layout.h>
 #include <myos/kernel/process/memory.h>
 #include "../process/process.h"
 
