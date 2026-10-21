@@ -79,7 +79,7 @@ kernel/memory/kernel_mapping.h,kernel/include/myos/kernel/memory/kernel_mapping.
 kernel/memory/memory.h,kernel/include/myos/kernel/memory/memory.h,kernel-shared,37,verified
 kernel/process/create.h,kernel/include/myos/kernel/process/create.h,kernel-shared,19,proposed
 kernel/process/cwd.h,kernel/include/myos/kernel/process/cwd.h,kernel-shared,3,proposed
-kernel/process/exec.h,kernel/include/myos/kernel/process/exec.h,kernel-shared,5,proposed
+kernel/process/exec.h,kernel/include/myos/kernel/process/exec.h,kernel-shared,5,verified
 kernel/process/executable.h,kernel/include/myos/kernel/process/executable.h,kernel-shared,10,proposed
 kernel/process/fd_table.h,kernel/include/myos/kernel/process/fd_table.h,kernel-shared,6,verified
 kernel/process/file.h,kernel/include/myos/kernel/process/file.h,kernel-shared,4,proposed

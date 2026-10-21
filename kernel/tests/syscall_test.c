@@ -7,7 +7,7 @@
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../process/exec.h"
+#include <myos/kernel/process/exec.h>
 #include "../syscall/syscall.h"
 
 #include <stdint.h>

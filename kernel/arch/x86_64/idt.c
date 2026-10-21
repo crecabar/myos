@@ -10,7 +10,7 @@
 #include "ps2_mouse.h"
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../../process/exec.h"
+#include <myos/kernel/process/exec.h>
 #include "../../process/file.h"
 #include "../../process/fork.h"
 #include <myos/kernel/process/process.h>

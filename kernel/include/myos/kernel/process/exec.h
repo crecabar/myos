@@ -8,8 +8,8 @@
  * @brief Transactional executable-image replacement preparation.
  */
 
-#ifndef MYOS_PROCESS_EXEC_H
-#define MYOS_PROCESS_EXEC_H
+#ifndef MYOS_KERNEL_PROCESS_EXEC_H
+#define MYOS_KERNEL_PROCESS_EXEC_H
 
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/process/image.h>
