@@ -15,7 +15,7 @@
 #include <myos/kernel/core/device/device.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../drivers/pseudo.h"
+#include <myos/kernel/drivers/pseudo.h>
 #include "../vfs/character_device.h"
 #include "../vfs/vfs.h"
 

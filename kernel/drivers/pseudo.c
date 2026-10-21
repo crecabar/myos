@@ -8,7 +8,7 @@
  * @brief Core null and zero pseudo-device implementation.
  */
 
-#include "pseudo.h"
+#include <myos/kernel/drivers/pseudo.h>
 
 #include <stddef.h>
 #include <stdint.h>

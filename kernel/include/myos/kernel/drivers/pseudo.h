@@ -15,8 +15,8 @@
  * pathname visibility remain separate concerns.
  */
 
-#ifndef MYOS_DRIVERS_PSEUDO_H
-#define MYOS_DRIVERS_PSEUDO_H
+#ifndef MYOS_KERNEL_DRIVERS_PSEUDO_H
+#define MYOS_KERNEL_DRIVERS_PSEUDO_H
 
 #include <myos/kernel/core/device/character_device.h>
 #include <myos/kernel/core/device/device.h>

@@ -55,7 +55,7 @@ kernel/core/panic.h,kernel/include/myos/kernel/core/panic.h,kernel-shared,118,ve
 kernel/core/wait_queue.h,kernel/include/myos/kernel/core/wait_queue.h,kernel-shared,5,verified
 kernel/diagnostics/diagnostics.h,kernel/include/myos/kernel/diagnostics/diagnostics.h,kernel-shared,89,verified
 kernel/drivers/framebuffer.h,kernel/include/myos/kernel/drivers/framebuffer.h,kernel-shared,9,verified
-kernel/drivers/pseudo.h,kernel/include/myos/kernel/drivers/pseudo.h,kernel-shared,4,proposed
+kernel/drivers/pseudo.h,kernel/include/myos/kernel/drivers/pseudo.h,kernel-shared,4,verified
 kernel/elf/elf64.h,kernel/include/myos/kernel/elf/elf64.h,kernel-shared,19,verified
 kernel/elf/elf64_loader.h,kernel/include/myos/kernel/elf/elf64_loader.h,kernel-shared,3,verified
 kernel/firmware/acpi.h,kernel/include/myos/kernel/firmware/acpi.h,kernel-shared,3,verified
