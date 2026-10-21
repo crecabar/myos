@@ -14,7 +14,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include "../../process/create.h"
 #include "../../process/executable.h"
-#include "../../process/instance.h"
+#include <myos/kernel/process/instance.h>
 #include <myos/kernel/process/process.h>
 #include "../../scheduler/scheduler.h"
 #include <myos/kernel/vfs/root.h>

@@ -23,7 +23,7 @@
 #include <myos/kernel/process/fd_table.h>
 #include "../process/fork.h"
 #include <myos/kernel/process/image.h>
-#include "../process/instance.h"
+#include <myos/kernel/process/instance.h>
 #include <myos/kernel/process/layout.h>
 #include "../process/lifecycle.h"
 #include "../process/namespace.h"

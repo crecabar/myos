@@ -15,7 +15,7 @@
 #include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/vfs.h>
 
-#include "instance.h"
+#include <myos/kernel/process/instance.h>
 
 #include <stdbool.h>
 #include <stddef.h>

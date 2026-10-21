@@ -13,7 +13,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include "../process/cwd.h"
-#include "../process/instance.h"
+#include <myos/kernel/process/instance.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>

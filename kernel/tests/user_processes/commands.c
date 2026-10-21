@@ -15,7 +15,7 @@
 #include "../../process/create.h"
 #include "../../process/executable.h"
 #include <myos/kernel/process/fd_table.h>
-#include "../../process/instance.h"
+#include <myos/kernel/process/instance.h>
 #include "../../process/path.h"
 #include <myos/kernel/process/process.h>
 #include "../../scheduler/scheduler.h"

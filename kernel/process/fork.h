@@ -11,7 +11,7 @@
 #ifndef MYOS_PROCESS_FORK_H
 #define MYOS_PROCESS_FORK_H
 
-#include "instance.h"
+#include <myos/kernel/process/instance.h>
 
 #include <stdint.h>
 

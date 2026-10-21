@@ -8,7 +8,7 @@
  * @brief Owned process-instance lifecycle implementation.
  */
 
- #include "instance.h"
+#include <myos/kernel/process/instance.h>
 
  #include "cwd.h"
  #include "namespace.h"

@@ -16,7 +16,7 @@
 #define MYOS_PROCESS_CREATE_H
 
 #include <myos/kernel/elf/elf64.h>
-#include "instance.h"
+#include <myos/kernel/process/instance.h>
 
 #include <stddef.h>
 #include <stdint.h>

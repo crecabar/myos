@@ -14,7 +14,7 @@
 #ifndef MYOS_PROCESS_CWD_H
 #define MYOS_PROCESS_CWD_H
 
-#include "instance.h"
+#include <myos/kernel/process/instance.h>
 
 #include <stdbool.h>
 

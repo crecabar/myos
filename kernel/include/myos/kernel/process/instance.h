@@ -17,8 +17,8 @@
  * file descriptor references.
  */
 
-#ifndef MYOS_PROCESS_INSTANCE_H
-#define MYOS_PROCESS_INSTANCE_H
+#ifndef MYOS_KERNEL_PROCESS_INSTANCE_H
+#define MYOS_KERNEL_PROCESS_INSTANCE_H
 
 #include <myos/kernel/process/fd_table.h>
 #include <myos/kernel/process/image.h>

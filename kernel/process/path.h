@@ -11,7 +11,7 @@
 #ifndef MYOS_PROCESS_PATH_H
 #define MYOS_PROCESS_PATH_H
 
-#include "instance.h"
+#include <myos/kernel/process/instance.h>
 
 #include <myos/kernel/vfs/vfs.h>
 
