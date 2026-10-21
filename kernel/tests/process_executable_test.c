@@ -14,7 +14,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/process/executable.h>
-#include "../process/namespace.h"
+#include <myos/kernel/process/namespace.h>
 #include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>
 

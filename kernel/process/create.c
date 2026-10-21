@@ -13,7 +13,7 @@
 #include <myos/kernel/process/cwd.h>
 #include <myos/kernel/process/fd_table.h>
 #include <myos/kernel/process/file.h>
-#include "namespace.h"
+#include <myos/kernel/process/namespace.h>
 #include "pid.h"
 
 #include <myos/kernel/core/panic.h>

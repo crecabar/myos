@@ -11,8 +11,8 @@
  * reference to a live VFS directory node.
  */
 
-#ifndef MYOS_PROCESS_NAMESPACE_H
-#define MYOS_PROCESS_NAMESPACE_H
+#ifndef MYOS_KERNEL_PROCESS_NAMESPACE_H
+#define MYOS_KERNEL_PROCESS_NAMESPACE_H
 
 #include <myos/kernel/process/instance.h>
 

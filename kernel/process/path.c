@@ -11,7 +11,7 @@
 #include "path.h"
 
 #include <myos/kernel/process/cwd.h>
-#include "namespace.h"
+#include <myos/kernel/process/namespace.h>
 
 #include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/path.h>

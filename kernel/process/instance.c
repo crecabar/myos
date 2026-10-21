@@ -11,7 +11,7 @@
 #include <myos/kernel/process/instance.h>
 
 #include <myos/kernel/process/cwd.h>
- #include "namespace.h"
+#include <myos/kernel/process/namespace.h>
 
 #include <myos/kernel/core/panic.h>
 

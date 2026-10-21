@@ -16,7 +16,7 @@
 #include <myos/kernel/process/fd_table.h>
 #include <myos/kernel/process/file.h>
 #include "../process/lifecycle.h"
-#include "../process/namespace.h"
+#include <myos/kernel/process/namespace.h>
 #include "../scheduler/scheduler.h"
 #include <myos/kernel/vfs/vfs.h>
 
