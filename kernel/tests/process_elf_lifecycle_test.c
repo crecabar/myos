@@ -21,7 +21,7 @@
 #include <myos/kernel/process/cwd.h>
 #include <myos/kernel/process/exec.h>
 #include <myos/kernel/process/fd_table.h>
-#include "../process/fork.h"
+#include <myos/kernel/process/fork.h>
 #include <myos/kernel/process/image.h>
 #include <myos/kernel/process/instance.h>
 #include <myos/kernel/process/layout.h>

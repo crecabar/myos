@@ -8,7 +8,7 @@
  * @brief Copy-based process fork lifecycle implementation.
  */
 
-#include "fork.h"
+#include <myos/kernel/process/fork.h>
 
 #include <myos/kernel/process/pid.h>
 

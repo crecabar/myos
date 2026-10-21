@@ -12,7 +12,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/process/exec.h>
 #include <myos/kernel/process/file.h>
-#include "../../process/fork.h"
+#include <myos/kernel/process/fork.h>
 #include <myos/kernel/process/process.h>
 #include "../../process/wait.h"
 #include "../../scheduler/scheduler.h"

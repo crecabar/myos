@@ -8,8 +8,8 @@
  * @brief Copy-based process fork lifecycle operation.
  */
 
-#ifndef MYOS_PROCESS_FORK_H
-#define MYOS_PROCESS_FORK_H
+#ifndef MYOS_KERNEL_PROCESS_FORK_H
+#define MYOS_KERNEL_PROCESS_FORK_H
 
 #include <myos/kernel/process/instance.h>
 

@@ -83,7 +83,7 @@ kernel/process/exec.h,kernel/include/myos/kernel/process/exec.h,kernel-shared,5,
 kernel/process/executable.h,kernel/include/myos/kernel/process/executable.h,kernel-shared,10,verified
 kernel/process/fd_table.h,kernel/include/myos/kernel/process/fd_table.h,kernel-shared,6,verified
 kernel/process/file.h,kernel/include/myos/kernel/process/file.h,kernel-shared,4,verified
-kernel/process/fork.h,kernel/include/myos/kernel/process/fork.h,kernel-shared,2,proposed
+kernel/process/fork.h,kernel/include/myos/kernel/process/fork.h,kernel-shared,2,verified
 kernel/process/image.h,kernel/include/myos/kernel/process/image.h,kernel-shared,1,verified
 kernel/process/instance.h,kernel/include/myos/kernel/process/instance.h,kernel-shared,9,verified
 kernel/process/layout.h,kernel/include/myos/kernel/process/layout.h,kernel-shared,5,verified
