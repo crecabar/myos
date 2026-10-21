@@ -8,7 +8,7 @@
  * @brief VFS-backed executable image acquisition implementation.
  */
 
-#include "executable.h"
+#include <myos/kernel/process/executable.h>
 
 #include "cwd.h"
 #include "namespace.h"

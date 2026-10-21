@@ -8,8 +8,8 @@
  * @brief VFS-backed executable image acquisition.
  */
 
-#ifndef MYOS_PROCESS_EXECUTABLE_H
-#define MYOS_PROCESS_EXECUTABLE_H
+#ifndef MYOS_KERNEL_PROCESS_EXECUTABLE_H
+#define MYOS_KERNEL_PROCESS_EXECUTABLE_H
 
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/vfs/mount.h>

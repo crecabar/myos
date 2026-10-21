@@ -12,7 +12,7 @@
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/version.h>
 #include <myos/kernel/process/exec.h>
-#include "../process/executable.h"
+#include <myos/kernel/process/executable.h>
 #include "../process/file.h"
 #include "../process/path.h"
 #include <myos/kernel/process/user_copy.h>

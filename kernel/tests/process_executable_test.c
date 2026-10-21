@@ -13,7 +13,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/elf/elf64.h>
-#include "../process/executable.h"
+#include <myos/kernel/process/executable.h>
 #include "../process/namespace.h"
 #include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>
