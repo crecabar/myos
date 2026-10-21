@@ -8,8 +8,8 @@
  * @brief Kernel boot configuration derived from the bootloader command line.
  */
 
-#ifndef MYOS_CONFIG_BOOT_CONFIG_H
-#define MYOS_CONFIG_BOOT_CONFIG_H
+#ifndef MYOS_KERNEL_CONFIG_BOOT_CONFIG_H
+#define MYOS_KERNEL_CONFIG_BOOT_CONFIG_H
 
 #include <stdint.h>
 
