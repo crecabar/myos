@@ -15,7 +15,7 @@
 #include "../process/executable.h"
 #include "../process/file.h"
 #include "../process/path.h"
-#include "../process/user_copy.h"
+#include <myos/kernel/process/user_copy.h>
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
 #include <myos/kernel/vfs/path.h>

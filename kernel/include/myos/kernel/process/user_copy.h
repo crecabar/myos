@@ -16,14 +16,14 @@
  * pointer.
  */
 
-#ifndef MYOS_PROCESS_USER_COPY_H
-#define MYOS_PROCESS_USER_COPY_H
-
-#include <myos/kernel/process/memory.h>
+#ifndef MYOS_KERNEL_PROCESS_USER_COPY_H
+#define MYOS_KERNEL_PROCESS_USER_COPY_H
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+struct process_memory;
 
 /**
  * Validates that a complete userspace range can be read by the kernel.

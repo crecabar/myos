@@ -10,7 +10,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/process/memory.h>
-#include "../process/user_copy.h"
+#include <myos/kernel/process/user_copy.h>
 
 #include <myos/abi/syscall.h>
 
