@@ -18,7 +18,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/memory/memory.h>
-#include "../../process/create.h"
+#include <myos/kernel/process/create.h>
 #include "../../scheduler/scheduler.h"
 
 #include <stddef.h>

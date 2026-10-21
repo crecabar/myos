@@ -15,7 +15,7 @@
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/memory/heap.h>
 #include <myos/kernel/memory/memory.h>
-#include "../../process/create.h"
+#include <myos/kernel/process/create.h>
 #include <myos/kernel/process/process.h>
 
 #include <stdbool.h>

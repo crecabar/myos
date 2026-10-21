@@ -12,7 +12,7 @@
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../../process/create.h"
+#include <myos/kernel/process/create.h>
 #include <myos/kernel/process/executable.h>
 #include <myos/kernel/process/instance.h>
 #include <myos/kernel/process/process.h>

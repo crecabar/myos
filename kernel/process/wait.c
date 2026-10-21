@@ -10,7 +10,7 @@
 
 #include "wait.h"
 
-#include "create.h"
+#include <myos/kernel/process/create.h>
 
 #include <myos/kernel/core/panic.h>
 #include "../scheduler/scheduler.h"

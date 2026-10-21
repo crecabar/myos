@@ -14,7 +14,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/heap.h>
 #include <myos/kernel/memory/memory.h>
-#include "../../process/create.h"
+#include <myos/kernel/process/create.h>
 #include <myos/kernel/process/executable.h>
 #include <myos/kernel/process/instance.h>
 #include <myos/kernel/process/namespace.h>

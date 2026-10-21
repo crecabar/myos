@@ -16,7 +16,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/elf/elf64.h>
-#include "../../process/create.h"
+#include <myos/kernel/process/create.h>
 #include "../../scheduler/scheduler.h"
 
 #if MYOS_QEMU_TEST_EXIT

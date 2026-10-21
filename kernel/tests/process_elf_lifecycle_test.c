@@ -17,7 +17,7 @@
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/memory/heap.h>
-#include "../process/create.h"
+#include <myos/kernel/process/create.h>
 #include <myos/kernel/process/cwd.h>
 #include <myos/kernel/process/exec.h>
 #include <myos/kernel/process/fd_table.h>

@@ -12,8 +12,8 @@
  * register the resulting READY process with the scheduler.
  */
 
-#ifndef MYOS_PROCESS_CREATE_H
-#define MYOS_PROCESS_CREATE_H
+#ifndef MYOS_KERNEL_PROCESS_CREATE_H
+#define MYOS_KERNEL_PROCESS_CREATE_H
 
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/process/instance.h>

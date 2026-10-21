@@ -17,7 +17,7 @@
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/memory/heap.h>
 #include <myos/kernel/memory/memory.h>
-#include "../../process/create.h"
+#include <myos/kernel/process/create.h>
 #include <myos/kernel/process/exec.h>
 #include "../../scheduler/scheduler.h"
 #include "../../syscall/syscall.h"
