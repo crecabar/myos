@@ -8,7 +8,7 @@
  * @brief Per-process descriptor-level file operations implementation.
  */
 
-#include "file.h"
+#include <myos/kernel/process/file.h>
 
 #include <myos/kernel/process/fd_table.h>
 #include "path.h"

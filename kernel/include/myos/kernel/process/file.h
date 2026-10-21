@@ -12,8 +12,8 @@
  * part of the published userspace syscall ABI.
  */
 
-#ifndef MYOS_PROCESS_FILE_H
-#define MYOS_PROCESS_FILE_H
+#ifndef MYOS_KERNEL_PROCESS_FILE_H
+#define MYOS_KERNEL_PROCESS_FILE_H
 
 #include <myos/kernel/process/instance.h>
 

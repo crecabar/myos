@@ -14,7 +14,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/process/fd_table.h>
-#include "../process/file.h"
+#include <myos/kernel/process/file.h>
 #include "../process/lifecycle.h"
 #include "../process/namespace.h"
 #include "../scheduler/scheduler.h"

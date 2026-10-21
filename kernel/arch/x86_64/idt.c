@@ -11,7 +11,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/process/exec.h>
-#include "../../process/file.h"
+#include <myos/kernel/process/file.h>
 #include "../../process/fork.h"
 #include <myos/kernel/process/process.h>
 #include "../../process/wait.h"

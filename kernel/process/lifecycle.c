@@ -12,7 +12,7 @@
 
 #include "cwd.h"
 #include <myos/kernel/process/fd_table.h>
-#include "file.h"
+#include <myos/kernel/process/file.h>
 #include "namespace.h"
 #include "wait.h"
 
