@@ -20,7 +20,7 @@
 #ifndef MYOS_PROCESS_INSTANCE_H
 #define MYOS_PROCESS_INSTANCE_H
 
-#include "fd_table.h"
+#include <myos/kernel/process/fd_table.h>
 #include <myos/kernel/process/image.h>
 #include <myos/kernel/process/process.h>
 #include <myos/kernel/elf/elf64.h>

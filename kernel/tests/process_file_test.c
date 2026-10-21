@@ -13,7 +13,7 @@
 #include <myos/kernel/arch/x86_64/interrupts.h>
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
-#include "../process/fd_table.h"
+#include <myos/kernel/process/fd_table.h>
 #include "../process/file.h"
 #include "../process/lifecycle.h"
 #include "../process/namespace.h"

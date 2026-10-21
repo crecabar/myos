@@ -14,7 +14,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include "../../process/create.h"
 #include "../../process/executable.h"
-#include "../../process/fd_table.h"
+#include <myos/kernel/process/fd_table.h>
 #include "../../process/instance.h"
 #include "../../process/path.h"
 #include <myos/kernel/process/process.h>

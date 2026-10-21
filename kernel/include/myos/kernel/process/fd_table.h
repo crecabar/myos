@@ -16,13 +16,13 @@
  * Descriptor allocation always chooses the lowest available descriptor.
  */
 
-#ifndef MYOS_PROCESS_FD_TABLE_H
-#define MYOS_PROCESS_FD_TABLE_H
-
-#include <myos/kernel/vfs/vfs.h>
+#ifndef MYOS_KERNEL_PROCESS_FD_TABLE_H
+#define MYOS_KERNEL_PROCESS_FD_TABLE_H
 
 #include <stdbool.h>
 #include <stddef.h>
+
+struct vfs_file;
 
 #define PROCESS_FD_TABLE_CAPACITY 32U
 

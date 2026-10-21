@@ -20,7 +20,7 @@
 #include "../process/create.h"
 #include "../process/cwd.h"
 #include "../process/exec.h"
-#include "../process/fd_table.h"
+#include <myos/kernel/process/fd_table.h>
 #include "../process/fork.h"
 #include <myos/kernel/process/image.h>
 #include "../process/instance.h"

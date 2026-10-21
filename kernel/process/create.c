@@ -11,7 +11,7 @@
 #include "create.h"
 
 #include "cwd.h"
-#include "fd_table.h"
+#include <myos/kernel/process/fd_table.h>
 #include "file.h"
 #include "namespace.h"
 #include "pid.h"
