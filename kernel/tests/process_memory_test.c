@@ -15,7 +15,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/memory.h>
 #include "../process/layout.h"
-#include "../process/memory.h"
+#include <myos/kernel/process/memory.h>
 
 #include <stddef.h>
 #include <stdint.h>

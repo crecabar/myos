@@ -21,7 +21,7 @@
 
 #include <myos/kernel/elf/elf64.h>
 #include "layout.h"
-#include "memory.h"
+#include <myos/kernel/process/memory.h>
 
 #include <stdbool.h>
 #include <stddef.h>

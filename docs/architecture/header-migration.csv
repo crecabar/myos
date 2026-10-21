@@ -88,7 +88,7 @@ kernel/process/image.h,kernel/include/myos/kernel/process/image.h,kernel-shared,
 kernel/process/instance.h,kernel/include/myos/kernel/process/instance.h,kernel-shared,9,proposed
 kernel/process/layout.h,kernel/include/myos/kernel/process/layout.h,kernel-shared,5,proposed
 kernel/process/lifecycle.h,kernel/include/myos/kernel/process/lifecycle.h,kernel-shared,3,proposed
-kernel/process/memory.h,kernel/include/myos/kernel/process/memory.h,kernel-shared,8,proposed
+kernel/process/memory.h,kernel/include/myos/kernel/process/memory.h,kernel-shared,8,verified
 kernel/process/namespace.h,kernel/include/myos/kernel/process/namespace.h,kernel-shared,8,proposed
 kernel/process/path.h,kernel/include/myos/kernel/process/path.h,kernel-shared,3,proposed
 kernel/process/pid.h,kernel/include/myos/kernel/process/pid.h,kernel-shared,2,proposed

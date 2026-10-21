@@ -15,7 +15,7 @@
 #define MYOS_PROCESS_LAYOUT_H
 
 #include <myos/kernel/elf/elf64_loader.h>
-#include "memory.h"
+#include <myos/kernel/process/memory.h>
 #include "stack.h"
 
 #include <stdbool.h>

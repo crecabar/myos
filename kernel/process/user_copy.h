@@ -19,7 +19,7 @@
 #ifndef MYOS_PROCESS_USER_COPY_H
 #define MYOS_PROCESS_USER_COPY_H
 
-#include "memory.h"
+#include <myos/kernel/process/memory.h>
 
 #include <stdbool.h>
 #include <stddef.h>

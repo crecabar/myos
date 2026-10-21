@@ -20,7 +20,7 @@
 #include <myos/kernel/memory/kernel_mapping.h>
 #include <myos/kernel/memory/memory.h>
 #include "../process/layout.h"
-#include "../process/memory.h"
+#include <myos/kernel/process/memory.h>
 #include "../process/stack.h"
 
 #include <stddef.h>

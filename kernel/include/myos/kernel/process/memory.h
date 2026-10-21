@@ -13,8 +13,8 @@
  * space.
  */
 
-#ifndef MYOS_PROCESS_MEMORY_H
-#define MYOS_PROCESS_MEMORY_H
+#ifndef MYOS_KERNEL_PROCESS_MEMORY_H
+#define MYOS_KERNEL_PROCESS_MEMORY_H
 
 #include <myos/kernel/arch/x86_64/paging.h>
 

@@ -12,7 +12,7 @@
 #define MYOS_TESTS_USER_PROCESSES_FIXTURE_H
 
 #include "../../process/layout.h"
-#include "../../process/memory.h"
+#include <myos/kernel/process/memory.h>
 #include "../../process/process.h"
 
 #include <stdint.h>
