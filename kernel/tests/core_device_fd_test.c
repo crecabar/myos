@@ -19,7 +19,7 @@
 #include "../process/fd_table.h"
 #include "../process/file.h"
 #include "../process/namespace.h"
-#include "../vfs/root.h"
+#include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>

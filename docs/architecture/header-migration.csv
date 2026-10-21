@@ -183,5 +183,5 @@ kernel/version.h,kernel/include/myos/kernel/version.h,kernel-shared,2,verified
 kernel/vfs/character_device.h,kernel/include/myos/kernel/vfs/character_device.h,kernel-shared,2,proposed
 kernel/vfs/mount.h,kernel/include/myos/kernel/vfs/mount.h,kernel-shared,10,verified
 kernel/vfs/path.h,kernel/include/myos/kernel/vfs/path.h,kernel-shared,8,verified
-kernel/vfs/root.h,kernel/include/myos/kernel/vfs/root.h,kernel-shared,11,proposed
+kernel/vfs/root.h,kernel/include/myos/kernel/vfs/root.h,kernel-shared,11,verified
 kernel/vfs/vfs.h,kernel/include/myos/kernel/vfs/vfs.h,kernel-shared,37,verified

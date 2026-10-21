@@ -15,7 +15,7 @@
 #include <myos/kernel/elf/elf64.h>
 #include "../process/executable.h"
 #include "../process/namespace.h"
-#include "../vfs/root.h"
+#include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>

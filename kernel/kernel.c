@@ -42,7 +42,8 @@
 #include "process/pid.h"
 #include "scheduler/scheduler.h"
 #include <myos/kernel/vfs/mount.h>
-#include "vfs/root.h"
+#include <myos/kernel/vfs/root.h>
+#include <myos/kernel/vfs/vfs.h>
 
 #if MYOS_RUNTIME_DIAGNOSTICS
 #include "tests/runtime_diagnostics.h"

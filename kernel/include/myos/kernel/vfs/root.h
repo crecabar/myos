@@ -11,12 +11,12 @@
  * will be derived. Filesystem-specific mounting remains outside this module.
  */
 
-#ifndef MYOS_VFS_ROOT_H
-#define MYOS_VFS_ROOT_H
-
-#include <myos/kernel/vfs/vfs.h>
+#ifndef MYOS_KERNEL_VFS_ROOT_H
+#define MYOS_KERNEL_VFS_ROOT_H
 
 #include <stdbool.h>
+
+struct vfs_node;
 
 /**
  * Installs the initial system VFS root.

@@ -19,7 +19,7 @@
 #include "../../process/path.h"
 #include "../../process/process.h"
 #include "../../scheduler/scheduler.h"
-#include "../../vfs/root.h"
+#include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
