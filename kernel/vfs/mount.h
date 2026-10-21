@@ -26,7 +26,7 @@
 #ifndef MYOS_VFS_MOUNT_H
 #define MYOS_VFS_MOUNT_H
 
-#include "vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

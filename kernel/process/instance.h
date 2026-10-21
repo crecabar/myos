@@ -24,7 +24,7 @@
 #include "image.h"
 #include "process.h"
 #include <myos/kernel/elf/elf64.h>
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

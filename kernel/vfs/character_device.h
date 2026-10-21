@@ -18,7 +18,7 @@
 #ifndef MYOS_VFS_CHARACTER_DEVICE_H
 #define MYOS_VFS_CHARACTER_DEVICE_H
 
-#include "vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <myos/kernel/core/device/character_device.h>
 

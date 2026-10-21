@@ -15,7 +15,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/heap.h>
 #include <myos/kernel/runtime/memory.h>
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -14,7 +14,7 @@
 #ifndef MYOS_VFS_ROOT_H
 #define MYOS_VFS_ROOT_H
 
-#include "vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 

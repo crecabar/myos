@@ -33,7 +33,7 @@
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"
 #include "../vfs/mount.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 #include <stdint.h>

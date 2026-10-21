@@ -16,7 +16,7 @@
 #include "../process/executable.h"
 #include "../process/namespace.h"
 #include "../vfs/root.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 #include <stdint.h>

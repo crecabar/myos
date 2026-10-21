@@ -20,7 +20,7 @@
 #include "../process/file.h"
 #include "../process/namespace.h"
 #include "../vfs/root.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

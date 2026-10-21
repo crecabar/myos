@@ -13,7 +13,7 @@
 
 #include "instance.h"
 
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 

@@ -16,7 +16,7 @@
 #include "../process/executable.h"
 #include "../scheduler/scheduler.h"
 #include "../vfs/mount.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

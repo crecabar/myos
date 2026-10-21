@@ -14,7 +14,7 @@
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/heap.h>
 #include "../vfs/character_device.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 

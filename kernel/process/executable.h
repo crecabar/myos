@@ -13,7 +13,7 @@
 
 #include <myos/kernel/elf/elf64.h>
 #include "../vfs/mount.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include "instance.h"
 

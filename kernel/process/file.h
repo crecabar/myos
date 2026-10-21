@@ -17,7 +17,7 @@
 
 #include "instance.h"
 
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -16,7 +16,7 @@
 #include "../vfs/mount.h"
 #include "../vfs/path.h"
 #include "../vfs/root.h"
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stddef.h>
 #include <stdint.h>

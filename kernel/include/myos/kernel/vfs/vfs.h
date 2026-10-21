@@ -25,8 +25,8 @@
  * before concurrent VFS access is introduced.
  */
 
-#ifndef MYOS_VFS_VFS_H
-#define MYOS_VFS_VFS_H
+#ifndef MYOS_KERNEL_VFS_VFS_H
+#define MYOS_KERNEL_VFS_VFS_H
 
 #include <myos/kernel/core/wait_queue.h>
 

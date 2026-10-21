@@ -19,7 +19,7 @@
 #ifndef MYOS_PROCESS_FD_TABLE_H
 #define MYOS_PROCESS_FD_TABLE_H
 
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -15,7 +15,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/drivers/pseudo.h>
 #include <myos/kernel/fs/devfs.h>
-#include "../vfs/vfs.h"
+#include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>
 #include <stddef.h>
