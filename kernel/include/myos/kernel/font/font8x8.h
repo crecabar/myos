@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_FONT_FONT8X8_H
-#define MYOS_FONT_FONT8X8_H
+#ifndef MYOS_KERNEL_FONT_FONT8X8_H
+#define MYOS_KERNEL_FONT_FONT8X8_H
 
 #include <stdint.h>
 

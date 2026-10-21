@@ -8,8 +8,8 @@
 #include <stdarg.h>
 
 #include <myos/kernel/drivers/framebuffer.h>
-#include "../font/font8x8.h"
-#include "../format/format.h"
+#include <myos/kernel/font/font8x8.h>
+#include <myos/kernel/format/format.h>
 #include "console.h"
 
 #define FONT_WIDTH 8

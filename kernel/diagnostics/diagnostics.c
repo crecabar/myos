@@ -8,7 +8,7 @@
 
 #include <myos/kernel/arch/x86_64/serial.h>
 #include "../console/console.h"
-#include "../format/format.h"
+#include <myos/kernel/format/format.h>
 #include "diagnostics.h"
 
 static struct console *diagnostics_console = NULL;

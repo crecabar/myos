@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "format.h"
+#include <myos/kernel/format/format.h>
 
 static void format_write_string(
     format_putc_fn putc,

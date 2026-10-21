@@ -61,8 +61,8 @@ kernel/elf/elf64_loader.h,kernel/include/myos/kernel/elf/elf64_loader.h,kernel-s
 kernel/firmware/acpi.h,kernel/include/myos/kernel/firmware/acpi.h,kernel-shared,3,proposed
 kernel/firmware/acpi_discovery.h,kernel/include/myos/kernel/firmware/acpi_discovery.h,kernel-shared,2,proposed
 kernel/firmware/smbios.h,kernel/include/myos/kernel/firmware/smbios.h,kernel-shared,1,proposed
-kernel/font/font8x8.h,kernel/include/myos/kernel/font/font8x8.h,kernel-shared,1,proposed
-kernel/format/format.h,kernel/include/myos/kernel/format/format.h,kernel-shared,2,proposed
+kernel/font/font8x8.h,kernel/include/myos/kernel/font/font8x8.h,kernel-shared,1,verified
+kernel/format/format.h,kernel/include/myos/kernel/format/format.h,kernel-shared,2,verified
 kernel/fs/devfs.h,kernel/include/myos/kernel/fs/devfs.h,kernel-shared,2,proposed
 kernel/fs/initramfs.h,kernel/include/myos/kernel/fs/initramfs.h,kernel-shared,2,proposed
 kernel/fs/initramfs_format.h,kernel/include/myos/kernel/fs/initramfs_format.h,kernel-shared,1,proposed

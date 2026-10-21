@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "font8x8.h"
+#include <myos/kernel/font/font8x8.h>
 
 #define FONT8X8_FIRST 0x20
 #define FONT8X8_LAST  0x7E
