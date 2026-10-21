@@ -8,13 +8,15 @@
  * @brief Initial userspace bootstrap implementation.
  */
 
-#include "userspace.h"
+#include <myos/kernel/init/userspace.h>
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include "../process/create.h"
 #include "../process/executable.h"
 #include "../scheduler/scheduler.h"
+#include "../vfs/mount.h"
+#include "../vfs/vfs.h"
 
 #include <stdbool.h>
 #include <stddef.h>

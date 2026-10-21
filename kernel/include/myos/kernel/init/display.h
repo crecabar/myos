@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#ifndef MYOS_INIT_DISPLAY_H
-#define MYOS_INIT_DISPLAY_H
+#ifndef MYOS_KERNEL_INIT_DISPLAY_H
+#define MYOS_KERNEL_INIT_DISPLAY_H
 
 #include <myos/kernel/console/console.h>
 #include <myos/kernel/drivers/framebuffer.h>

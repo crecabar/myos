@@ -29,9 +29,9 @@
 #include <myos/kernel/drivers/pseudo.h>
 #include <myos/kernel/fs/devfs.h>
 #include <myos/kernel/fs/initramfs.h>
-#include "init/boot_banner.h"
-#include "init/display.h"
-#include "init/userspace.h"
+#include <myos/kernel/init/boot_banner.h>
+#include <myos/kernel/init/display.h>
+#include <myos/kernel/init/userspace.h>
 #include <myos/kernel/input/input.h>
 #include <myos/kernel/memory/boot_paging.h>
 #include <myos/kernel/memory/device_mapping.h>

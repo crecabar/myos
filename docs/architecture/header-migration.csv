@@ -66,9 +66,9 @@ kernel/format/format.h,kernel/include/myos/kernel/format/format.h,kernel-shared,
 kernel/fs/devfs.h,kernel/include/myos/kernel/fs/devfs.h,kernel-shared,2,verified
 kernel/fs/initramfs.h,kernel/include/myos/kernel/fs/initramfs.h,kernel-shared,2,verified
 kernel/fs/initramfs_format.h,kernel/include/myos/kernel/fs/initramfs_format.h,kernel-shared,1,verified
-kernel/init/boot_banner.h,kernel/include/myos/kernel/init/boot_banner.h,kernel-shared,1,proposed
-kernel/init/display.h,kernel/include/myos/kernel/init/display.h,kernel-shared,1,proposed
-kernel/init/userspace.h,kernel/include/myos/kernel/init/userspace.h,kernel-shared,1,proposed
+kernel/init/boot_banner.h,kernel/include/myos/kernel/init/boot_banner.h,kernel-shared,1,verified
+kernel/init/display.h,kernel/include/myos/kernel/init/display.h,kernel-shared,1,verified
+kernel/init/userspace.h,kernel/include/myos/kernel/init/userspace.h,kernel-shared,1,verified
 kernel/input/input.h,kernel/include/myos/kernel/input/input.h,kernel-shared,13,verified
 kernel/input/keyboard_text.h,kernel/include/myos/kernel/input/keyboard_text.h,kernel-shared,2,verified
 kernel/memory/boot_paging.h,kernel/include/myos/kernel/memory/boot_paging.h,kernel-shared,3,verified

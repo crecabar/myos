@@ -8,8 +8,8 @@
  * @brief MyOS startup identity banner.
  */
 
-#ifndef MYOS_INIT_BOOT_BANNER_H
-#define MYOS_INIT_BOOT_BANNER_H
+#ifndef MYOS_KERNEL_INIT_BOOT_BANNER_H
+#define MYOS_KERNEL_INIT_BOOT_BANNER_H
 
 #include <myos/kernel/arch/x86_64/cpu.h>
 #include <myos/kernel/firmware/smbios.h>

@@ -8,13 +8,13 @@
  * @brief Initial userspace bootstrap.
  */
 
-#ifndef MYOS_INIT_USERSPACE_H
-#define MYOS_INIT_USERSPACE_H
-
-#include "../vfs/mount.h"
-#include "../vfs/vfs.h"
+#ifndef MYOS_KERNEL_INIT_USERSPACE_H
+#define MYOS_KERNEL_INIT_USERSPACE_H
 
 #include <stdbool.h>
+
+struct vfs_mount_table;
+struct vfs_node;
 
 /**
  * Creates and publishes the initial userspace /init process.

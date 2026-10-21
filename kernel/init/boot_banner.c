@@ -8,7 +8,7 @@
  * @brief MyOS startup identity banner.
  */
 
-#include "boot_banner.h"
+#include <myos/kernel/init/boot_banner.h>
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/diagnostics/diagnostics.h>
