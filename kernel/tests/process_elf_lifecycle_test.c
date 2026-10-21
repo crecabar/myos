@@ -28,7 +28,7 @@
 #include "../process/lifecycle.h"
 #include <myos/kernel/process/namespace.h>
 #include <myos/kernel/process/memory.h>
-#include "../process/pid.h"
+#include <myos/kernel/process/pid.h>
 #include <myos/kernel/process/process.h>
 #include "../process/wait.h"
 #include "../scheduler/scheduler.h"

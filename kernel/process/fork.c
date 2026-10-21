@@ -10,7 +10,7 @@
 
 #include "fork.h"
 
-#include "pid.h"
+#include <myos/kernel/process/pid.h>
 
 #include <myos/kernel/core/panic.h>
 #include <myos/kernel/memory/heap.h>

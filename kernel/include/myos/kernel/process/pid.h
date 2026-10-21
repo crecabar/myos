@@ -8,8 +8,8 @@
  * @brief Minimal process identifier allocation.
  */
 
-#ifndef MYOS_PROCESS_PID_H
-#define MYOS_PROCESS_PID_H
+#ifndef MYOS_KERNEL_PROCESS_PID_H
+#define MYOS_KERNEL_PROCESS_PID_H
 
 #include <stdbool.h>
 #include <stdint.h>
