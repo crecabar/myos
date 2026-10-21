@@ -16,7 +16,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/process/process.h>
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stdbool.h>
 #include <stdint.h>

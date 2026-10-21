@@ -19,7 +19,7 @@
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/process/create.h>
 #include <myos/kernel/process/exec.h>
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 #include "../../syscall/syscall.h"
 
 #include <stddef.h>

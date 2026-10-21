@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Cristian Recabarren
  */
 
-#include "scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <myos/kernel/arch/x86_64/paging.h>
 #include <myos/kernel/arch/x86_64/usermode.h>

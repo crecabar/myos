@@ -14,7 +14,7 @@
 #include <myos/kernel/process/path.h>
 
 #include <myos/kernel/core/panic.h>
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 

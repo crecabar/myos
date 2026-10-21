@@ -27,8 +27,8 @@
  * the CPU, the scheduler rechecks the READY set before sleeping again.
  */
 
-#ifndef MYOS_SCHEDULER_SCHEDULER_H
-#define MYOS_SCHEDULER_SCHEDULER_H
+#ifndef MYOS_KERNEL_SCHEDULER_SCHEDULER_H
+#define MYOS_KERNEL_SCHEDULER_SCHEDULER_H
 
 #include <myos/kernel/process/process.h>
 #include <myos/kernel/arch/x86_64/interrupts.h>

@@ -17,7 +17,7 @@
 #include <myos/kernel/process/file.h>
 #include <myos/kernel/process/lifecycle.h>
 #include <myos/kernel/process/namespace.h>
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 #include <myos/kernel/vfs/vfs.h>
 
 #include <stdbool.h>

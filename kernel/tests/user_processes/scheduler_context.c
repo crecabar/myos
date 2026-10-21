@@ -19,7 +19,7 @@
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/process/create.h>
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 #include <stdint.h>

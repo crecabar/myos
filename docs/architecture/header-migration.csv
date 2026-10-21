@@ -97,7 +97,7 @@ kernel/process/stack.h,kernel/include/myos/kernel/process/stack.h,kernel-shared,
 kernel/process/user_copy.h,kernel/include/myos/kernel/process/user_copy.h,kernel-shared,2,verified
 kernel/process/wait.h,kernel/include/myos/kernel/process/wait.h,kernel-shared,3,verified
 kernel/runtime/memory.h,kernel/include/myos/kernel/runtime/memory.h,kernel-shared,5,verified
-kernel/scheduler/scheduler.h,kernel/include/myos/kernel/scheduler/scheduler.h,kernel-shared,27,proposed
+kernel/scheduler/scheduler.h,kernel/include/myos/kernel/scheduler/scheduler.h,kernel-shared,27,verified
 kernel/syscall/syscall.h,kernel/include/myos/kernel/syscall/syscall.h,kernel-shared,3,proposed
 kernel/syscall/test_numbers.h,kernel/include/myos/kernel/syscall/test_numbers.h,kernel-shared,2,proposed
 kernel/tests/acpi_test.h,kernel/tests/include/myos/kernel/tests/acpi_test.h,test-entry,1,proposed

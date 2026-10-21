@@ -18,7 +18,7 @@
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/process/create.h>
 #include <myos/kernel/process/process.h>
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stdbool.h>
 #include <stddef.h>

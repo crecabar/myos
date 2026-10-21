@@ -17,7 +17,7 @@
 #include <myos/kernel/process/path.h>
 #include <myos/kernel/process/user_copy.h>
 #include <myos/kernel/process/wait.h>
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 #include <myos/kernel/vfs/path.h>
 
 #include <stddef.h>

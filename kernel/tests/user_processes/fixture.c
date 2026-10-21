@@ -12,7 +12,7 @@
 
 #include "../../arch/x86_64/tests/user_programs.h"
 #include <myos/kernel/core/panic.h>
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 
 // Public functions implementations
 void user_process_fixture_prepare(

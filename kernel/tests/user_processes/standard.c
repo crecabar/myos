@@ -17,7 +17,7 @@
 #include <myos/kernel/diagnostics/diagnostics.h>
 #include <myos/kernel/elf/elf64.h>
 #include <myos/kernel/process/create.h>
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 
 #if MYOS_QEMU_TEST_EXIT
 #include <myos/kernel/arch/x86_64/qemu_test_exit.h>

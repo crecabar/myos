@@ -40,7 +40,7 @@
 #include <myos/kernel/memory/kernel_mapping.h>
 #include <myos/kernel/memory/memory.h>
 #include <myos/kernel/process/pid.h>
-#include "scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 #include <myos/kernel/vfs/mount.h>
 #include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>

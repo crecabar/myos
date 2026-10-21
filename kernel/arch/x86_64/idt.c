@@ -15,7 +15,7 @@
 #include <myos/kernel/process/fork.h>
 #include <myos/kernel/process/process.h>
 #include <myos/kernel/process/wait.h>
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 #include "../../syscall/syscall.h"
 #if MYOS_KERNEL_TESTS
 #include "../../tests/user_processes/exec.h"

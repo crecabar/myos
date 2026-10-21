@@ -23,7 +23,7 @@
 #include <myos/kernel/process/layout.h>
 #include <myos/kernel/process/memory.h>
 #include <myos/kernel/process/process.h>
-#include "../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 
 #include <stddef.h>
 #include <stdint.h>

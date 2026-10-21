@@ -18,7 +18,7 @@
 #include <myos/kernel/process/instance.h>
 #include <myos/kernel/process/path.h>
 #include <myos/kernel/process/process.h>
-#include "../../scheduler/scheduler.h"
+#include <myos/kernel/scheduler/scheduler.h>
 #include <myos/kernel/vfs/root.h>
 #include <myos/kernel/vfs/vfs.h>
 
